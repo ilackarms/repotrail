@@ -121,7 +121,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   private async render(): Promise<void> {
     if (!this.view) return;
     const snap = this.controller.snapshot();
-    const provider = vscode.workspace.getConfiguration("codeAtlas").get<string>("tts.provider", "kokoro");
+    const provider = vscode.workspace.getConfiguration("codeAtlas").get<string>("tts.provider", "system");
     const tours = snap.plan ? [] : await this.loadTours();
     this.view.webview.html = this.html(snap, provider, tours);
   }
@@ -266,7 +266,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     // live SpeechSynthesis queue or <audio> element without a host round-trip.
     const btn = document.getElementById("playPause");
     let audioEl = null;
-    let kokoroPromise = null;
     let speakToken = 0;
     let mode = null;     // 'synth' | 'audio'
     let state = "idle";  // idle | preparing | playing | paused
@@ -353,16 +352,66 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       });
     }
 
-    function loadKokoro() {
-      if (!kokoroPromise) {
-        kokoroPromise = import("https://esm.sh/kokoro-js@1")
-          .then((mod) => mod.KokoroTTS.from_pretrained(
-            "onnx-community/Kokoro-82M-v1.0-ONNX",
-            { dtype: "q8", device: "wasm" },
-          ))
-          .catch((e) => { kokoroPromise = null; throw e; });
-      }
-      return kokoroPromise;
+    // Kokoro runs in a Web Worker — the WASM inference is CPU-heavy and would
+    // freeze the renderer if run on the main thread (it did). The worker lazily
+    // imports kokoro-js, caches the model, and returns WAV bytes per sentence.
+    // A crash, CSP block, or stall rejects the request so we degrade to the
+    // system voice instead of hanging.
+    let kokoroWorker = null;
+    let kokoroReqId = 0;
+    const kokoroPending = new Map();
+
+    function getKokoroWorker() {
+      if (kokoroWorker) return kokoroWorker;
+      const workerSrc = [
+        'import { KokoroTTS } from "https://esm.sh/kokoro-js@1";',
+        'let modelP = null;',
+        'self.onmessage = async (e) => {',
+        '  const m = e.data;',
+        '  if (!m || m.type !== "generate") return;',
+        '  try {',
+        '    if (!modelP) modelP = KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", { dtype: "q8", device: "wasm" });',
+        '    const tts = await modelP;',
+        '    const audio = await tts.generate(m.text, { voice: m.voice || "af_heart" });',
+        '    const wav = audio.toWav();',
+        '    self.postMessage({ type: "audio", id: m.id, wav: wav }, [wav]);',
+        '  } catch (err) {',
+        '    self.postMessage({ type: "error", id: m.id, message: String((err && err.message) || err) });',
+        '  }',
+        '};',
+      ].join("\\n");
+      const url = URL.createObjectURL(new Blob([workerSrc], { type: "text/javascript" }));
+      kokoroWorker = new Worker(url, { type: "module" });
+      kokoroWorker.onmessage = (e) => {
+        const m = e.data; if (!m) return;
+        const p = kokoroPending.get(m.id); if (!p) return;
+        kokoroPending.delete(m.id);
+        if (m.type === "audio") p.resolve(m.wav); else p.reject(new Error(m.message || "kokoro error"));
+      };
+      kokoroWorker.onerror = (err) => {
+        console.error("[code-atlas tts] kokoro worker crashed", err);
+        for (const p of kokoroPending.values()) p.reject(new Error("kokoro worker error"));
+        kokoroPending.clear();
+        try { kokoroWorker.terminate(); } catch (e) {}
+        kokoroWorker = null;
+      };
+      return kokoroWorker;
+    }
+
+    function kokoroGenerate(text, voice) {
+      return new Promise((resolve, reject) => {
+        const id = ++kokoroReqId;
+        const w = getKokoroWorker();
+        // Generous timeout — the first call also downloads the ~80MB model.
+        const timer = setTimeout(() => {
+          if (kokoroPending.has(id)) { kokoroPending.delete(id); reject(new Error("kokoro timed out")); }
+        }, 90000);
+        kokoroPending.set(id, {
+          resolve: (wav) => { clearTimeout(timer); resolve(wav); },
+          reject: (e) => { clearTimeout(timer); reject(e); },
+        });
+        w.postMessage({ type: "generate", id: id, text: text, voice: voice });
+      });
     }
 
     function splitSentences(text) {
@@ -371,27 +420,19 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     }
 
     async function speakKokoro(text, voice, token) {
-      let tts;
-      try {
-        tts = await loadKokoro();
-      } catch (e) {
-        console.error("[code-atlas tts] kokoro unavailable, using system voice", e);
-        if (token === speakToken) speakSystem(text, token);
-        return;
-      }
-      if (token !== speakToken) return; // cancelled while the model loaded
-      for (const chunk of splitSentences(text)) {
+      const chunks = splitSentences(text);
+      for (let i = 0; i < chunks.length; i++) {
         if (token !== speakToken) return;
-        let audio;
+        let wav;
         try {
-          audio = await tts.generate(chunk, { voice: voice || "af_heart" });
+          wav = await kokoroGenerate(chunks[i], voice);
         } catch (e) {
-          console.error("[code-atlas tts] kokoro generate failed, using system voice", e);
-          if (token === speakToken) speakSystem(chunk, token);
-          continue;
+          console.error("[code-atlas tts] kokoro unavailable, using system voice", e);
+          if (token === speakToken) speakSystem(chunks.slice(i).join(" "), token);
+          return;
         }
         if (token !== speakToken) return;
-        await playBlob(audio.toBlob(), token);
+        await playBlob(new Blob([wav], { type: "audio/wav" }), token);
       }
       if (token === speakToken) setState("idle");
     }

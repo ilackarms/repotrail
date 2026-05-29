@@ -55,7 +55,7 @@ export class TourCodeLensProvider implements vscode.CodeLensProvider {
 }
 
 function ttsLensLabel(): string {
-  const provider = vscode.workspace.getConfiguration("codeAtlas").get<string>("tts.provider", "kokoro");
+  const provider = vscode.workspace.getConfiguration("codeAtlas").get<string>("tts.provider", "system");
   if (provider === "off") return "$(unmute) TTS";
   return `$(megaphone) TTS: ${provider}`;
 }

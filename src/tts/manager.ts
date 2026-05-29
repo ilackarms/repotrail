@@ -242,8 +242,8 @@ export class TtsManager implements vscode.Disposable {
 }
 
 export function currentProvider(): TtsProvider {
-  const raw = vscode.workspace.getConfiguration("codeAtlas").get<string>("tts.provider", "kokoro");
-  return (ALL_PROVIDERS as string[]).includes(raw) ? (raw as TtsProvider) : "kokoro";
+  const raw = vscode.workspace.getConfiguration("codeAtlas").get<string>("tts.provider", "system");
+  return (ALL_PROVIDERS as string[]).includes(raw) ? (raw as TtsProvider) : "system";
 }
 
 /**

@@ -2,7 +2,7 @@
   "name": "code-atlas",
   "displayName": "Code Atlas",
   "description": "AI-guided codebase walkthroughs. Interactive tours of repos, PRs, subsystems, and execution flows.",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "publisher": "code-atlas",
   "private": true,
   "engines": {
@@ -111,14 +111,14 @@
           "enum": ["off", "kokoro", "system", "say", "elevenlabs", "openai"],
           "enumDescriptions": [
             "No narration.",
-            "Local Kokoro-82M neural voice. Free, natural, runs in the sidebar via WASM (downloads a ~80MB model on first use, then works offline). Default.",
-            "Browser SpeechSynthesis using native OS voices. Free, works offline, but robotic.",
+            "Local Kokoro-82M neural voice (experimental). Free and natural; runs in a background Web Worker via WASM and downloads a ~80MB model on first use. Inference is CPU-heavy and slow on some machines — falls back to the system voice if it stalls.",
+            "Browser SpeechSynthesis using native OS voices. Free, instant, works offline. Robotic but reliable — the default.",
             "Shell out to a system command (macOS `say`; override via codeAtlas.tts.command on Linux).",
             "ElevenLabs Flash v2.5 — natural hosted voice with low latency. Requires codeAtlas.tts.elevenLabsApiKey.",
             "OpenAI gpt-4o-mini-tts — natural, tone-steerable hosted voice. Requires codeAtlas.tts.openAiApiKey."
           ],
-          "default": "kokoro",
-          "markdownDescription": "Which engine reads tour narration aloud. **kokoro** (default) is a free, natural neural voice that runs locally in the sidebar — it downloads a ~80MB model on first use, then works offline. **system**/**say** are free OS voices. **elevenlabs**/**openai** are hosted neural voices that need an API key."
+          "default": "system",
+          "markdownDescription": "Which engine reads tour narration aloud. **system** (default) uses free native OS voices — instant and reliable. **kokoro** is a free, natural neural voice that runs locally in a background worker, but model load/inference is CPU-heavy (experimental). **say** shells out to a command. **elevenlabs**/**openai** are hosted neural voices that need an API key."
         },
         "codeAtlas.tts.command": {
           "type": "string",

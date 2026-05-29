@@ -119,7 +119,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("codeAtlas.cycleTts", async () => {
       const cfg = vscode.workspace.getConfiguration("codeAtlas");
-      const cur = cfg.get<string>("tts.provider", "kokoro") as TtsProvider;
+      const cur = cfg.get<string>("tts.provider", "system") as TtsProvider;
       const order = availableProviders();
       const idx = order.indexOf(cur);
       const next = order[(idx + 1) % order.length] ?? "off";
