@@ -55,7 +55,9 @@ export function buildHoverMarkdown(step: {
     `[$(arrow-left) Back](command:codeAtlas.back) ` +
       `· [Next $(arrow-right)](command:codeAtlas.next) ` +
       `· [$(zoom-in) Deeper](command:codeAtlas.deeper) ` +
-      `· [$(stop-circle) Stop](command:codeAtlas.stop)`,
+      `· [$(stop-circle) Stop](command:codeAtlas.stop) ` +
+      `· [$(megaphone) Speak](command:codeAtlas.speakCurrent) ` +
+      `· [$(unmute) TTS](command:codeAtlas.cycleTts)`,
   );
   return md;
 }

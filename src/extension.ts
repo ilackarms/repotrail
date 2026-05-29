@@ -5,6 +5,7 @@ import { MockTourProvider } from "./engine/mockProvider";
 import { TourProvider } from "./engine/tourProvider";
 import { TourKind, TourRequest } from "./engine/types";
 import { CodeAtlasMcpServer } from "./mcp/server";
+import { TtsManager, TtsMode } from "./tts/manager";
 import { TourCodeLensProvider } from "./ux/codeLensProvider";
 import { setEditorLogger } from "./ux/editorActions";
 import { TourHoverProvider } from "./ux/hoverProvider";
@@ -45,6 +46,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(TourViewProvider.viewType, viewProvider),
   );
+
+  const tts = new TtsManager(controller, log);
+  viewProvider.registerSinkListener((sink) => tts.setWebviewSink(sink));
+  context.subscriptions.push(tts);
 
   const codeLensProvider = new TourCodeLensProvider(controller);
   context.subscriptions.push(
@@ -96,6 +101,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("codeAtlas.showHoverNarration", () => {
       vscode.commands.executeCommand("editor.action.showHover").then(undefined, () => {});
     }),
+    vscode.commands.registerCommand("codeAtlas.cycleTts", async () => {
+      const cfg = vscode.workspace.getConfiguration("codeAtlas");
+      const cur = cfg.get<string>("tts.mode", "off") as TtsMode;
+      const order: TtsMode[] = ["off", "webview", "say"];
+      const next = order[(order.indexOf(cur) + 1) % order.length] ?? "off";
+      await cfg.update("tts.mode", next, vscode.ConfigurationTarget.Global);
+      vscode.window.setStatusBarMessage(`Code Atlas TTS: ${next}`, 1500);
+      if (next !== "off") {
+        // Re-speak the current step so the user hears the mode change in action.
+        tts.speakCurrent();
+      } else {
+        tts.cancel();
+      }
+    }),
+    vscode.commands.registerCommand("codeAtlas.speakCurrent", () => tts.speakCurrent()),
+    vscode.commands.registerCommand("codeAtlas.stopTts", () => tts.cancel()),
   );
 
   await restartMcp(context, controller);

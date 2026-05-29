@@ -2,7 +2,7 @@
   "name": "code-atlas",
   "displayName": "Code Atlas",
   "description": "AI-guided codebase walkthroughs. Interactive tours of repos, PRs, subsystems, and execution flows.",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "publisher": "code-atlas",
   "private": true,
   "engines": {
@@ -37,6 +37,18 @@
       {
         "command": "codeAtlas.stop",
         "title": "Code Atlas: Stop Tour"
+      },
+      {
+        "command": "codeAtlas.cycleTts",
+        "title": "Code Atlas: Cycle TTS Mode"
+      },
+      {
+        "command": "codeAtlas.speakCurrent",
+        "title": "Code Atlas: Speak Current Step"
+      },
+      {
+        "command": "codeAtlas.stopTts",
+        "title": "Code Atlas: Stop Speech"
       }
     ],
     "viewsContainers": {
@@ -85,6 +97,17 @@
           "type": "number",
           "default": 16,
           "description": "Number of consecutive ports to probe starting at mcpPort before giving up."
+        },
+        "codeAtlas.tts.mode": {
+          "type": "string",
+          "enum": ["off", "webview", "say"],
+          "default": "off",
+          "description": "How to read narration aloud. 'webview' uses the sidebar webview's SpeechSynthesis (cross-platform, native OS voices). 'say' shells out to the macOS `say` command (override via codeAtlas.tts.command on Linux)."
+        },
+        "codeAtlas.tts.command": {
+          "type": "string",
+          "default": "say",
+          "description": "Command invoked when codeAtlas.tts.mode is 'say'. The narration text is passed as a single argv[1]. Use `espeak` or `spd-say` on Linux."
         }
       }
     }
