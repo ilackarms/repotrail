@@ -4,6 +4,7 @@ import { ClaudeTourProvider } from "./engine/claudeProvider";
 import { MockTourProvider } from "./engine/mockProvider";
 import { TourProvider } from "./engine/tourProvider";
 import { TourKind, TourRequest } from "./engine/types";
+import { CodeAtlasMcpServer } from "./mcp/server";
 import { TourController } from "./ux/tourController";
 import { TourViewProvider } from "./ux/webviewPanel";
 
@@ -15,14 +16,19 @@ const TOUR_KIND_PICKS: { label: string; value: TourKind; description: string }[]
   { label: "Bug investigation path", value: "bug-investigation", description: "Trace likely causes of a reported bug" },
 ];
 
-export function activate(context: vscode.ExtensionContext): void {
+let mcp: CodeAtlasMcpServer | null = null;
+let statusItem: vscode.StatusBarItem | null = null;
+
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const controller = new TourController(pickProvider());
 
-  // Re-pick provider when configuration changes (e.g. user adds API key).
   context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration((e) => {
+    vscode.workspace.onDidChangeConfiguration(async (e) => {
       if (e.affectsConfiguration("codeAtlas")) {
         controller.setProvider(pickProvider());
+        if (e.affectsConfiguration("codeAtlas.mcpEnabled") || e.affectsConfiguration("codeAtlas.mcpPort")) {
+          await restartMcp(context, controller);
+        }
       }
     }),
   );
@@ -31,6 +37,10 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(TourViewProvider.viewType, viewProvider),
   );
+
+  statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusItem.command = "codeAtlas.showMcpInfo";
+  context.subscriptions.push(statusItem);
 
   context.subscriptions.push(
     vscode.commands.registerCommand("codeAtlas.startTour", async () => {
@@ -64,19 +74,91 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("codeAtlas.back", () => controller.back()),
     vscode.commands.registerCommand("codeAtlas.deeper", () => controller.deeper()),
     vscode.commands.registerCommand("codeAtlas.stop", () => controller.stop()),
+    vscode.commands.registerCommand("codeAtlas.showMcpInfo", () => showMcpInfo()),
   );
+
+  await restartMcp(context, controller);
 }
 
-export function deactivate(): void {}
+export async function deactivate(): Promise<void> {
+  if (mcp) {
+    await mcp.stop().catch(() => {});
+    mcp = null;
+  }
+}
 
 function pickProvider(): TourProvider {
   const cfg = vscode.workspace.getConfiguration("codeAtlas");
   const apiKey = cfg.get<string>("anthropicApiKey") || process.env.ANTHROPIC_API_KEY || "";
   const model = cfg.get<string>("model") || "claude-opus-4-7";
   if (apiKey) {
-    // ClaudeTourProvider is currently a stub that throws. The controller
-    // surfaces the error; users can fall back by clearing the API key.
     return new ClaudeTourProvider(apiKey, model);
   }
   return new MockTourProvider();
+}
+
+async function restartMcp(context: vscode.ExtensionContext, controller: TourController): Promise<void> {
+  if (mcp) {
+    await mcp.stop().catch(() => {});
+    mcp = null;
+  }
+  const cfg = vscode.workspace.getConfiguration("codeAtlas");
+  if (!cfg.get<boolean>("mcpEnabled", true)) {
+    updateStatus("disabled");
+    return;
+  }
+  const port = cfg.get<number>("mcpPort", 7777);
+  const version = (context.extension.packageJSON as { version?: string }).version ?? "0.0.0";
+  const server = new CodeAtlasMcpServer(controller, version);
+  try {
+    const actual = await server.start(port);
+    mcp = server;
+    updateStatus("listening", actual);
+  } catch (err) {
+    updateStatus("error");
+    vscode.window.showErrorMessage(
+      `Code Atlas MCP server failed to start on port ${port}: ${err instanceof Error ? err.message : String(err)}. ` +
+        `Change "codeAtlas.mcpPort" in settings.`,
+    );
+  }
+}
+
+function updateStatus(state: "listening" | "disabled" | "error", port?: number): void {
+  if (!statusItem) return;
+  if (state === "listening" && port) {
+    statusItem.text = `$(map) Atlas :${port}`;
+    statusItem.tooltip = `Code Atlas MCP listening on http://127.0.0.1:${port}/mcp\nClick for connection details.`;
+  } else if (state === "disabled") {
+    statusItem.text = "$(map) Atlas off";
+    statusItem.tooltip = "Code Atlas MCP server is disabled (codeAtlas.mcpEnabled = false).";
+  } else {
+    statusItem.text = "$(warning) Atlas error";
+    statusItem.tooltip = "Code Atlas MCP server failed to start. Click for details.";
+  }
+  statusItem.show();
+}
+
+function showMcpInfo(): void {
+  const cfg = vscode.workspace.getConfiguration("codeAtlas");
+  const enabled = cfg.get<boolean>("mcpEnabled", true);
+  if (!enabled) {
+    vscode.window.showInformationMessage("Code Atlas MCP server is disabled. Enable in settings.");
+    return;
+  }
+  const port = mcp?.port ?? cfg.get<number>("mcpPort", 7777);
+  const url = `http://127.0.0.1:${port}/mcp`;
+  const cmd = `claude mcp add --transport http code-atlas ${url}`;
+  vscode.window
+    .showInformationMessage(
+      `Code Atlas MCP: ${url}`,
+      "Copy `claude mcp add` command",
+      "Copy URL",
+    )
+    .then((pick) => {
+      if (pick === "Copy `claude mcp add` command") {
+        vscode.env.clipboard.writeText(cmd);
+      } else if (pick === "Copy URL") {
+        vscode.env.clipboard.writeText(url);
+      }
+    });
 }
