@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { TourProvider } from "../engine/tourProvider";
 import { TourPlan, TourRequest, TourStep } from "../engine/types";
+import { newTourId, TourRecord } from "../storage/tourStore";
 import { clearHighlights, executeStep } from "./editorActions";
 
 export type UserAction = "next" | "back" | "deeper" | "stop";
@@ -17,10 +18,16 @@ export type UserAction = "next" | "back" | "deeper" | "stop";
  *     `appendStep` and waiting on `onUserAction`. next/back still navigate;
  *     when the agent wants to add more steps it calls appendStep.
  */
+export type PersistFn = (record: TourRecord | null) => void;
+
 export class TourController {
   private plan: TourPlan | null = null;
   private request: TourRequest | null = null;
   private index = 0;
+  private tourId: string | null = null;
+  private workspaceRoot: string | null = null;
+  private createdAt: number | null = null;
+  private persistFn: PersistFn | null = null;
   private readonly onChangeEmitter = new vscode.EventEmitter<void>();
   private readonly userActionEmitter = new vscode.EventEmitter<UserAction>();
   readonly onDidChange = this.onChangeEmitter.event;
@@ -32,12 +39,44 @@ export class TourController {
     this.provider = p;
   }
 
+  setPersistFn(fn: PersistFn): void {
+    this.persistFn = fn;
+  }
+
+  private resolveWorkspaceRoot(req?: TourRequest): string {
+    return (
+      req?.workspaceRoot ??
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
+      "_no_workspace"
+    );
+  }
+
+  private persist(): void {
+    if (!this.persistFn) return;
+    if (!this.plan || !this.tourId || !this.workspaceRoot || this.createdAt == null) {
+      this.persistFn(null);
+      return;
+    }
+    this.persistFn({
+      id: this.tourId,
+      workspaceRoot: this.workspaceRoot,
+      createdAt: this.createdAt,
+      updatedAt: Date.now(),
+      lastIndex: this.index,
+      plan: this.plan,
+    });
+  }
+
   /** Start a tour by asking the configured provider to generate the plan. */
   async start(req: TourRequest): Promise<void> {
     this.request = req;
     this.plan = await this.provider.generate(req);
     this.index = 0;
+    this.tourId = newTourId();
+    this.workspaceRoot = this.resolveWorkspaceRoot(req);
+    this.createdAt = Date.now();
     await this.applyCurrent();
+    this.persist();
     this.onChangeEmitter.fire();
   }
 
@@ -49,8 +88,33 @@ export class TourController {
     this.plan = plan;
     this.request = req ?? null;
     this.index = -1; // nothing applied yet; appendStep will set to 0
+    this.tourId = newTourId();
+    this.workspaceRoot = this.resolveWorkspaceRoot(req);
+    this.createdAt = Date.now();
     clearHighlights();
+    this.persist();
     this.onChangeEmitter.fire();
+  }
+
+  /** Load a previously-saved tour back into the controller. */
+  async resume(record: TourRecord): Promise<void> {
+    this.plan = record.plan;
+    this.tourId = record.id;
+    this.workspaceRoot = record.workspaceRoot;
+    this.createdAt = record.createdAt;
+    this.index = Math.max(0, Math.min(record.lastIndex, record.plan.steps.length - 1));
+    this.request = null;
+    await this.applyCurrent();
+    this.persist(); // bump updatedAt so resume bubbles to top of list
+    this.onChangeEmitter.fire();
+  }
+
+  get activeTourId(): string | null {
+    return this.tourId;
+  }
+
+  get activeWorkspaceRoot(): string | null {
+    return this.workspaceRoot;
   }
 
   /** Append a step (agent-driven) and immediately show it. Returns new index. */
@@ -66,6 +130,7 @@ export class TourController {
     this.plan.steps.push(step);
     this.index = this.plan.steps.length - 1;
     await this.applyCurrent();
+    this.persist();
     this.onChangeEmitter.fire();
     return this.index;
   }
@@ -82,6 +147,7 @@ export class TourController {
     const insertAt = Math.max(0, Math.min(at, this.plan.steps.length));
     this.plan.steps.splice(insertAt, 0, step);
     if (this.index >= insertAt) this.index++;
+    this.persist();
     this.onChangeEmitter.fire();
     return insertAt;
   }
@@ -92,6 +158,7 @@ export class TourController {
     if (at < 0 || at >= this.plan.steps.length) return;
     this.plan.steps[at] = step;
     if (this.index === at) await this.applyCurrent();
+    this.persist();
     this.onChangeEmitter.fire();
   }
 
@@ -108,6 +175,7 @@ export class TourController {
       this.index = Math.max(0, Math.min(this.index, this.plan.steps.length - 1));
       await this.applyCurrent();
     }
+    this.persist();
     this.onChangeEmitter.fire();
   }
 
@@ -116,6 +184,7 @@ export class TourController {
     if (this.index < this.plan.steps.length - 1) {
       this.index++;
       await this.applyCurrent();
+      this.persist();
       this.onChangeEmitter.fire();
     }
     this.userActionEmitter.fire("next");
@@ -126,6 +195,7 @@ export class TourController {
     if (this.index > 0) {
       this.index--;
       await this.applyCurrent();
+      this.persist();
       this.onChangeEmitter.fire();
     }
     this.userActionEmitter.fire("back");
@@ -154,13 +224,23 @@ export class TourController {
     if (index < 0 || index >= this.plan.steps.length) return;
     this.index = index;
     await this.applyCurrent();
+    this.persist();
     this.onChangeEmitter.fire();
   }
 
+  /**
+   * Clear the active tour from memory. The persisted record stays on disk so
+   * the user can resume from the sidebar list.
+   */
   stop(): void {
+    // Persist final state before tearing down in-memory references.
+    this.persist();
     this.plan = null;
     this.request = null;
     this.index = 0;
+    this.tourId = null;
+    this.workspaceRoot = null;
+    this.createdAt = null;
     clearHighlights();
     this.onChangeEmitter.fire();
     this.userActionEmitter.fire("stop");

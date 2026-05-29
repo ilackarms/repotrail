@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { TourSummary } from "../storage/tourStore";
 import { TourController } from "./tourController";
 
 type WebviewSink = (msg: { type: string; text?: string }) => void;
@@ -17,12 +18,24 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
 
   private view: vscode.WebviewView | undefined;
   private onSinkChange: ((sink: WebviewSink | null) => void) | null = null;
+  private tourListLoader: (() => Promise<TourSummary[]>) | null = null;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly controller: TourController,
   ) {
-    controller.onDidChange(() => this.render());
+    controller.onDidChange(() => void this.render());
+  }
+
+  /** Lets the extension supply a function that returns saved tours. */
+  setTourListLoader(fn: () => Promise<TourSummary[]>): void {
+    this.tourListLoader = fn;
+    void this.render();
+  }
+
+  /** Trigger a re-render (e.g. after a tour is deleted externally). */
+  refresh(): void {
+    void this.render();
   }
 
   /** Called by extension.ts to wire the TtsManager. */
@@ -74,21 +87,48 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         case "speakCurrent":
           await vscode.commands.executeCommand("codeAtlas.speakCurrent");
           break;
+        case "resumeTour":
+          if (typeof msg.id === "string") {
+            await vscode.commands.executeCommand("codeAtlas.resumeTour", msg.id);
+          }
+          break;
+        case "deleteTour":
+          if (typeof msg.id === "string") {
+            await vscode.commands.executeCommand("codeAtlas.deleteTour", msg.id);
+          }
+          break;
+        case "refreshTours":
+          await this.render();
+          break;
       }
     });
 
     this.onSinkChange?.((msg) => view.webview.postMessage(msg));
-    this.render();
+    void this.render();
   }
 
-  private render(): void {
+  private async render(): Promise<void> {
     if (!this.view) return;
     const snap = this.controller.snapshot();
     const mode = vscode.workspace.getConfiguration("codeAtlas").get<string>("tts.mode", "off");
-    this.view.webview.html = this.html(snap, mode);
+    const tours = snap.plan ? [] : await this.loadTours();
+    this.view.webview.html = this.html(snap, mode, tours);
   }
 
-  private html(snap: ReturnType<TourController["snapshot"]>, ttsMode: string): string {
+  private async loadTours(): Promise<TourSummary[]> {
+    if (!this.tourListLoader) return [];
+    try {
+      return await this.tourListLoader();
+    } catch {
+      return [];
+    }
+  }
+
+  private html(
+    snap: ReturnType<TourController["snapshot"]>,
+    ttsMode: string,
+    tours: TourSummary[],
+  ): string {
     const { plan, index, current } = snap;
     const total = plan?.steps.length ?? 0;
     const title = current?.title ?? "No active tour";
@@ -99,6 +139,34 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
     const ttsLabel = ttsMode === "off" ? "🔇 TTS off" : `🔊 TTS: ${escape(ttsMode)}`;
+
+    const tourList = (() => {
+      if (snap.plan || tours.length === 0) return "";
+      const rows = tours
+        .map((t) => {
+          const updated = new Date(t.updatedAt).toLocaleString(undefined, {
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          });
+          return `
+            <li class="tour-item">
+              <div class="tour-row">
+                <div class="tour-title" title="${escape(t.title)}">${escape(t.title || "(untitled)")}</div>
+                <div class="tour-meta">${escape(t.kind)} · ${t.stepCount} stops · step ${t.lastIndex + 1} · ${escape(updated)}</div>
+              </div>
+              <div class="tour-actions">
+                <button class="resume" data-id="${escape(t.id)}">Resume</button>
+                <button class="del secondary" data-id="${escape(t.id)}" title="Delete this saved tour">🗑</button>
+              </div>
+            </li>`;
+        })
+        .join("");
+      return `
+        <h3 class="section-h">Saved tours</h3>
+        <ul class="tour-list">${rows}</ul>`;
+    })();
 
     return /* html */ `<!DOCTYPE html>
 <html lang="en">
@@ -117,6 +185,14 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
   input { width: 100%; box-sizing: border-box; padding: 4px 6px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); }
   .answer { margin-top: 8px; padding: 8px; background: var(--vscode-textCodeBlock-background); border-radius: 2px; white-space: pre-wrap; }
+  .section-h { margin: 20px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--vscode-descriptionForeground); }
+  .tour-list { list-style: none; margin: 0; padding: 0; }
+  .tour-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+  .tour-row { flex: 1; min-width: 0; }
+  .tour-title { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tour-meta { color: var(--vscode-descriptionForeground); font-size: 11px; margin-top: 2px; }
+  .tour-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .tour-actions button { padding: 3px 8px; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -136,7 +212,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   ${plan ? `
     <input id="q" placeholder="Follow-up question — Enter to copy as prompt" />
     <div class="meta" style="margin-top:6px">Deepen + follow-up copy a prompt to your clipboard. Paste it into your Claude Code session; the agent will mutate the tour.</div>
-  ` : ""}
+  ` : tourList}
   <script>
     const vscode = acquireVsCodeApi();
     const send = (msg) => vscode.postMessage(msg);
@@ -153,6 +229,17 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         send({ type: "followUp", question: q.value });
         q.value = "";
       }
+    });
+    document.querySelectorAll("button.resume").forEach((b) => {
+      b.addEventListener("click", () => send({ type: "resumeTour", id: b.getAttribute("data-id") }));
+    });
+    document.querySelectorAll("button.del").forEach((b) => {
+      b.addEventListener("click", () => {
+        const id = b.getAttribute("data-id");
+        if (id && confirm("Delete this saved tour?")) {
+          send({ type: "deleteTour", id });
+        }
+      });
     });
     window.addEventListener("message", (e) => {
       const m = e.data;

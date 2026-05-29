@@ -5,6 +5,7 @@ import { MockTourProvider } from "./engine/mockProvider";
 import { TourProvider } from "./engine/tourProvider";
 import { TourKind, TourRequest } from "./engine/types";
 import { CodeAtlasMcpServer } from "./mcp/server";
+import { deleteTour, listTours, loadTour, saveTour } from "./storage/tourStore";
 import { TtsManager, TtsMode } from "./tts/manager";
 import { TourCodeLensProvider } from "./ux/codeLensProvider";
 import { setEditorLogger } from "./ux/editorActions";
@@ -30,6 +31,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   log.appendLine(`[ext] activate ${(context.extension.packageJSON as { version?: string }).version ?? "?"}`);
 
   const controller = new TourController(pickProvider());
+  controller.setPersistFn((record) => {
+    if (!record) return;
+    saveTour(record).catch((err) =>
+      log.appendLine(`[store] save failed: ${err instanceof Error ? err.message : String(err)}`),
+    );
+  });
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(async (e) => {
@@ -43,6 +50,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   const viewProvider = new TourViewProvider(context.extensionUri, controller);
+  viewProvider.setTourListLoader(async () => {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) return [];
+    return listTours(root);
+  });
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(TourViewProvider.viewType, viewProvider),
   );
@@ -121,6 +133,67 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("codeAtlas.speakCurrent", () => tts.speakCurrent()),
     vscode.commands.registerCommand("codeAtlas.stopTts", () => tts.cancel()),
+    vscode.commands.registerCommand("codeAtlas.resumeTour", async (id?: string) => {
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!root) {
+        vscode.window.showErrorMessage("Code Atlas: open a workspace first.");
+        return;
+      }
+      let chosen = id;
+      if (!chosen) {
+        const all = await listTours(root);
+        if (all.length === 0) {
+          vscode.window.showInformationMessage("Code Atlas: no saved tours for this workspace.");
+          return;
+        }
+        const pick = await vscode.window.showQuickPick(
+          all.map((t) => ({
+            label: t.title || "(untitled)",
+            description: `${t.kind} · ${t.stepCount} stops · step ${t.lastIndex + 1}`,
+            detail: new Date(t.updatedAt).toLocaleString(),
+            id: t.id,
+          })),
+          { placeHolder: "Resume which tour?" },
+        );
+        if (!pick) return;
+        chosen = pick.id;
+      }
+      const rec = await loadTour(root, chosen);
+      if (!rec) {
+        vscode.window.showErrorMessage(`Code Atlas: tour ${chosen} not found.`);
+        return;
+      }
+      await controller.resume(rec);
+      await vscode.commands.executeCommand("codeAtlas.tour.focus").then(undefined, () => {});
+    }),
+    vscode.commands.registerCommand("codeAtlas.deleteTour", async (id?: string) => {
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!root) return;
+      let chosen = id;
+      if (!chosen) {
+        const all = await listTours(root);
+        if (all.length === 0) {
+          vscode.window.showInformationMessage("Code Atlas: no saved tours.");
+          return;
+        }
+        const pick = await vscode.window.showQuickPick(
+          all.map((t) => ({
+            label: t.title || "(untitled)",
+            description: `${t.kind} · ${t.stepCount} stops`,
+            id: t.id,
+          })),
+          { placeHolder: "Delete which tour?" },
+        );
+        if (!pick) return;
+        chosen = pick.id;
+      }
+      const ok = await deleteTour(root, chosen);
+      if (ok) {
+        // If we just deleted the active one, clear in-memory plan too.
+        if (controller.activeTourId === chosen) controller.stop();
+        viewProvider.refresh();
+      }
+    }),
   );
 
   await restartMcp(context, controller);

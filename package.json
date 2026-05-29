@@ -2,7 +2,7 @@
   "name": "code-atlas",
   "displayName": "Code Atlas",
   "description": "AI-guided codebase walkthroughs. Interactive tours of repos, PRs, subsystems, and execution flows.",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "code-atlas",
   "private": true,
   "engines": {
@@ -49,6 +49,14 @@
       {
         "command": "codeAtlas.stopTts",
         "title": "Code Atlas: Stop Speech"
+      },
+      {
+        "command": "codeAtlas.resumeTour",
+        "title": "Code Atlas: Resume Saved Tour"
+      },
+      {
+        "command": "codeAtlas.deleteTour",
+        "title": "Code Atlas: Delete Saved Tour"
       }
     ],
     "viewsContainers": {
