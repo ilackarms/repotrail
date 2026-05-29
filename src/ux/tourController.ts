@@ -70,6 +70,47 @@ export class TourController {
     return this.index;
   }
 
+  /**
+   * Insert a step at a specific position (0-indexed). The current view stays
+   * on whatever step the user is on — we adjust `index` if necessary to keep
+   * the user looking at the same step they were on. Returns the inserted index.
+   */
+  insertStep(at: number, step: TourStep): number {
+    if (!this.plan) {
+      this.plan = { kind: "architecture", title: "Tour", summary: "", steps: [] };
+    }
+    const insertAt = Math.max(0, Math.min(at, this.plan.steps.length));
+    this.plan.steps.splice(insertAt, 0, step);
+    if (this.index >= insertAt) this.index++;
+    this.onChangeEmitter.fire();
+    return insertAt;
+  }
+
+  /** Replace the contents of step `at`. Re-applies if the user is on that step. */
+  async updateStep(at: number, step: TourStep): Promise<void> {
+    if (!this.plan) return;
+    if (at < 0 || at >= this.plan.steps.length) return;
+    this.plan.steps[at] = step;
+    if (this.index === at) await this.applyCurrent();
+    this.onChangeEmitter.fire();
+  }
+
+  /** Remove the step at `at`. Adjusts index to stay valid. */
+  async removeStep(at: number): Promise<void> {
+    if (!this.plan) return;
+    if (at < 0 || at >= this.plan.steps.length) return;
+    this.plan.steps.splice(at, 1);
+    if (this.plan.steps.length === 0) {
+      this.index = -1;
+      clearHighlights();
+    } else {
+      if (this.index > at) this.index--;
+      this.index = Math.max(0, Math.min(this.index, this.plan.steps.length - 1));
+      await this.applyCurrent();
+    }
+    this.onChangeEmitter.fire();
+  }
+
   async next(): Promise<void> {
     if (!this.plan) return;
     if (this.index < this.plan.steps.length - 1) {

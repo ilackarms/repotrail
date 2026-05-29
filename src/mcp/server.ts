@@ -257,6 +257,100 @@ export class CodeAtlasMcpServer {
       },
     );
 
+    const stepInputSchema = {
+      title: z.string().describe("Short title for the step."),
+      file: z.string().describe("Workspace-relative path to the file."),
+      explanation: z.string().describe("Markdown narration shown to the user."),
+      range: z
+        .object({
+          startLine: z.number().int().min(1),
+          startColumn: z.number().int().min(1).default(1),
+          endLine: z.number().int().min(1),
+          endColumn: z.number().int().min(1).default(1),
+        })
+        .optional()
+        .describe("1-indexed code range to highlight."),
+    };
+
+    const buildStep = (input: {
+      title: string;
+      file: string;
+      explanation: string;
+      range?: { startLine: number; startColumn?: number; endLine: number; endColumn?: number };
+    }) => ({
+      title: input.title,
+      file: input.file,
+      explanation: input.explanation,
+      range: input.range
+        ? {
+            startLine: input.range.startLine,
+            startColumn: input.range.startColumn ?? 1,
+            endLine: input.range.endLine,
+            endColumn: input.range.endColumn ?? 1,
+          }
+        : undefined,
+      actions: (input.range
+        ? ["openFile", "highlightRange", "showNarration"]
+        : ["openFile", "showNarration"]) as ("openFile" | "highlightRange" | "showNarration")[],
+    });
+
+    server.registerTool(
+      "insert_step",
+      {
+        title: "Insert a step at a specific position",
+        description:
+          "Insert a step into the active tour at the given 0-indexed position. Use to deepen — call get_state, then insert one or more sub-steps after the user's current step. The user's current view is preserved.",
+        inputSchema: {
+          ...stepInputSchema,
+          at: z.number().int().min(0).describe("0-indexed position to insert at (existing step at this index shifts right)."),
+        },
+      },
+      async ({ at, ...rest }) => {
+        const inserted = this.controller.insertStep(at, buildStep(rest));
+        const snap = this.controller.snapshot();
+        return {
+          content: [
+            { type: "text", text: JSON.stringify({ inserted, total: snap.plan?.steps.length ?? 0 }) },
+          ],
+        };
+      },
+    );
+
+    server.registerTool(
+      "update_step",
+      {
+        title: "Replace an existing step",
+        description:
+          "Overwrite the step at `index` with new content. If the user is currently viewing that step, the editor re-applies the new range/file.",
+        inputSchema: {
+          ...stepInputSchema,
+          index: z.number().int().min(0).describe("0-indexed step to overwrite."),
+        },
+      },
+      async ({ index, ...rest }) => {
+        await this.controller.updateStep(index, buildStep(rest));
+        return { content: [{ type: "text", text: JSON.stringify({ ok: true, index }) }] };
+      },
+    );
+
+    server.registerTool(
+      "remove_step",
+      {
+        title: "Remove a step",
+        description: "Delete the step at `index`. Adjusts the user's current view if needed.",
+        inputSchema: { index: z.number().int().min(0) },
+      },
+      async ({ index }) => {
+        await this.controller.removeStep(index);
+        const snap = this.controller.snapshot();
+        return {
+          content: [
+            { type: "text", text: JSON.stringify({ ok: true, total: snap.plan?.steps.length ?? 0 }) },
+          ],
+        };
+      },
+    );
+
     server.registerTool(
       "show_step",
       {
