@@ -20,36 +20,36 @@ const PORT_REGISTRY_FILE = path.join(PORT_REGISTRY_DIR, "ports.json");
  *
  * Transport: Streamable HTTP, stateless. Single endpoint at POST /mcp.
  * Bound to 127.0.0.1 only. Default port 7777, overridable via setting.
+ *
+ * Stateless mode requires a FRESH McpServer + transport per request. The
+ * underlying TourController is shared (the source of truth), so tool
+ * implementations close over it; only the protocol machinery is rebuilt.
  */
 export class CodeAtlasMcpServer {
   private server: http.Server | null = null;
-  private mcp: McpServer | null = null;
-  private transport: StreamableHTTPServerTransport | null = null;
   private actualPort = 0;
+  private output: vscode.OutputChannel;
 
   constructor(
     private readonly controller: TourController,
     private readonly extensionVersion: string,
-  ) {}
+  ) {
+    this.output = vscode.window.createOutputChannel("Code Atlas MCP");
+  }
 
   async start(preferredPort: number): Promise<number> {
-    this.mcp = new McpServer({ name: "code-atlas", version: this.extensionVersion });
-    this.registerTools(this.mcp);
-
-    this.transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-    await this.mcp.connect(this.transport);
-
     const httpServer = http.createServer((req, res) => {
       void this.handleRequest(req, res);
     });
     httpServer.on("error", (err) => {
-      console.error("[code-atlas mcp] http error:", err);
+      this.output.appendLine(`[http] error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
     });
 
     await new Promise<void>((resolve, reject) => {
-      httpServer.once("error", reject);
+      const onErr = (e: Error) => reject(e);
+      httpServer.once("error", onErr);
       httpServer.listen(preferredPort, "127.0.0.1", () => {
-        httpServer.off("error", reject);
+        httpServer.off("error", onErr);
         resolve();
       });
     });
@@ -57,6 +57,9 @@ export class CodeAtlasMcpServer {
     this.actualPort = typeof addr === "object" && addr ? addr.port : preferredPort;
     this.server = httpServer;
     await this.publishPort();
+    this.output.appendLine(
+      `[mcp] listening on http://127.0.0.1:${this.actualPort}/mcp (version ${this.extensionVersion})`,
+    );
     return this.actualPort;
   }
 
@@ -65,14 +68,6 @@ export class CodeAtlasMcpServer {
     if (this.server) {
       await new Promise<void>((resolve) => this.server!.close(() => resolve()));
       this.server = null;
-    }
-    if (this.transport) {
-      await this.transport.close().catch(() => {});
-      this.transport = null;
-    }
-    if (this.mcp) {
-      await this.mcp.close().catch(() => {});
-      this.mcp = null;
     }
   }
 
@@ -94,21 +89,42 @@ export class CodeAtlasMcpServer {
       return;
     }
 
-    if (url.pathname === "/mcp") {
-      try {
-        const body = req.method === "POST" ? await readJson(req) : undefined;
-        await this.transport!.handleRequest(req, res, body);
-      } catch (err) {
-        if (!res.headersSent) {
-          res.writeHead(500, { "content-type": "application/json" }).end(
-            JSON.stringify({ error: String(err) }),
-          );
-        }
-      }
+    if (url.pathname !== "/mcp") {
+      res.writeHead(404).end();
       return;
     }
 
-    res.writeHead(404).end();
+    // Stateless: build a fresh McpServer + transport per request.
+    const mcp = new McpServer({ name: "code-atlas", version: this.extensionVersion });
+    this.registerTools(mcp);
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+
+    const cleanup = () => {
+      transport.close().catch(() => {});
+      mcp.close().catch(() => {});
+    };
+    res.on("close", cleanup);
+
+    try {
+      await mcp.connect(transport);
+      const body = req.method === "POST" ? await readJson(req) : undefined;
+      await transport.handleRequest(req, res, body);
+    } catch (err) {
+      const msg = err instanceof Error ? err.stack ?? err.message : String(err);
+      this.output.appendLine(`[mcp] ${req.method} ${url.pathname} failed: ${msg}`);
+      if (!res.headersSent) {
+        res
+          .writeHead(500, { "content-type": "application/json" })
+          .end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32603, message: msg } }));
+      } else {
+        try {
+          res.end();
+        } catch {
+          /* already closed */
+        }
+      }
+      cleanup();
+    }
   }
 
   private registerTools(server: McpServer): void {
@@ -205,7 +221,9 @@ export class CodeAtlasMcpServer {
                 endColumn: range.endColumn ?? 1,
               }
             : undefined,
-          actions: range ? ["openFile", "highlightRange", "showNarration"] : ["openFile", "showNarration"],
+          actions: range
+            ? ["openFile", "highlightRange", "showNarration"]
+            : ["openFile", "showNarration"],
         });
         const snap = this.controller.snapshot();
         return {
@@ -291,7 +309,7 @@ export class CodeAtlasMcpServer {
       existing[root] = { port: this.actualPort, pid: process.pid, version: this.extensionVersion };
       await fs.writeFile(PORT_REGISTRY_FILE, JSON.stringify(existing, null, 2), "utf8");
     } catch (err) {
-      console.error("[code-atlas mcp] publishPort failed:", err);
+      this.output.appendLine(`[mcp] publishPort failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -331,7 +349,10 @@ async function readJson(req: http.IncomingMessage): Promise<unknown> {
   return JSON.parse(body);
 }
 
-function waitForAction(controller: TourController, timeoutSeconds: number): Promise<UserAction | "timeout"> {
+function waitForAction(
+  controller: TourController,
+  timeoutSeconds: number,
+): Promise<UserAction | "timeout"> {
   return new Promise((resolve) => {
     const sub = controller.onUserAction((action) => {
       cleanup();
