@@ -49,7 +49,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  const viewProvider = new TourViewProvider(context.extensionUri, controller);
+  const viewProvider = new TourViewProvider(context.extensionUri, controller, log);
   viewProvider.setTourListLoader(async () => {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!root) return [];

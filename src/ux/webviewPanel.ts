@@ -22,9 +22,12 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   private onSinkChange: ((sink: WebviewSink | null) => void) | null = null;
   private tourListLoader: (() => Promise<TourSummary[]>) | null = null;
 
+  private warnedKokoroFallback = false;
+
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly controller: TourController,
+    private readonly log: vscode.OutputChannel,
   ) {
     controller.onDidChange(() => void this.render());
     // Re-render when the TTS settings change so the "Voice: …" hint and the
@@ -97,6 +100,22 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           break;
         case "openTtsSettings":
           await vscode.commands.executeCommand("workbench.action.openSettings", "codeAtlas.tts.provider");
+          break;
+        case "tts.log":
+          if (typeof msg.message === "string") {
+            this.log.appendLine(`[tts:webview] ${msg.message}`);
+            if (msg.kokoroFellBack && !this.warnedKokoroFallback) {
+              this.warnedKokoroFallback = true;
+              void vscode.window
+                .showWarningMessage(
+                  "Code Atlas: the Kokoro neural voice failed to load — using the system voice instead.",
+                  "Show Details",
+                )
+                .then((c) => {
+                  if (c === "Show Details") this.log.show(true);
+                });
+            }
+          }
           break;
         case "resumeTour":
           if (typeof msg.id === "string") {
@@ -389,7 +408,9 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         if (m.type === "audio") p.resolve(m.wav); else p.reject(new Error(m.message || "kokoro error"));
       };
       kokoroWorker.onerror = (err) => {
+        const detail = (err && (err.message || err.filename)) || "unknown worker error";
         console.error("[code-atlas tts] kokoro worker crashed", err);
+        send({ type: "tts.log", message: "kokoro worker crashed: " + detail });
         for (const p of kokoroPending.values()) p.reject(new Error("kokoro worker error"));
         kokoroPending.clear();
         try { kokoroWorker.terminate(); } catch (e) {}
@@ -427,7 +448,9 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         try {
           wav = await kokoroGenerate(chunks[i], voice);
         } catch (e) {
+          const detail = (e && (e.message || String(e))) || "unknown error";
           console.error("[code-atlas tts] kokoro unavailable, using system voice", e);
+          send({ type: "tts.log", message: "kokoro generate failed: " + detail, kokoroFellBack: true });
           if (token === speakToken) speakSystem(chunks.slice(i).join(" "), token);
           return;
         }
