@@ -60,7 +60,18 @@ export class TtsManager implements vscode.Disposable {
     this.dispatch(humanizeForSpeech(`${snap.current.title}. ${snap.current.explanation}`));
   }
 
+  /** Full stop: halt host-side work AND tell the webview to stop playing + reset
+   *  the Play/Pause button to idle. Use for explicit stop / provider-off. */
   cancel(): void {
+    this.cancelHostWork();
+    this.webviewSink?.({ type: "tts.cancel" });
+  }
+
+  /** Halt only host-side work (say child, hosted fetch) and invalidate in-flight
+   *  responses. Does NOT post tts.cancel — so it won't flash the webview button
+   *  to idle when we're about to immediately send a new tts.speak. The webview's
+   *  own stopAll() (run on tts.speak/tts.audio) stops any prior playback. */
+  private cancelHostWork(): void {
     if (this.currentChild && !this.currentChild.killed) {
       this.currentChild.kill();
     }
@@ -69,9 +80,7 @@ export class TtsManager implements vscode.Disposable {
       this.fetchAbort.abort();
       this.fetchAbort = null;
     }
-    // Invalidate any in-flight hosted response so a late arrival can't play.
     this.requestSeq++;
-    this.webviewSink?.({ type: "tts.cancel" });
   }
 
   dispose(): void {
@@ -96,8 +105,13 @@ export class TtsManager implements vscode.Disposable {
 
   private dispatch(text: string): void {
     const provider = currentProvider();
-    this.cancel();
-    if (provider === "off" || !text.trim()) return;
+    this.cancelHostWork();
+    if (provider === "off" || !text.trim()) {
+      // Nothing will be spoken — make sure the webview button doesn't sit on a
+      // stale "preparing" state from the click.
+      this.webviewSink?.({ type: "tts.cancel" });
+      return;
+    }
     const cfg = vscode.workspace.getConfiguration("codeAtlas");
     switch (provider) {
       case "system":
