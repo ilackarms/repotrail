@@ -2,7 +2,7 @@
   "name": "code-atlas",
   "displayName": "Code Atlas",
   "description": "AI-guided codebase walkthroughs. Interactive tours of repos, PRs, subsystems, and execution flows.",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "code-atlas",
   "private": true,
   "engines": {
@@ -106,16 +106,59 @@
           "default": 16,
           "description": "Number of consecutive ports to probe starting at mcpPort before giving up."
         },
-        "codeAtlas.tts.mode": {
+        "codeAtlas.tts.provider": {
           "type": "string",
-          "enum": ["off", "webview", "say"],
-          "default": "off",
-          "description": "How to read narration aloud. 'webview' uses the sidebar webview's SpeechSynthesis (cross-platform, native OS voices). 'say' shells out to the macOS `say` command (override via codeAtlas.tts.command on Linux)."
+          "enum": ["off", "kokoro", "system", "say", "elevenlabs", "openai"],
+          "enumDescriptions": [
+            "No narration.",
+            "Local Kokoro-82M neural voice. Free, natural, runs in the sidebar via WASM (downloads a ~80MB model on first use, then works offline). Default.",
+            "Browser SpeechSynthesis using native OS voices. Free, works offline, but robotic.",
+            "Shell out to a system command (macOS `say`; override via codeAtlas.tts.command on Linux).",
+            "ElevenLabs Flash v2.5 — natural hosted voice with low latency. Requires codeAtlas.tts.elevenLabsApiKey.",
+            "OpenAI gpt-4o-mini-tts — natural, tone-steerable hosted voice. Requires codeAtlas.tts.openAiApiKey."
+          ],
+          "default": "kokoro",
+          "markdownDescription": "Which engine reads tour narration aloud. **kokoro** (default) is a free, natural neural voice that runs locally in the sidebar — it downloads a ~80MB model on first use, then works offline. **system**/**say** are free OS voices. **elevenlabs**/**openai** are hosted neural voices that need an API key."
         },
         "codeAtlas.tts.command": {
           "type": "string",
           "default": "say",
-          "description": "Command invoked when codeAtlas.tts.mode is 'say'. The narration text is passed as a single argv[1]. Use `espeak` or `spd-say` on Linux."
+          "description": "Command invoked when codeAtlas.tts.provider is 'say'. The narration text is passed as a single argv[1]. Use `espeak` or `spd-say` on Linux."
+        },
+        "codeAtlas.tts.kokoroVoice": {
+          "type": "string",
+          "default": "af_heart",
+          "description": "Kokoro voice id used when codeAtlas.tts.provider is 'kokoro' (e.g. af_heart, af_bella, af_nicole, am_michael, am_adam, bf_emma, bm_george)."
+        },
+        "codeAtlas.tts.elevenLabsApiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "ElevenLabs API key, used when provider is 'elevenlabs'. Falls back to the `ELEVENLABS_API_KEY` env var. Prefer the env var or secret storage over committing a key."
+        },
+        "codeAtlas.tts.elevenLabsVoiceId": {
+          "type": "string",
+          "default": "21m00Tcm4TlvDq8ikWAM",
+          "description": "ElevenLabs voice id (default: Rachel)."
+        },
+        "codeAtlas.tts.elevenLabsModel": {
+          "type": "string",
+          "default": "eleven_flash_v2_5",
+          "description": "ElevenLabs model id. eleven_flash_v2_5 is the low-latency default; eleven_multilingual_v2 is higher quality but slower and pricier."
+        },
+        "codeAtlas.tts.openAiApiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "OpenAI API key, used when provider is 'openai'. Falls back to the `OPENAI_API_KEY` env var."
+        },
+        "codeAtlas.tts.openAiVoice": {
+          "type": "string",
+          "default": "alloy",
+          "description": "OpenAI TTS voice (alloy, ash, ballad, coral, echo, sage, shimmer, verse)."
+        },
+        "codeAtlas.tts.openAiInstructions": {
+          "type": "string",
+          "default": "Read this code walkthrough aloud like a friendly senior engineer pair-programming: clear, calm, with natural pacing.",
+          "description": "Tone/style instructions passed to gpt-4o-mini-tts. Only the gpt-4o-mini-tts model honors this."
         }
       }
     }

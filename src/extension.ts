@@ -6,7 +6,7 @@ import { TourProvider } from "./engine/tourProvider";
 import { TourKind, TourRequest } from "./engine/types";
 import { CodeAtlasMcpServer } from "./mcp/server";
 import { deleteTour, listTours, loadTour, saveTour } from "./storage/tourStore";
-import { TtsManager, TtsMode } from "./tts/manager";
+import { availableProviders, TtsManager, TtsProvider } from "./tts/manager";
 import { TourCodeLensProvider } from "./ux/codeLensProvider";
 import { setEditorLogger } from "./ux/editorActions";
 import { TourHoverProvider } from "./ux/hoverProvider";
@@ -119,10 +119,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("codeAtlas.cycleTts", async () => {
       const cfg = vscode.workspace.getConfiguration("codeAtlas");
-      const cur = cfg.get<string>("tts.mode", "off") as TtsMode;
-      const order: TtsMode[] = ["off", "webview", "say"];
-      const next = order[(order.indexOf(cur) + 1) % order.length] ?? "off";
-      await cfg.update("tts.mode", next, vscode.ConfigurationTarget.Global);
+      const cur = cfg.get<string>("tts.provider", "kokoro") as TtsProvider;
+      const order = availableProviders();
+      const idx = order.indexOf(cur);
+      const next = order[(idx + 1) % order.length] ?? "off";
+      await cfg.update("tts.provider", next, vscode.ConfigurationTarget.Global);
       vscode.window.setStatusBarMessage(`Code Atlas TTS: ${next}`, 1500);
       if (next !== "off") {
         // Re-speak the current step so the user hears the mode change in action.

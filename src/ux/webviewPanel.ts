@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import { TourSummary } from "../storage/tourStore";
 import { TourController } from "./tourController";
@@ -8,10 +9,11 @@ type WebviewSink = (msg: { type: string; text?: string }) => void;
  * Narration WebviewViewProvider. Renders the current step's title +
  * explanation and exposes next/back/deeper/follow-up controls.
  *
- * Also hosts a tiny TTS engine in the webview: when the extension host posts
- * `{ type: 'tts.speak', text }` the page calls `speechSynthesis.speak`. Set
- * `retainContextWhenHidden: true` so playback continues if the user collapses
- * the sidebar mid-utterance.
+ * Also hosts the TTS playback surface. The extension host posts one of:
+ * `tts.speak` (engine=system → SpeechSynthesis, engine=kokoro → local Kokoro-82M
+ * neural voice via WASM), `tts.audio` (MP3 bytes from a hosted provider), or
+ * `tts.cancel`. Set `retainContextWhenHidden: true` so playback (and the cached
+ * Kokoro model) survive the user collapsing the sidebar mid-utterance.
  */
 export class TourViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "codeAtlas.tour";
@@ -110,9 +112,9 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   private async render(): Promise<void> {
     if (!this.view) return;
     const snap = this.controller.snapshot();
-    const mode = vscode.workspace.getConfiguration("codeAtlas").get<string>("tts.mode", "off");
+    const provider = vscode.workspace.getConfiguration("codeAtlas").get<string>("tts.provider", "kokoro");
     const tours = snap.plan ? [] : await this.loadTours();
-    this.view.webview.html = this.html(snap, mode, tours);
+    this.view.webview.html = this.html(snap, provider, tours);
   }
 
   private async loadTours(): Promise<TourSummary[]> {
@@ -126,7 +128,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
 
   private html(
     snap: ReturnType<TourController["snapshot"]>,
-    ttsMode: string,
+    ttsProvider: string,
     tours: TourSummary[],
   ): string {
     const { plan, index, current } = snap;
@@ -138,7 +140,8 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     const escape = (s: string) =>
       s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-    const ttsLabel = ttsMode === "off" ? "🔇 TTS off" : `🔊 TTS: ${escape(ttsMode)}`;
+    const ttsLabel = ttsProvider === "off" ? "🔇 TTS off" : `🔊 TTS: ${escape(ttsProvider)}`;
+    const nonce = randomBytes(16).toString("hex");
 
     const tourList = (() => {
       if (snap.plan || tours.length === 0) return "";
@@ -172,6 +175,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}' 'wasm-unsafe-eval' https://esm.sh https://cdn.jsdelivr.net; style-src 'unsafe-inline'; connect-src https: data: blob:; media-src blob: data:; img-src https: data:; font-src https: data:; worker-src blob:; child-src blob:;" />
 <style>
   body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 12px; font-size: 13px; }
   h2 { margin: 0 0 4px 0; font-size: 14px; }
@@ -213,7 +217,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     <input id="q" placeholder="Follow-up question — Enter to copy as prompt" />
     <div class="meta" style="margin-top:6px">Deepen + follow-up copy a prompt to your clipboard. Paste it into your Claude Code session; the agent will mutate the tour.</div>
   ` : tourList}
-  <script>
+  <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const send = (msg) => vscode.postMessage(msg);
     document.getElementById("start")?.addEventListener("click", () => send({ type: "start" }));
@@ -241,20 +245,109 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         }
       });
     });
+    // ---- TTS playback surface ----------------------------------------------
+    // The extension host picks the provider; this page just plays what it gets:
+    //   tts.speak engine=system  -> SpeechSynthesis (native OS voices)
+    //   tts.speak engine=kokoro  -> local Kokoro-82M neural voice (WASM)
+    //   tts.audio                -> MP3 bytes from a hosted provider (ElevenLabs/OpenAI)
+    // speakToken invalidates any in-flight kokoro chunk when a new request or a
+    // cancel arrives, so we never play stale audio over a newer step.
+    let audioEl = null;
+    let kokoroPromise = null;
+    let speakToken = 0;
+
+    function stopAll() {
+      speakToken++;
+      try { window.speechSynthesis?.cancel(); } catch (e) {}
+      if (audioEl) { try { audioEl.pause(); } catch (e) {} audioEl = null; }
+    }
+
+    function speakSystem(text) {
+      try {
+        window.speechSynthesis?.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = 1.05;
+        window.speechSynthesis?.speak(u);
+      } catch (err) { console.error("[code-atlas tts] system speak failed", err); }
+    }
+
+    function playBytes(mime, b64) {
+      try {
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        playBlob(new Blob([bytes], { type: mime || "audio/mpeg" }));
+      } catch (err) { console.error("[code-atlas tts] audio decode failed", err); }
+    }
+
+    // Plays a Blob and resolves when it finishes (or is superseded).
+    function playBlob(blob) {
+      return new Promise((resolve) => {
+        const url = URL.createObjectURL(blob);
+        if (audioEl) { try { audioEl.pause(); } catch (e) {} }
+        audioEl = new Audio(url);
+        const done = () => { try { URL.revokeObjectURL(url); } catch (e) {} resolve(); };
+        audioEl.onended = done;
+        audioEl.onerror = done;
+        audioEl.play().catch((e) => { console.error("[code-atlas tts] play failed", e); done(); });
+      });
+    }
+
+    function loadKokoro() {
+      if (!kokoroPromise) {
+        kokoroPromise = import("https://esm.sh/kokoro-js@1")
+          .then((mod) => mod.KokoroTTS.from_pretrained(
+            "onnx-community/Kokoro-82M-v1.0-ONNX",
+            { dtype: "q8", device: "wasm" },
+          ))
+          .catch((e) => { kokoroPromise = null; throw e; });
+      }
+      return kokoroPromise;
+    }
+
+    function splitSentences(text) {
+      const parts = text.match(/[^.!?]+[.!?]*\\s*/g);
+      return (parts ? parts.map((s) => s.trim()).filter(Boolean) : [text]);
+    }
+
+    async function speakKokoro(text, voice) {
+      const token = ++speakToken;
+      let tts;
+      try {
+        tts = await loadKokoro();
+      } catch (e) {
+        console.error("[code-atlas tts] kokoro unavailable, using system voice", e);
+        if (token === speakToken) speakSystem(text);
+        return;
+      }
+      if (token !== speakToken) return; // cancelled while the model loaded
+      for (const chunk of splitSentences(text)) {
+        if (token !== speakToken) return;
+        let audio;
+        try {
+          audio = await tts.generate(chunk, { voice: voice || "af_heart" });
+        } catch (e) {
+          console.error("[code-atlas tts] kokoro generate failed, using system voice", e);
+          if (token === speakToken) speakSystem(chunk);
+          continue;
+        }
+        if (token !== speakToken) return;
+        await playBlob(audio.toBlob());
+      }
+    }
+
     window.addEventListener("message", (e) => {
       const m = e.data;
       if (!m) return;
       if (m.type === "tts.speak" && typeof m.text === "string") {
-        try {
-          window.speechSynthesis?.cancel();
-          const u = new SpeechSynthesisUtterance(m.text);
-          u.rate = 1.05;
-          window.speechSynthesis?.speak(u);
-        } catch (err) {
-          console.error("[code-atlas tts] speak failed", err);
-        }
+        stopAll();
+        if (m.engine === "kokoro") speakKokoro(m.text, m.voice);
+        else speakSystem(m.text);
+      } else if (m.type === "tts.audio" && typeof m.dataBase64 === "string") {
+        stopAll();
+        playBytes(m.mime, m.dataBase64);
       } else if (m.type === "tts.cancel") {
-        try { window.speechSynthesis?.cancel(); } catch {}
+        stopAll();
       }
     });
   </script>
