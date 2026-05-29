@@ -1,0 +1,91 @@
+{
+  "name": "code-atlas",
+  "displayName": "Code Atlas",
+  "description": "AI-guided codebase walkthroughs. Interactive tours of repos, PRs, subsystems, and execution flows.",
+  "version": "0.0.1",
+  "publisher": "code-atlas",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Education",
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codeAtlas.startTour",
+        "title": "Code Atlas: Start Tour"
+      },
+      {
+        "command": "codeAtlas.next",
+        "title": "Code Atlas: Next Step"
+      },
+      {
+        "command": "codeAtlas.back",
+        "title": "Code Atlas: Previous Step"
+      },
+      {
+        "command": "codeAtlas.deeper",
+        "title": "Code Atlas: Go Deeper"
+      },
+      {
+        "command": "codeAtlas.stop",
+        "title": "Code Atlas: Stop Tour"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codeAtlas",
+          "title": "Code Atlas",
+          "icon": "$(map)"
+        }
+      ]
+    },
+    "views": {
+      "codeAtlas": [
+        {
+          "id": "codeAtlas.tour",
+          "name": "Tour",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Code Atlas",
+      "properties": {
+        "codeAtlas.anthropicApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Anthropic API key for LLM-backed tour generation. Leave empty to use the mock provider.",
+          "markdownDescription": "Anthropic API key. Store securely — prefer `ANTHROPIC_API_KEY` env var or VS Code secret storage in production."
+        },
+        "codeAtlas.model": {
+          "type": "string",
+          "default": "claude-opus-4-7",
+          "description": "Anthropic model id used for tour generation."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "pnpm compile && vsce package --no-dependencies",
+    "install-local": "pnpm package && code --install-extension code-atlas-$npm_package_version.vsix --force",
+    "vscode:prepublish": "pnpm compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.9.1",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0"
+  }
+}

@@ -1,0 +1,16 @@
+.vscode/**
+.vscode-test/**
+.idea/**
+.claude/**
+src/**
+.gitignore
+.gitattributes
+tsconfig.json
+pnpm-lock.yaml
+pnpm-workspace.yaml
+AGENTS.md
+**/*.map
+**/*.ts
+!out/**/*.d.ts
+node_modules/**
+!node_modules/@anthropic-ai/**
