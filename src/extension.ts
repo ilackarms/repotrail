@@ -5,6 +5,7 @@ import { MockTourProvider } from "./engine/mockProvider";
 import { TourProvider } from "./engine/tourProvider";
 import { TourKind, TourRequest } from "./engine/types";
 import { CodeAtlasMcpServer } from "./mcp/server";
+import { TourCodeLensProvider } from "./ux/codeLensProvider";
 import { TourController } from "./ux/tourController";
 import { TourViewProvider } from "./ux/webviewPanel";
 
@@ -36,6 +37,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const viewProvider = new TourViewProvider(context.extensionUri, controller);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(TourViewProvider.viewType, viewProvider),
+  );
+
+  const codeLensProvider = new TourCodeLensProvider(controller);
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider({ scheme: "file" }, codeLensProvider),
   );
 
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -75,6 +81,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("codeAtlas.deeper", () => controller.deeper()),
     vscode.commands.registerCommand("codeAtlas.stop", () => controller.stop()),
     vscode.commands.registerCommand("codeAtlas.showMcpInfo", () => showMcpInfo()),
+    vscode.commands.registerCommand("codeAtlas.showHoverNarration", () => {
+      vscode.commands.executeCommand("editor.action.showHover").then(undefined, () => {});
+    }),
   );
 
   await restartMcp(context, controller);
