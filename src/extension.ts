@@ -6,6 +6,8 @@ import { TourProvider } from "./engine/tourProvider";
 import { TourKind, TourRequest } from "./engine/types";
 import { CodeAtlasMcpServer } from "./mcp/server";
 import { TourCodeLensProvider } from "./ux/codeLensProvider";
+import { setEditorLogger } from "./ux/editorActions";
+import { TourHoverProvider } from "./ux/hoverProvider";
 import { TourController } from "./ux/tourController";
 import { TourViewProvider } from "./ux/webviewPanel";
 
@@ -21,6 +23,11 @@ let mcp: CodeAtlasMcpServer | null = null;
 let statusItem: vscode.StatusBarItem | null = null;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  const log = vscode.window.createOutputChannel("Code Atlas");
+  context.subscriptions.push(log);
+  setEditorLogger(log);
+  log.appendLine(`[ext] activate ${(context.extension.packageJSON as { version?: string }).version ?? "?"}`);
+
   const controller = new TourController(pickProvider());
 
   context.subscriptions.push(
@@ -42,6 +49,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const codeLensProvider = new TourCodeLensProvider(controller);
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider({ scheme: "file" }, codeLensProvider),
+  );
+
+  const hoverProvider = new TourHoverProvider(controller);
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider({ scheme: "file" }, hoverProvider),
   );
 
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);

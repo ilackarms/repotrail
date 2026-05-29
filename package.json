@@ -2,7 +2,7 @@
   "name": "code-atlas",
   "displayName": "Code Atlas",
   "description": "AI-guided codebase walkthroughs. Interactive tours of repos, PRs, subsystems, and execution flows.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "code-atlas",
   "private": true,
   "engines": {
