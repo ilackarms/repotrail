@@ -58,12 +58,11 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           await this.controller.back();
           break;
         case "deeper":
-          await this.controller.deeper();
+          await vscode.commands.executeCommand("codeAtlas.deeper");
           break;
         case "followUp":
           if (typeof msg.question === "string" && msg.question.trim()) {
-            const answer = await this.controller.followUp(msg.question);
-            view.webview.postMessage({ type: "followUpAnswer", answer });
+            await vscode.commands.executeCommand("codeAtlas.followUp", msg.question);
           }
           break;
         case "stop":
@@ -128,15 +127,15 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     ${plan ? `
       <button id="back" ${index === 0 ? "disabled" : ""}>← Back</button>
       <button id="next" ${index >= total - 1 ? "disabled" : ""}>Next →</button>
-      <button id="deeper">Go deeper</button>
+      <button id="deeper" title="Copy a 'deepen this step' prompt to clipboard for your Claude Code session">📋 Deepen (copy prompt)</button>
       <button id="stop">Stop</button>
       <button id="speakCurrent" class="secondary">🔊 Speak</button>
     ` : `<button id="start">Start tour</button>`}
     <button id="toggleTts" class="secondary">${ttsLabel}</button>
   </div>
   ${plan ? `
-    <input id="q" placeholder="Ask a follow-up about this step…" />
-    <div id="answer" class="answer" style="display:none"></div>
+    <input id="q" placeholder="Follow-up question — Enter to copy as prompt" />
+    <div class="meta" style="margin-top:6px">Deepen + follow-up copy a prompt to your clipboard. Paste it into your Claude Code session; the agent will mutate the tour.</div>
   ` : ""}
   <script>
     const vscode = acquireVsCodeApi();
@@ -158,10 +157,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     window.addEventListener("message", (e) => {
       const m = e.data;
       if (!m) return;
-      if (m.type === "followUpAnswer") {
-        const a = document.getElementById("answer");
-        if (a) { a.style.display = "block"; a.textContent = m.answer; }
-      } else if (m.type === "tts.speak" && typeof m.text === "string") {
+      if (m.type === "tts.speak" && typeof m.text === "string") {
         try {
           window.speechSynthesis?.cancel();
           const u = new SpeechSynthesisUtterance(m.text);

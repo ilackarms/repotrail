@@ -54,7 +54,7 @@ export function buildHoverMarkdown(step: {
   md.appendMarkdown(
     `[$(arrow-left) Back](command:codeAtlas.back) ` +
       `· [Next $(arrow-right)](command:codeAtlas.next) ` +
-      `· [$(zoom-in) Deeper](command:codeAtlas.deeper) ` +
+      `· [$(clippy) Deepen](command:codeAtlas.deeper "Copy a 'deepen this step' prompt to clipboard") ` +
       `· [$(stop-circle) Stop](command:codeAtlas.stop) ` +
       `· [$(megaphone) Speak](command:codeAtlas.speakCurrent) ` +
       `· [$(unmute) TTS](command:codeAtlas.cycleTts)`,

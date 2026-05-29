@@ -36,7 +36,11 @@ export class TourCodeLensProvider implements vscode.CodeLensProvider {
       new vscode.CodeLens(lensRange, { title: header, command: "" }),
       new vscode.CodeLens(lensRange, { title: "$(arrow-left) Back", command: "codeAtlas.back" }),
       new vscode.CodeLens(lensRange, { title: "Next $(arrow-right)", command: "codeAtlas.next" }),
-      new vscode.CodeLens(lensRange, { title: "$(zoom-in) Deeper", command: "codeAtlas.deeper" }),
+      new vscode.CodeLens(lensRange, {
+        title: "$(clippy) Deepen (copy prompt)",
+        command: "codeAtlas.deeper",
+        tooltip: "Copy a 'deepen this step' prompt to your clipboard for paste into Claude Code.",
+      }),
       new vscode.CodeLens(lensRange, { title: "$(stop-circle) Stop", command: "codeAtlas.stop" }),
       new vscode.CodeLens(lensRange, {
         title: "$(book) Show narration",

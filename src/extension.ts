@@ -95,7 +95,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("codeAtlas.next", () => controller.next()),
     vscode.commands.registerCommand("codeAtlas.back", () => controller.back()),
-    vscode.commands.registerCommand("codeAtlas.deeper", () => controller.deeper()),
+    vscode.commands.registerCommand("codeAtlas.deeper", () => copyDeepenPrompt(controller, log)),
+    vscode.commands.registerCommand(
+      "codeAtlas.followUp",
+      (question?: string) => copyFollowUpPrompt(controller, question ?? "", log),
+    ),
     vscode.commands.registerCommand("codeAtlas.stop", () => controller.stop()),
     vscode.commands.registerCommand("codeAtlas.showMcpInfo", () => showMcpInfo()),
     vscode.commands.registerCommand("codeAtlas.showHoverNarration", () => {
@@ -179,6 +183,60 @@ function updateStatus(state: "listening" | "disabled" | "error", port?: number):
     statusItem.tooltip = "Code Atlas MCP server failed to start. Click for details.";
   }
   statusItem.show();
+}
+
+/**
+ * "Go deeper" is a bridge to the user's Claude Code session: we copy a
+ * ready-to-paste prompt to the clipboard rather than running an LLM in the
+ * extension. The user pastes into their agent terminal; the agent calls
+ * `insert_step` to splice sub-steps after the current index.
+ */
+function copyDeepenPrompt(controller: TourController, log: vscode.OutputChannel): void {
+  const snap = controller.snapshot();
+  if (!snap.plan || !snap.current) {
+    vscode.window.showInformationMessage("Code Atlas: no active tour.");
+    return;
+  }
+  const idx = snap.index + 1;
+  const prompt =
+    `Deepen step ${idx} of the active Code Atlas tour: "${snap.current.title}" (${snap.current.file}).\n\n` +
+    `Call mcp__code-atlas__get_state to confirm the current index, then read the relevant code, ` +
+    `then call mcp__code-atlas__insert_step one or more times with \`at\` = current index + 1, +2, ... ` +
+    `to splice in 2–4 sub-steps that zoom into this area at finer granularity. Keep ranges tight ` +
+    `(see the granularity rule in the code-atlas skill).`;
+  void vscode.env.clipboard.writeText(prompt);
+  vscode.window.showInformationMessage(
+    `Deepen prompt copied for step ${idx}. Paste into your Claude Code session.`,
+  );
+  log.appendLine(`[deeper] copied prompt for step ${idx}`);
+}
+
+function copyFollowUpPrompt(
+  controller: TourController,
+  question: string,
+  log: vscode.OutputChannel,
+): void {
+  const snap = controller.snapshot();
+  if (!snap.plan || !snap.current) {
+    vscode.window.showInformationMessage("Code Atlas: no active tour.");
+    return;
+  }
+  const trimmed = question.trim();
+  if (!trimmed) {
+    vscode.window.showInformationMessage("Type a question first.");
+    return;
+  }
+  const idx = snap.index + 1;
+  const prompt =
+    `Follow-up about step ${idx} of the active Code Atlas tour: "${snap.current.title}" (${snap.current.file}).\n\n` +
+    `Question: ${trimmed}\n\n` +
+    `Read the relevant code, answer in chat. If the answer is pin-worthy, also call ` +
+    `mcp__code-atlas__insert_step to add a clarifying stop after the current index.`;
+  void vscode.env.clipboard.writeText(prompt);
+  vscode.window.showInformationMessage(
+    `Follow-up prompt copied. Paste into your Claude Code session.`,
+  );
+  log.appendLine(`[followUp] copied prompt for step ${idx}`);
 }
 
 function showMcpInfo(): void {
