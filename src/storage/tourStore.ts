@@ -42,7 +42,12 @@ export async function saveTour(record: TourRecord): Promise<void> {
   const dir = workspaceDir(record.workspaceRoot);
   await fs.mkdir(dir, { recursive: true });
   const file = path.join(dir, `${record.id}.json`);
-  await fs.writeFile(file, JSON.stringify(record, null, 2), "utf8");
+  // Atomic write: tmp file + rename. fs.writeFile uses O_TRUNC which exposes
+  // a half-written file mid-flight; if listTours reads during that window
+  // JSON.parse fails and the record vanishes from the resume list.
+  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+  await fs.writeFile(tmp, JSON.stringify(record, null, 2), "utf8");
+  await fs.rename(tmp, file);
 }
 
 export async function listTours(workspaceRoot: string): Promise<TourSummary[]> {
