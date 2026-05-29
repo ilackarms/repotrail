@@ -2,7 +2,7 @@
   "name": "code-atlas",
   "displayName": "Code Atlas",
   "description": "AI-guided codebase walkthroughs. Interactive tours of repos, PRs, subsystems, and execution flows.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "code-atlas",
   "private": true,
   "engines": {
@@ -79,7 +79,12 @@
         "codeAtlas.mcpPort": {
           "type": "number",
           "default": 7777,
-          "description": "Port for the Code Atlas MCP HTTP server on 127.0.0.1."
+          "description": "Preferred port for the Code Atlas MCP HTTP server on 127.0.0.1. If in use, the extension probes the next mcpPortRange ports."
+        },
+        "codeAtlas.mcpPortRange": {
+          "type": "number",
+          "default": 16,
+          "description": "Number of consecutive ports to probe starting at mcpPort before giving up."
         }
       }
     }

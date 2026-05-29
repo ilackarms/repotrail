@@ -116,18 +116,19 @@ async function restartMcp(context: vscode.ExtensionContext, controller: TourCont
     updateStatus("disabled");
     return;
   }
-  const port = cfg.get<number>("mcpPort", 7777);
+  const basePort = cfg.get<number>("mcpPort", 7777);
+  const portRange = cfg.get<number>("mcpPortRange", 16);
   const version = (context.extension.packageJSON as { version?: string }).version ?? "0.0.0";
   const server = new CodeAtlasMcpServer(controller, version);
   try {
-    const actual = await server.start(port);
+    const actual = await server.startWithFallback(basePort, portRange);
     mcp = server;
     updateStatus("listening", actual);
   } catch (err) {
     updateStatus("error");
     vscode.window.showErrorMessage(
-      `Code Atlas MCP server failed to start on port ${port}: ${err instanceof Error ? err.message : String(err)}. ` +
-        `Change "codeAtlas.mcpPort" in settings.`,
+      `Code Atlas MCP server failed to bind any port in ${basePort}..${basePort + portRange - 1}: ` +
+        `${err instanceof Error ? err.message : String(err)}.`,
     );
   }
 }
@@ -156,16 +157,25 @@ function showMcpInfo(): void {
   }
   const port = mcp?.port ?? cfg.get<number>("mcpPort", 7777);
   const url = `http://127.0.0.1:${port}/mcp`;
-  const cmd = `claude mcp add --transport http code-atlas ${url}`;
+  // User-scope registration is one-time and survives across Claude Code sessions;
+  // tools auto-load on every new session. Prefer this over per-project.
+  const userScopeCmd = `claude mcp add --scope user --transport http code-atlas ${url}`;
+  const projectScopeCmd = `claude mcp add --transport http code-atlas ${url}`;
   vscode.window
     .showInformationMessage(
       `Code Atlas MCP: ${url}`,
-      "Copy `claude mcp add` command",
+      "Copy global `claude mcp add` (recommended)",
+      "Copy project-scope command",
       "Copy URL",
     )
     .then((pick) => {
-      if (pick === "Copy `claude mcp add` command") {
-        vscode.env.clipboard.writeText(cmd);
+      if (pick?.startsWith("Copy global")) {
+        vscode.env.clipboard.writeText(userScopeCmd);
+        vscode.window.showInformationMessage(
+          "Copied. Run once in any terminal — new Claude Code sessions auto-load Code Atlas tools.",
+        );
+      } else if (pick === "Copy project-scope command") {
+        vscode.env.clipboard.writeText(projectScopeCmd);
       } else if (pick === "Copy URL") {
         vscode.env.clipboard.writeText(url);
       }

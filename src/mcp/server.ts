@@ -37,6 +37,26 @@ export class CodeAtlasMcpServer {
     this.output = vscode.window.createOutputChannel("Code Atlas MCP");
   }
 
+  /**
+   * Try to bind `preferredPort`. If it's in use (EADDRINUSE), increment up to
+   * `range - 1` times before giving up. Returns the port we actually bound.
+   * Used so multiple VS Code windows can coexist without colliding.
+   */
+  async startWithFallback(preferredPort: number, range: number): Promise<number> {
+    let lastErr: unknown = null;
+    for (let i = 0; i < range; i++) {
+      const port = preferredPort + i;
+      try {
+        return await this.start(port);
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException)?.code;
+        if (code !== "EADDRINUSE") throw err;
+        lastErr = err;
+      }
+    }
+    throw lastErr ?? new Error(`No free port in range ${preferredPort}..${preferredPort + range - 1}`);
+  }
+
   async start(preferredPort: number): Promise<number> {
     const httpServer = http.createServer((req, res) => {
       void this.handleRequest(req, res);
