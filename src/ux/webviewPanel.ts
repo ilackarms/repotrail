@@ -27,6 +27,12 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     private readonly controller: TourController,
   ) {
     controller.onDidChange(() => void this.render());
+    // Re-render when the TTS settings change so the "Voice: …" hint and the
+    // Speak button's enabled state stay in sync (config changes don't trigger a
+    // controller change on their own).
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("codeAtlas.tts")) void this.render();
+    });
   }
 
   /** Lets the extension supply a function that returns saved tours. */
@@ -83,11 +89,14 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         case "stop":
           this.controller.stop();
           break;
-        case "toggleTts":
-          await vscode.commands.executeCommand("codeAtlas.cycleTts");
-          break;
         case "speakCurrent":
           await vscode.commands.executeCommand("codeAtlas.speakCurrent");
+          break;
+        case "stopTts":
+          await vscode.commands.executeCommand("codeAtlas.stopTts");
+          break;
+        case "openTtsSettings":
+          await vscode.commands.executeCommand("workbench.action.openSettings", "codeAtlas.tts.provider");
           break;
         case "resumeTour":
           if (typeof msg.id === "string") {
@@ -140,7 +149,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     const escape = (s: string) =>
       s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-    const ttsLabel = ttsProvider === "off" ? "🔇 TTS off" : `🔊 TTS: ${escape(ttsProvider)}`;
     const nonce = randomBytes(16).toString("hex");
 
     const tourList = (() => {
@@ -209,10 +217,10 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       <button id="next" ${index >= total - 1 ? "disabled" : ""}>Next →</button>
       <button id="deeper" title="Copy a 'deepen this step' prompt to clipboard for your Claude Code session">📋 Deepen (copy prompt)</button>
       <button id="stop">Stop</button>
-      <button id="speakCurrent" class="secondary">🔊 Speak</button>
+      <button id="playPause" class="secondary" ${ttsProvider === "off" ? "disabled" : ""}>🔊 Speak</button>
     ` : `<button id="start">Start tour</button>`}
-    <button id="toggleTts" class="secondary">${ttsLabel}</button>
   </div>
+  ${plan ? `<div class="meta">Voice: ${escape(ttsProvider)} · change in <a href="#" id="openTtsSettings">settings</a></div>` : ""}
   ${plan ? `
     <input id="q" placeholder="Follow-up question — Enter to copy as prompt" />
     <div class="meta" style="margin-top:6px">Deepen + follow-up copy a prompt to your clipboard. Paste it into your Claude Code session; the agent will mutate the tour.</div>
@@ -225,8 +233,10 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     document.getElementById("back")?.addEventListener("click", () => send({ type: "back" }));
     document.getElementById("deeper")?.addEventListener("click", () => send({ type: "deeper" }));
     document.getElementById("stop")?.addEventListener("click", () => send({ type: "stop" }));
-    document.getElementById("toggleTts")?.addEventListener("click", () => send({ type: "toggleTts" }));
-    document.getElementById("speakCurrent")?.addEventListener("click", () => send({ type: "speakCurrent" }));
+    document.getElementById("openTtsSettings")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      send({ type: "openTtsSettings" });
+    });
     const q = document.getElementById("q");
     q?.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && q.value.trim()) {
@@ -246,50 +256,100 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       });
     });
     // ---- TTS playback surface ----------------------------------------------
-    // The extension host picks the provider; this page just plays what it gets:
+    // The host picks the provider; this page plays what it receives and owns the
+    // Play/Pause button:
     //   tts.speak engine=system  -> SpeechSynthesis (native OS voices)
     //   tts.speak engine=kokoro  -> local Kokoro-82M neural voice (WASM)
     //   tts.audio                -> MP3 bytes from a hosted provider (ElevenLabs/OpenAI)
-    // speakToken invalidates any in-flight kokoro chunk when a new request or a
-    // cancel arrives, so we never play stale audio over a newer step.
+    // speakToken invalidates stale audio when a new request or cancel arrives, so
+    // we never play an old utterance over a newer step. Pause/resume act on the
+    // live SpeechSynthesis queue or <audio> element without a host round-trip.
+    const btn = document.getElementById("playPause");
     let audioEl = null;
     let kokoroPromise = null;
     let speakToken = 0;
+    let mode = null;     // 'synth' | 'audio'
+    let state = "idle";  // idle | preparing | playing | paused
+
+    function setState(s) {
+      state = s;
+      if (!btn) return;
+      btn.textContent =
+        s === "preparing" ? "⏳ Loading voice…" :
+        s === "playing" ? "⏸️ Pause" :
+        s === "paused" ? "▶️ Resume" : "🔊 Speak";
+    }
 
     function stopAll() {
       speakToken++;
       try { window.speechSynthesis?.cancel(); } catch (e) {}
       if (audioEl) { try { audioEl.pause(); } catch (e) {} audioEl = null; }
+      mode = null;
     }
 
-    function speakSystem(text) {
+    btn?.addEventListener("click", () => {
+      if (state === "idle") {
+        setState("preparing");
+        send({ type: "speakCurrent" });
+      } else if (state === "playing") {
+        if (mode === "synth") { try { window.speechSynthesis?.pause(); } catch (e) {} }
+        else if (audioEl) { try { audioEl.pause(); } catch (e) {} }
+        setState("paused");
+      } else if (state === "paused") {
+        if (mode === "synth") { try { window.speechSynthesis?.resume(); } catch (e) {} setState("playing"); }
+        else if (audioEl) { audioEl.play().then(() => setState("playing")).catch(() => { stopAll(); setState("idle"); }); }
+        else setState("idle");
+      } else if (state === "preparing") {
+        stopAll();
+        setState("idle");
+        send({ type: "stopTts" });
+      }
+    });
+
+    function speakSystem(text, token) {
       try {
         window.speechSynthesis?.cancel();
         const u = new SpeechSynthesisUtterance(text);
         u.rate = 1.05;
+        mode = "synth";
+        u.onstart = () => { if (token === speakToken) setState("playing"); };
+        u.onend = () => { if (token === speakToken) setState("idle"); };
         window.speechSynthesis?.speak(u);
-      } catch (err) { console.error("[code-atlas tts] system speak failed", err); }
+      } catch (err) {
+        console.error("[code-atlas tts] system speak failed", err);
+        if (token === speakToken) setState("idle");
+      }
     }
 
-    function playBytes(mime, b64) {
+    function playBytes(mime, b64, token) {
       try {
         const bin = atob(b64);
         const bytes = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        playBlob(new Blob([bytes], { type: mime || "audio/mpeg" }));
-      } catch (err) { console.error("[code-atlas tts] audio decode failed", err); }
+        playBlob(new Blob([bytes], { type: mime || "audio/mpeg" }), token)
+          .then(() => { if (token === speakToken) setState("idle"); });
+      } catch (err) {
+        console.error("[code-atlas tts] audio decode failed", err);
+        if (token === speakToken) setState("idle");
+      }
     }
 
-    // Plays a Blob and resolves when it finishes (or is superseded).
-    function playBlob(blob) {
+    // Plays a Blob; resolves when it finishes (or is superseded). Flips the
+    // button to 'playing' only once sound actually starts, so the label reflects
+    // reality rather than intent.
+    function playBlob(blob, token) {
       return new Promise((resolve) => {
+        if (token !== speakToken) { resolve(); return; }
         const url = URL.createObjectURL(blob);
         if (audioEl) { try { audioEl.pause(); } catch (e) {} }
         audioEl = new Audio(url);
+        mode = "audio";
         const done = () => { try { URL.revokeObjectURL(url); } catch (e) {} resolve(); };
         audioEl.onended = done;
         audioEl.onerror = done;
-        audioEl.play().catch((e) => { console.error("[code-atlas tts] play failed", e); done(); });
+        audioEl.play()
+          .then(() => { if (token === speakToken) setState("playing"); })
+          .catch((e) => { console.error("[code-atlas tts] play failed", e); done(); });
       });
     }
 
@@ -310,14 +370,13 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       return (parts ? parts.map((s) => s.trim()).filter(Boolean) : [text]);
     }
 
-    async function speakKokoro(text, voice) {
-      const token = ++speakToken;
+    async function speakKokoro(text, voice, token) {
       let tts;
       try {
         tts = await loadKokoro();
       } catch (e) {
         console.error("[code-atlas tts] kokoro unavailable, using system voice", e);
-        if (token === speakToken) speakSystem(text);
+        if (token === speakToken) speakSystem(text, token);
         return;
       }
       if (token !== speakToken) return; // cancelled while the model loaded
@@ -328,12 +387,13 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           audio = await tts.generate(chunk, { voice: voice || "af_heart" });
         } catch (e) {
           console.error("[code-atlas tts] kokoro generate failed, using system voice", e);
-          if (token === speakToken) speakSystem(chunk);
+          if (token === speakToken) speakSystem(chunk, token);
           continue;
         }
         if (token !== speakToken) return;
-        await playBlob(audio.toBlob());
+        await playBlob(audio.toBlob(), token);
       }
+      if (token === speakToken) setState("idle");
     }
 
     window.addEventListener("message", (e) => {
@@ -341,13 +401,18 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       if (!m) return;
       if (m.type === "tts.speak" && typeof m.text === "string") {
         stopAll();
-        if (m.engine === "kokoro") speakKokoro(m.text, m.voice);
-        else speakSystem(m.text);
+        const token = speakToken;
+        setState("preparing");
+        if (m.engine === "kokoro") speakKokoro(m.text, m.voice, token);
+        else speakSystem(m.text, token);
       } else if (m.type === "tts.audio" && typeof m.dataBase64 === "string") {
         stopAll();
-        playBytes(m.mime, m.dataBase64);
+        const token = speakToken;
+        setState("preparing");
+        playBytes(m.mime, m.dataBase64, token);
       } else if (m.type === "tts.cancel") {
         stopAll();
+        setState("idle");
       }
     });
   </script>

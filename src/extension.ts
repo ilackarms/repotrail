@@ -125,12 +125,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const next = order[(idx + 1) % order.length] ?? "off";
       await cfg.update("tts.provider", next, vscode.ConfigurationTarget.Global);
       vscode.window.setStatusBarMessage(`Code Atlas TTS: ${next}`, 1500);
-      if (next !== "off") {
-        // Re-speak the current step so the user hears the mode change in action.
-        tts.speakCurrent();
-      } else {
-        tts.cancel();
-      }
+      // Switching providers no longer auto-speaks — it only stops any current
+      // narration. Use the Speak button to start playback on demand.
+      tts.cancel();
     }),
     vscode.commands.registerCommand("codeAtlas.speakCurrent", () => tts.speakCurrent()),
     vscode.commands.registerCommand("codeAtlas.stopTts", () => tts.cancel()),
