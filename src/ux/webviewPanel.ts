@@ -21,8 +21,18 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   private view: vscode.WebviewView | undefined;
   private onSinkChange: ((sink: WebviewSink | null) => void) | null = null;
   private tourListLoader: (() => Promise<TourSummary[]>) | null = null;
+  private mcpStatusLoader: (() => { enabled: boolean; port: number | null }) | null = null;
 
   private warnedKokoroFallback = false;
+
+  // The last clipboard-bridge prompt (deepen / follow-up) so we can show the
+  // user exactly what to paste, rather than a fire-and-forget toast. Pinned to
+  // the step it was generated for; cleared once the user navigates away.
+  private bridge: { label: string; prompt: string; index: number } | null = null;
+
+  // Track step count per tour so we can flag agent-inserted steps.
+  private lastTotal = 0;
+  private lastTourId: string | null = null;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -41,6 +51,23 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   /** Lets the extension supply a function that returns saved tours. */
   setTourListLoader(fn: () => Promise<TourSummary[]>): void {
     this.tourListLoader = fn;
+    void this.render();
+  }
+
+  /** Lets the extension report MCP server status for the empty-state hint. */
+  setMcpStatusLoader(fn: () => { enabled: boolean; port: number | null }): void {
+    this.mcpStatusLoader = fn;
+    void this.render();
+  }
+
+  /**
+   * Display the prompt a clipboard-bridge action (deepen / follow-up) just
+   * copied, so the user can see what to paste into Claude Code instead of
+   * guessing. Pinned to the current step.
+   */
+  showBridgePrompt(label: string, prompt: string): void {
+    const snap = this.controller.snapshot();
+    this.bridge = { label, prompt, index: snap.index };
     void this.render();
   }
 
@@ -75,11 +102,30 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         case "start":
           await vscode.commands.executeCommand("codeAtlas.startTour");
           break;
+        case "startFromAgent":
+          await vscode.commands.executeCommand("codeAtlas.startFromAgent");
+          break;
+        case "runSample":
+          await vscode.commands.executeCommand("codeAtlas.runSampleTour");
+          break;
+        case "importTour":
+          await vscode.commands.executeCommand("codeAtlas.importTour");
+          break;
+        case "exportTour":
+          await vscode.commands.executeCommand("codeAtlas.exportTour");
+          break;
         case "next":
           await this.controller.next();
           break;
         case "back":
           await this.controller.back();
+          break;
+        case "showStep":
+          if (typeof msg.index === "number") await this.controller.showStep(msg.index);
+          break;
+        case "dismissBridge":
+          this.bridge = null;
+          await this.render();
           break;
         case "deeper":
           await vscode.commands.executeCommand("codeAtlas.deeper");
@@ -142,7 +188,36 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     const snap = this.controller.snapshot();
     const provider = vscode.workspace.getConfiguration("codeAtlas").get<string>("tts.provider", "system");
     const tours = snap.plan ? [] : await this.loadTours();
-    this.view.webview.html = this.html(snap, provider, tours);
+
+    const total = snap.plan?.steps.length ?? 0;
+    const tourId = this.controller.activeTourId;
+
+    // "Steps added" banner: only when the agent spliced steps into a tour the
+    // user is already on (insert) — not during initial emission or navigation.
+    let addedBanner = 0;
+    if (
+      tourId &&
+      tourId === this.lastTourId &&
+      this.controller.lastMutation === "insert" &&
+      total > this.lastTotal
+    ) {
+      addedBanner = total - this.lastTotal;
+    }
+    this.lastTotal = total;
+    this.lastTourId = tourId;
+
+    // A bridge prompt is pinned to one step; drop it once the user moves on.
+    if (this.bridge && (!snap.plan || this.bridge.index !== snap.index)) {
+      this.bridge = null;
+    }
+
+    const mcp = this.mcpStatusLoader?.() ?? { enabled: true, port: null };
+
+    this.view.webview.html = this.html(snap, provider, tours, {
+      addedBanner,
+      bridge: this.bridge,
+      mcp,
+    });
   }
 
   private async loadTours(): Promise<TourSummary[]> {
@@ -158,17 +233,82 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     snap: ReturnType<TourController["snapshot"]>,
     ttsProvider: string,
     tours: TourSummary[],
+    extra: {
+      addedBanner: number;
+      bridge: { label: string; prompt: string; index: number } | null;
+      mcp: { enabled: boolean; port: number | null };
+    },
   ): string {
     const { plan, index, current } = snap;
     const total = plan?.steps.length ?? 0;
     const title = current?.title ?? "No active tour";
-    const explanation = current?.explanation ?? "Run **Code Atlas: Start Tour** to begin.";
+    const explanation = current?.explanation ?? "";
     const fileLabel = current?.file ?? "";
 
     const escape = (s: string) =>
       s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
     const nonce = randomBytes(16).toString("hex");
+
+    // Ordered list of every stop — the actual "atlas". Click to jump.
+    const overview = (() => {
+      if (!plan || plan.steps.length === 0) return "";
+      const rows = plan.steps
+        .map((s, i) => {
+          const loc = s.range ? `${s.file}:${s.range.startLine}` : s.file;
+          return `
+            <li class="stop ${i === index ? "active" : ""}" data-index="${i}">
+              <span class="stop-num">${i + 1}</span>
+              <span class="stop-body">
+                <span class="stop-title">${escape(s.title)}</span>
+                <span class="stop-loc">${escape(loc)}</span>
+              </span>
+            </li>`;
+        })
+        .join("");
+      return `
+        <h3 class="section-h">Route · ${total} stops</h3>
+        <ul class="stops">${rows}</ul>`;
+    })();
+
+    // Banner shown when the agent spliced new steps into the active tour.
+    const banner =
+      extra.addedBanner > 0
+        ? `<div class="banner">▲ ${extra.addedBanner} step${extra.addedBanner === 1 ? "" : "s"} added by the agent — click <strong>Next →</strong> or pick one from the route below.</div>`
+        : "";
+
+    // The exact prompt a deepen/follow-up just copied, so the user sees what to
+    // paste rather than getting a blind "copied to clipboard" toast.
+    const bridgeBlock = extra.bridge
+      ? `
+        <div class="bridge">
+          <div class="bridge-head">
+            <span>📋 ${escape(extra.bridge.label)} — paste into Claude Code</span>
+            <button id="dismissBridge" class="link">dismiss</button>
+          </div>
+          <pre class="bridge-prompt">${escape(extra.bridge.prompt)}</pre>
+          <div class="meta">Copied to your clipboard. Paste it into your Claude Code session; the agent will mutate the tour and you'll see a banner here when steps land.</div>
+        </div>`
+      : "";
+
+    // Empty state: be honest that tours are generated by the agent over MCP.
+    const mcpLine = (() => {
+      if (!extra.mcp.enabled) return `MCP server off — enable <code>codeAtlas.mcpEnabled</code> so your agent can connect.`;
+      if (extra.mcp.port) return `MCP listening on <code>127.0.0.1:${extra.mcp.port}</code> — your agent can drive tours.`;
+      return `MCP server starting…`;
+    })();
+
+    const emptyState = plan
+      ? ""
+      : `
+        <h2>No active tour</h2>
+        <div class="explanation">Code Atlas tours are generated by your AI agent (Claude Code) over MCP, then you navigate them here. Ask it for <em>"a Code Atlas tour of this repo"</em> — or kick the tires with a sample.</div>
+        <div class="controls">
+          <button id="startFromAgent">Start a tour from Claude Code</button>
+          <button id="runSample" class="secondary">Run sample tour</button>
+          <button id="importTour" class="secondary">Import tour…</button>
+        </div>
+        <div class="meta">${mcpLine}</div>`;
 
     const tourList = (() => {
       if (snap.plan || tours.length === 0) return "";
@@ -224,37 +364,66 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   .tour-meta { color: var(--vscode-descriptionForeground); font-size: 11px; margin-top: 2px; }
   .tour-actions { display: flex; gap: 4px; flex-shrink: 0; }
   .tour-actions button { padding: 3px 8px; font-size: 11px; }
+  .banner { background: var(--vscode-inputValidation-infoBackground, var(--vscode-textBlockQuote-background)); border: 1px solid var(--vscode-inputValidation-infoBorder, var(--vscode-focusBorder)); border-radius: 3px; padding: 6px 8px; margin-bottom: 10px; font-size: 12px; line-height: 1.4; }
+  .bridge { border: 1px solid var(--vscode-panel-border, var(--vscode-focusBorder)); border-radius: 3px; padding: 8px; margin-bottom: 12px; background: var(--vscode-textCodeBlock-background); }
+  .bridge-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; color: var(--vscode-descriptionForeground); margin-bottom: 6px; }
+  .bridge-prompt { white-space: pre-wrap; word-break: break-word; margin: 0 0 6px 0; font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; line-height: 1.4; max-height: 180px; overflow: auto; }
+  button.link { background: none; border: none; color: var(--vscode-textLink-foreground); padding: 0; cursor: pointer; font-size: 11px; }
+  button.link:hover { text-decoration: underline; background: none; }
+  .stops { list-style: none; margin: 0; padding: 0; }
+  .stop { display: flex; gap: 8px; align-items: baseline; padding: 5px 6px; cursor: pointer; border-radius: 3px; border-left: 2px solid transparent; }
+  .stop:hover { background: var(--vscode-list-hoverBackground); }
+  .stop.active { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); border-left-color: var(--vscode-focusBorder); }
+  .stop-num { flex-shrink: 0; width: 1.4em; text-align: right; color: var(--vscode-descriptionForeground); font-size: 11px; }
+  .stop.active .stop-num { color: inherit; }
+  .stop-body { display: flex; flex-direction: column; min-width: 0; }
+  .stop-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stop-loc { color: var(--vscode-descriptionForeground); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stop.active .stop-loc { color: inherit; opacity: 0.8; }
 </style>
 </head>
 <body>
-  <h2>${escape(title)}</h2>
-  <div class="meta">${plan ? `Step ${index + 1} of ${total} · ${escape(fileLabel)}` : "&nbsp;"}</div>
-  <div class="explanation">${escape(explanation)}</div>
-  <div class="controls">
-    ${plan ? `
+  ${plan ? `
+    ${banner}
+    <h2>${escape(title)}</h2>
+    <div class="meta">Step ${index + 1} of ${total} · ${escape(fileLabel)}</div>
+    <div class="explanation">${escape(explanation)}</div>
+    <div class="controls">
       <button id="back" ${index === 0 ? "disabled" : ""}>← Back</button>
       <button id="next" ${index >= total - 1 ? "disabled" : ""}>Next →</button>
-      <button id="deeper" title="Copy a 'deepen this step' prompt to clipboard for your Claude Code session">📋 Deepen (copy prompt)</button>
+      <button id="deeper" title="Copy a 'deepen this step' prompt to clipboard for your Claude Code session">📋 Deepen</button>
       <button id="stop">Stop</button>
       <button id="playPause" class="secondary" ${ttsProvider === "off" ? "disabled" : ""}>🔊 Speak</button>
-    ` : `<button id="start">Start tour</button>`}
-  </div>
-  ${plan ? `<div class="meta">Voice: ${escape(ttsProvider)} · change in <a href="#" id="openTtsSettings">settings</a></div>` : ""}
-  ${plan ? `
+      <button id="exportTour" class="secondary" title="Export this tour as Markdown or a re-importable JSON file">⤓ Export</button>
+    </div>
+    <div class="meta">Voice: ${escape(ttsProvider)} · change in <a href="#" id="openTtsSettings">settings</a></div>
+    ${bridgeBlock}
     <input id="q" placeholder="Follow-up question — Enter to copy as prompt" />
-    <div class="meta" style="margin-top:6px">Deepen + follow-up copy a prompt to your clipboard. Paste it into your Claude Code session; the agent will mutate the tour.</div>
-  ` : tourList}
+    <div class="meta" style="margin-top:6px">Deepen + follow-up copy a prompt to your clipboard for Claude Code.</div>
+    ${overview}
+  ` : `${emptyState}${tourList}`}
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const send = (msg) => vscode.postMessage(msg);
-    document.getElementById("start")?.addEventListener("click", () => send({ type: "start" }));
-    document.getElementById("next")?.addEventListener("click", () => send({ type: "next" }));
-    document.getElementById("back")?.addEventListener("click", () => send({ type: "back" }));
-    document.getElementById("deeper")?.addEventListener("click", () => send({ type: "deeper" }));
-    document.getElementById("stop")?.addEventListener("click", () => send({ type: "stop" }));
+    const on = (id, type) => document.getElementById(id)?.addEventListener("click", () => send({ type }));
+    on("startFromAgent", "startFromAgent");
+    on("runSample", "runSample");
+    on("importTour", "importTour");
+    on("next", "next");
+    on("back", "back");
+    on("deeper", "deeper");
+    on("stop", "stop");
+    on("exportTour", "exportTour");
+    on("dismissBridge", "dismissBridge");
     document.getElementById("openTtsSettings")?.addEventListener("click", (e) => {
       e.preventDefault();
       send({ type: "openTtsSettings" });
+    });
+    document.querySelectorAll(".stop").forEach((el) => {
+      el.addEventListener("click", () => {
+        const i = parseInt(el.getAttribute("data-index"), 10);
+        if (!Number.isNaN(i)) send({ type: "showStep", index: i });
+      });
     });
     const q = document.getElementById("q");
     q?.addEventListener("keydown", (e) => {

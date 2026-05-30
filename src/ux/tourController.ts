@@ -7,6 +7,22 @@ import { clearHighlights, executeStep } from "./editorActions";
 export type UserAction = "next" | "back" | "deeper" | "stop";
 
 /**
+ * What produced the most recent onDidChange. Lets the UX distinguish an agent
+ * splicing in new steps (`insert`) from the user navigating (`nav`) or the
+ * initial emission (`append`), so it can surface a "steps added" banner only
+ * when it's genuinely a deepening.
+ */
+export type TourMutation =
+  | "start"
+  | "append"
+  | "insert"
+  | "update"
+  | "remove"
+  | "nav"
+  | "stop"
+  | null;
+
+/**
  * Owns the active TourPlan and current step index. The webview view, the
  * extension's commands, and the MCP server all talk to this controller —
  * never to editorActions directly.
@@ -28,6 +44,7 @@ export class TourController {
   private workspaceRoot: string | null = null;
   private createdAt: number | null = null;
   private persistFn: PersistFn | null = null;
+  private lastMutationKind: TourMutation = null;
   private readonly onChangeEmitter = new vscode.EventEmitter<void>();
   private readonly userActionEmitter = new vscode.EventEmitter<UserAction>();
   readonly onDidChange = this.onChangeEmitter.event;
@@ -75,6 +92,7 @@ export class TourController {
     this.tourId = newTourId();
     this.workspaceRoot = this.resolveWorkspaceRoot(req);
     this.createdAt = Date.now();
+    this.lastMutationKind = "start";
     await this.applyCurrent();
     this.persist();
     this.onChangeEmitter.fire();
@@ -91,7 +109,26 @@ export class TourController {
     this.tourId = newTourId();
     this.workspaceRoot = this.resolveWorkspaceRoot(req);
     this.createdAt = Date.now();
+    this.lastMutationKind = "start";
     clearHighlights();
+    this.persist();
+    this.onChangeEmitter.fire();
+  }
+
+  /**
+   * Load a fully-formed plan as a brand-new tour (imported file or sample
+   * demo). Unlike `resume`, this mints a fresh id so it persists as its own
+   * entry, and lands the user on the first step.
+   */
+  async loadPlan(plan: TourPlan, req?: TourRequest): Promise<void> {
+    this.plan = plan;
+    this.request = req ?? null;
+    this.index = plan.steps.length > 0 ? 0 : -1;
+    this.tourId = newTourId();
+    this.workspaceRoot = this.resolveWorkspaceRoot(req);
+    this.createdAt = Date.now();
+    this.lastMutationKind = "start";
+    await this.applyCurrent();
     this.persist();
     this.onChangeEmitter.fire();
   }
@@ -104,6 +141,7 @@ export class TourController {
     this.createdAt = record.createdAt;
     this.index = Math.max(0, Math.min(record.lastIndex, record.plan.steps.length - 1));
     this.request = null;
+    this.lastMutationKind = "start";
     await this.applyCurrent();
     this.persist(); // bump updatedAt so resume bubbles to top of list
     this.onChangeEmitter.fire();
@@ -111,6 +149,11 @@ export class TourController {
 
   get activeTourId(): string | null {
     return this.tourId;
+  }
+
+  /** What produced the most recent change. See {@link TourMutation}. */
+  get lastMutation(): TourMutation {
+    return this.lastMutationKind;
   }
 
   get activeWorkspaceRoot(): string | null {
@@ -129,6 +172,7 @@ export class TourController {
     }
     this.plan.steps.push(step);
     this.index = this.plan.steps.length - 1;
+    this.lastMutationKind = "append";
     await this.applyCurrent();
     this.persist();
     this.onChangeEmitter.fire();
@@ -147,6 +191,7 @@ export class TourController {
     const insertAt = Math.max(0, Math.min(at, this.plan.steps.length));
     this.plan.steps.splice(insertAt, 0, step);
     if (this.index >= insertAt) this.index++;
+    this.lastMutationKind = "insert";
     this.persist();
     this.onChangeEmitter.fire();
     return insertAt;
@@ -157,6 +202,7 @@ export class TourController {
     if (!this.plan) return;
     if (at < 0 || at >= this.plan.steps.length) return;
     this.plan.steps[at] = step;
+    this.lastMutationKind = "update";
     if (this.index === at) await this.applyCurrent();
     this.persist();
     this.onChangeEmitter.fire();
@@ -167,6 +213,7 @@ export class TourController {
     if (!this.plan) return;
     if (at < 0 || at >= this.plan.steps.length) return;
     this.plan.steps.splice(at, 1);
+    this.lastMutationKind = "remove";
     if (this.plan.steps.length === 0) {
       this.index = -1;
       clearHighlights();
@@ -183,6 +230,7 @@ export class TourController {
     if (!this.plan) return;
     if (this.index < this.plan.steps.length - 1) {
       this.index++;
+      this.lastMutationKind = "nav";
       await this.applyCurrent();
       this.persist();
       this.onChangeEmitter.fire();
@@ -194,6 +242,7 @@ export class TourController {
     if (!this.plan) return;
     if (this.index > 0) {
       this.index--;
+      this.lastMutationKind = "nav";
       await this.applyCurrent();
       this.persist();
       this.onChangeEmitter.fire();
@@ -223,6 +272,7 @@ export class TourController {
     if (!this.plan) return;
     if (index < 0 || index >= this.plan.steps.length) return;
     this.index = index;
+    this.lastMutationKind = "nav";
     await this.applyCurrent();
     this.persist();
     this.onChangeEmitter.fire();
@@ -241,6 +291,7 @@ export class TourController {
     this.tourId = null;
     this.workspaceRoot = null;
     this.createdAt = null;
+    this.lastMutationKind = "stop";
     clearHighlights();
     this.onChangeEmitter.fire();
     this.userActionEmitter.fire("stop");

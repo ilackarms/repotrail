@@ -61,16 +61,23 @@ export async function executeStep(step: TourStep): Promise<void> {
       (step.range ? "" : " (defaulted — agent omitted range)"),
   );
 
-  // Auto-pop the hover so the user doesn't have to mouse over.
-  // The wait gives showTextDocument time to finish focus/render.
-  setTimeout(() => {
-    void vscode.commands
-      .executeCommand("editor.action.showHover")
-      .then(
-        () => logger?.appendLine("[editor] showHover OK"),
-        (err) => logger?.appendLine(`[editor] showHover failed: ${String(err)}`),
-      );
-  }, 120);
+  // Auto-pop the hover so the user doesn't have to mouse over. Off by default
+  // (codeAtlas.autoShowHover): the popup fights the user's cursor and the
+  // sidebar already shows the same narration durably. Opt in if you want it.
+  const autoHover = vscode.workspace
+    .getConfiguration("codeAtlas")
+    .get<boolean>("autoShowHover", false);
+  if (autoHover) {
+    // The wait gives showTextDocument time to finish focus/render.
+    setTimeout(() => {
+      void vscode.commands
+        .executeCommand("editor.action.showHover")
+        .then(
+          () => logger?.appendLine("[editor] showHover OK"),
+          (err) => logger?.appendLine(`[editor] showHover failed: ${String(err)}`),
+        );
+    }, 120);
+  }
 }
 
 export function clearHighlights(): void {

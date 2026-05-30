@@ -93,7 +93,12 @@ Then in VS Code: **Run and Debug → Run Extension** (F5). In the dev host:
 
 ### UX polish
 - [ ] Progress bar in the webview.
-- [ ] Inline-edit explanations / "save tour as markdown".
+- [ ] Inline-edit explanations.
+- [x] Export tour as Markdown / re-importable JSON (`codeAtlas.exportTour` / `importTour`).
+- [x] Route overview list of all stops with click-to-jump (the "atlas" view).
+- [x] Honest in-editor entry point — agent handoff + sample, no silent mock.
+- [x] Clipboard-bridge feedback — inline prompt + "steps added" banner.
+- [x] Auto-pop hover is opt-in (`codeAtlas.autoShowHover`).
 - [ ] Multi-file overview pane (mini-map of all step files).
 - [ ] Persist last tour per workspace so reloads resume.
 

@@ -2,7 +2,7 @@
   "name": "code-atlas",
   "displayName": "Code Atlas",
   "description": "AI-guided codebase walkthroughs. Interactive tours of repos, PRs, subsystems, and execution flows.",
-  "version": "0.8.4",
+  "version": "0.9.0",
   "publisher": "code-atlas",
   "private": true,
   "engines": {
@@ -21,6 +21,22 @@
       {
         "command": "codeAtlas.startTour",
         "title": "Code Atlas: Start Tour"
+      },
+      {
+        "command": "codeAtlas.startFromAgent",
+        "title": "Code Atlas: Start Tour from Claude Code"
+      },
+      {
+        "command": "codeAtlas.runSampleTour",
+        "title": "Code Atlas: Run Sample Tour (demo)"
+      },
+      {
+        "command": "codeAtlas.exportTour",
+        "title": "Code Atlas: Export Tour"
+      },
+      {
+        "command": "codeAtlas.importTour",
+        "title": "Code Atlas: Import Tour"
       },
       {
         "command": "codeAtlas.next",
@@ -90,6 +106,11 @@
           "type": "string",
           "default": "claude-opus-4-7",
           "description": "Anthropic model id used for tour generation."
+        },
+        "codeAtlas.autoShowHover": {
+          "type": "boolean",
+          "default": false,
+          "description": "When a tour step opens, automatically pop the narration hover over the highlight. Off by default — the narration is always visible in the sidebar, and the auto-hover fights your cursor. Turn on if you prefer the in-editor popup."
         },
         "codeAtlas.mcpEnabled": {
           "type": "boolean",
