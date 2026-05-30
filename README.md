@@ -33,7 +33,7 @@ The engine emits steps the extension *executes*. It is not an unconstrained agen
   - File walkthrough
   - Request lifecycle trace
   - Bug investigation path
-- Sidebar webview that renders the current step's title + explanation, with **Next / Back / Go deeper / Stop** and a follow-up question box.
+- Sidebar webview with a fixed navigation dock for **Next / Back / Go deeper / Stop**, follow-up prompts, and a compactable route list above the current step explanation.
 - Mock provider that emits a 4-step tour of this extension itself so you can run it immediately.
 - Anthropic Claude provider stub wired to settings (`codeAtlas.anthropicApiKey`, `codeAtlas.model`) — throws until implemented.
 - Cursor / Windsurf compatible: only standard `vscode` API is used.
@@ -96,6 +96,7 @@ Then in VS Code: **Run and Debug → Run Extension** (F5). In the dev host:
 - [ ] Inline-edit explanations.
 - [x] Export tour as Markdown / re-importable JSON (`codeAtlas.exportTour` / `importTour`).
 - [x] Route overview list of all stops with click-to-jump (the "atlas" view).
+- [x] Stable sidebar navigation dock with compactable route list.
 - [x] Honest in-editor entry point — agent handoff + sample, no silent mock.
 - [x] Clipboard-bridge feedback — inline prompt + "steps added" banner.
 - [x] Narration stays in the sidebar instead of hover popups over code.

@@ -246,7 +246,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     const fileLabel = current?.file ?? "";
 
     const escape = (s: string) =>
-      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
     const nonce = randomBytes(16).toString("hex");
 
@@ -267,8 +267,15 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         })
         .join("");
       return `
-        <h3 class="section-h">Route · ${total} stops</h3>
-        <ul class="stops">${rows}</ul>`;
+        <details id="routePanel" class="route-panel" open>
+          <summary>
+            <span class="route-summary-row">
+              <span>Route · ${total} stop${total === 1 ? "" : "s"}</span>
+              <span class="route-current">current ${index + 1}/${total}</span>
+            </span>
+          </summary>
+          <ol class="stops">${rows}</ol>
+        </details>`;
     })();
 
     // Banner shown when the agent spliced new steps into the active tour.
@@ -344,17 +351,30 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
 <meta charset="UTF-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}' 'wasm-unsafe-eval' https://esm.sh https://cdn.jsdelivr.net; style-src 'unsafe-inline'; connect-src https: data: blob:; media-src blob: data:; img-src https: data:; font-src https: data:; worker-src blob:; child-src blob:;" />
 <style>
-  body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 12px; font-size: 13px; }
-  h2 { margin: 0 0 4px 0; font-size: 14px; }
+  html, body { height: 100%; }
+  body { box-sizing: border-box; margin: 0; font-family: var(--vscode-font-family); color: var(--vscode-foreground); font-size: 13px; background: var(--vscode-sideBar-background, var(--vscode-editor-background)); }
+  body.empty { padding: 12px; overflow: auto; }
+  body.active { overflow: hidden; }
+  h2 { margin: 0 0 4px 0; font-size: 14px; line-height: 1.35; }
   .meta { color: var(--vscode-descriptionForeground); font-size: 11px; margin-bottom: 12px; }
+  .tour-shell { height: 100vh; min-height: 0; display: flex; flex-direction: column; }
+  .nav-dock { flex: 0 0 auto; padding: 10px 12px 8px; border-bottom: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-sideBar-background, var(--vscode-editor-background)); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08); z-index: 1; }
+  .stop-kicker { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; color: var(--vscode-descriptionForeground); font-size: 11px; }
+  .step-count { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+  .file-chip { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nav-title { margin-bottom: 8px; }
+  .tour-main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 12px 14px; }
   .explanation { white-space: pre-wrap; line-height: 1.5; margin-bottom: 16px; }
   .controls { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
-  button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 6px 10px; cursor: pointer; border-radius: 2px; font-size: 12px; }
+  .nav-dock .controls { margin-bottom: 8px; }
+  .nav-dock .follow-up { margin: 8px 0 4px; }
+  button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 6px 10px; cursor: pointer; border-radius: 2px; font-size: 12px; line-height: 1.2; }
   button:hover { background: var(--vscode-button-hoverBackground); }
+  button:focus-visible, input:focus-visible, summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
   button:disabled { opacity: 0.5; cursor: default; }
   button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
   button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
-  input { width: 100%; box-sizing: border-box; padding: 4px 6px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); }
+  input { width: 100%; box-sizing: border-box; padding: 5px 7px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); border-radius: 2px; }
   .answer { margin-top: 8px; padding: 8px; background: var(--vscode-textCodeBlock-background); border-radius: 2px; white-space: pre-wrap; }
   .section-h { margin: 20px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--vscode-descriptionForeground); }
   .tour-list { list-style: none; margin: 0; padding: 0; }
@@ -370,7 +390,13 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   .bridge-prompt { white-space: pre-wrap; word-break: break-word; margin: 0 0 6px 0; font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; line-height: 1.4; max-height: 180px; overflow: auto; }
   button.link { background: none; border: none; color: var(--vscode-textLink-foreground); padding: 0; cursor: pointer; font-size: 11px; }
   button.link:hover { text-decoration: underline; background: none; }
-  .stops { list-style: none; margin: 0; padding: 0; }
+  .route-panel { margin-top: 8px; border: 1px solid var(--vscode-panel-border, transparent); border-radius: 3px; background: var(--vscode-editorWidget-background, var(--vscode-sideBarSectionHeader-background, transparent)); }
+  .route-panel summary { padding: 6px 8px; cursor: pointer; color: var(--vscode-foreground); font-size: 12px; user-select: none; }
+  .route-panel summary::marker { color: var(--vscode-descriptionForeground); }
+  .route-summary-row { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; width: calc(100% - 16px); min-width: 0; vertical-align: top; }
+  .route-summary-row span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .route-current { flex-shrink: 0; color: var(--vscode-descriptionForeground); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .stops { list-style: none; margin: 0; padding: 2px 4px 6px; max-height: min(34vh, 260px); overflow: auto; border-top: 1px solid var(--vscode-panel-border, transparent); }
   .stop { display: flex; gap: 8px; align-items: baseline; padding: 5px 6px; cursor: pointer; border-radius: 3px; border-left: 2px solid transparent; }
   .stop:hover { background: var(--vscode-list-hoverBackground); }
   .stop.active { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); border-left-color: var(--vscode-focusBorder); }
@@ -382,29 +408,43 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   .stop.active .stop-loc { color: inherit; opacity: 0.8; }
 </style>
 </head>
-<body>
+<body class="${plan ? "active" : "empty"}">
   ${plan ? `
-    ${banner}
-    <h2>${escape(title)}</h2>
-    <div class="meta">Step ${index + 1} of ${total} · ${escape(fileLabel)}</div>
-    <div class="explanation">${escape(explanation)}</div>
-    <div class="controls">
-      <button id="back" ${index === 0 ? "disabled" : ""}>← Back</button>
-      <button id="next" ${index >= total - 1 ? "disabled" : ""}>Next →</button>
-      <button id="deeper" title="Copy a 'deepen this step' prompt to clipboard for your Claude Code session">📋 Deepen</button>
-      <button id="stop">Stop</button>
-      <button id="playPause" class="secondary" ${ttsProvider === "off" ? "disabled" : ""}>🔊 Speak</button>
-      <button id="exportTour" class="secondary" title="Export this tour as Markdown or a re-importable JSON file">⤓ Export</button>
+    <div class="tour-shell">
+      <section class="nav-dock" aria-label="Tour navigation">
+        <div class="stop-kicker">
+          <span class="step-count">Step ${index + 1} of ${total}</span>
+          <span class="file-chip" title="${escape(fileLabel)}">${escape(fileLabel)}</span>
+        </div>
+        <h2 class="nav-title">${escape(title)}</h2>
+        <div class="controls">
+          <button id="back" ${index === 0 ? "disabled" : ""} title="Previous stop">← Back</button>
+          <button id="next" ${index >= total - 1 ? "disabled" : ""} title="Next stop">Next →</button>
+          <button id="deeper" title="Copy a 'deepen this step' prompt to clipboard for your Claude Code session">📋 Deepen</button>
+          <button id="stop" title="Stop this tour">Stop</button>
+          <button id="playPause" class="secondary" ${ttsProvider === "off" ? "disabled" : ""} title="Read this stop aloud">🔊 Speak</button>
+          <button id="exportTour" class="secondary" title="Export this tour as Markdown or a re-importable JSON file">⤓ Export</button>
+        </div>
+        <input id="q" class="follow-up" placeholder="Follow-up question — Enter to copy prompt" />
+        <div class="meta">Voice: ${escape(ttsProvider)} · <a href="#" id="openTtsSettings">settings</a> · Deepen/follow-up copy prompts for Claude Code.</div>
+        ${overview}
+      </section>
+      <main class="tour-main">
+        ${banner}
+        ${bridgeBlock}
+        <div class="explanation">${escape(explanation)}</div>
+      </main>
     </div>
-    <div class="meta">Voice: ${escape(ttsProvider)} · change in <a href="#" id="openTtsSettings">settings</a></div>
-    ${bridgeBlock}
-    <input id="q" placeholder="Follow-up question — Enter to copy as prompt" />
-    <div class="meta" style="margin-top:6px">Deepen + follow-up copy a prompt to your clipboard for Claude Code.</div>
-    ${overview}
   ` : `${emptyState}${tourList}`}
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const send = (msg) => vscode.postMessage(msg);
+    const readState = () => {
+      try { return vscode.getState?.() || {}; } catch (e) { return {}; }
+    };
+    const writeState = (patch) => {
+      try { vscode.setState({ ...readState(), ...patch }); } catch (e) {}
+    };
     const on = (id, type) => document.getElementById(id)?.addEventListener("click", () => send({ type }));
     on("startFromAgent", "startFromAgent");
     on("runSample", "runSample");
@@ -425,6 +465,14 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         if (!Number.isNaN(i)) send({ type: "showStep", index: i });
       });
     });
+    const routePanel = document.getElementById("routePanel");
+    if (routePanel) {
+      const state = readState();
+      if (state.routeCollapsed) routePanel.removeAttribute("open");
+      routePanel.addEventListener("toggle", () => {
+        writeState({ routeCollapsed: !routePanel.open });
+      });
+    }
     const q = document.getElementById("q");
     q?.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && q.value.trim()) {

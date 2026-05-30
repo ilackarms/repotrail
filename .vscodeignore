@@ -2,6 +2,7 @@
 .vscode-test/**
 .idea/**
 .claude/**
+.omx/**
 src/**
 .gitignore
 .gitattributes
