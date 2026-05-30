@@ -1,20 +1,18 @@
 import * as vscode from "vscode";
 import { TourStep } from "../engine/types";
-import { buildHoverMarkdown } from "./hoverProvider";
 
 /**
  * Executes a TourStep's declarative actions against the editor.
  *
  * Only place that calls `vscode.window.show*` / `vscode.workspace.openTextDocument`.
  *
- * Narration surfaces three ways:
- *   1. The TourHoverProvider returns the narration as a native hover whenever
- *      the cursor is inside the step's range. This is what `showHover` picks up.
- *   2. The decoration carries its own `hoverMessage` so mouse-over the
- *      highlight also shows narration even if focus is elsewhere.
- *   3. TourCodeLensProvider draws a control strip above the range.
+ * Narration stays outside the code surface:
+ *   1. The sidebar renders the full current-step narration durably.
+ *   2. TourCodeLensProvider draws a control strip above the range and can focus
+ *      the sidebar when the user wants to read the narration.
  *
- * If the agent omits `range`, we default to lines 1–5 so all three still fire.
+ * If the agent omits `range`, we default to lines 1–5 so the highlight and
+ * CodeLens still have a real range to attach to.
  */
 
 const HIGHLIGHT_DECORATION = vscode.window.createTextEditorDecorationType({
@@ -51,8 +49,7 @@ export async function executeStep(step: TourStep): Promise<void> {
   const editor = await vscode.window.showTextDocument(doc, { preview: false });
 
   const range = resolveRange(step, doc);
-  const hover = buildHoverMarkdown(step);
-  editor.setDecorations(HIGHLIGHT_DECORATION, [{ range, hoverMessage: hover }]);
+  editor.setDecorations(HIGHLIGHT_DECORATION, [{ range }]);
   editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
   editor.selection = new vscode.Selection(range.start, range.start);
 
@@ -61,23 +58,6 @@ export async function executeStep(step: TourStep): Promise<void> {
       (step.range ? "" : " (defaulted — agent omitted range)"),
   );
 
-  // Auto-pop the hover so the user doesn't have to mouse over. Off by default
-  // (codeAtlas.autoShowHover): the popup fights the user's cursor and the
-  // sidebar already shows the same narration durably. Opt in if you want it.
-  const autoHover = vscode.workspace
-    .getConfiguration("codeAtlas")
-    .get<boolean>("autoShowHover", false);
-  if (autoHover) {
-    // The wait gives showTextDocument time to finish focus/render.
-    setTimeout(() => {
-      void vscode.commands
-        .executeCommand("editor.action.showHover")
-        .then(
-          () => logger?.appendLine("[editor] showHover OK"),
-          (err) => logger?.appendLine(`[editor] showHover failed: ${String(err)}`),
-        );
-    }, 120);
-  }
 }
 
 export function clearHighlights(): void {
@@ -95,8 +75,8 @@ function resolveRange(step: TourStep, doc: vscode.TextDocument): vscode.Range {
     const endCol = Math.max(0, r.endColumn - 1);
     return new vscode.Range(startLine, startCol, endLine, endCol);
   }
-  // Default: highlight the first 5 (or all, if shorter) lines so hover/CodeLens
-  // both have a real range to attach to.
+  // Default: highlight the first 5 (or all, if shorter) lines so CodeLens has a
+  // real range to attach to.
   const endLine = Math.min(4, Math.max(0, doc.lineCount - 1));
   const endChar = doc.lineAt(endLine).text.length;
   return new vscode.Range(0, 0, endLine, endChar);

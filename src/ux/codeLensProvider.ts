@@ -3,7 +3,7 @@ import { TourController } from "./tourController";
 
 /**
  * Renders a control strip as CodeLenses on the line above the current step's
- * highlight. Shows step title + Back / Next / Deeper / Stop / Show narration.
+ * highlight. Shows step title + Back / Next / Deeper / Stop / Open narration.
  *
  * Refreshes on controller.onDidChange. Only emits for the file the current
  * step points at. If the agent omitted `range`, anchors to line 1.
@@ -43,8 +43,8 @@ export class TourCodeLensProvider implements vscode.CodeLensProvider {
       }),
       new vscode.CodeLens(lensRange, { title: "$(stop-circle) Stop", command: "codeAtlas.stop" }),
       new vscode.CodeLens(lensRange, {
-        title: "$(book) Show narration",
-        command: "codeAtlas.showHoverNarration",
+        title: "$(book) Open narration",
+        command: "codeAtlas.openNarration",
       }),
       new vscode.CodeLens(lensRange, {
         title: ttsLensLabel(),

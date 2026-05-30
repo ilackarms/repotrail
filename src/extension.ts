@@ -15,7 +15,6 @@ import { deleteTour, listTours, loadTour, saveTour } from "./storage/tourStore";
 import { availableProviders, TtsManager, TtsProvider } from "./tts/manager";
 import { TourCodeLensProvider } from "./ux/codeLensProvider";
 import { setEditorLogger } from "./ux/editorActions";
-import { TourHoverProvider } from "./ux/hoverProvider";
 import { TourController } from "./ux/tourController";
 import { TourViewProvider } from "./ux/webviewPanel";
 
@@ -77,11 +76,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const codeLensProvider = new TourCodeLensProvider(controller);
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider({ scheme: "file" }, codeLensProvider),
-  );
-
-  const hoverProvider = new TourHoverProvider(controller);
-  context.subscriptions.push(
-    vscode.languages.registerHoverProvider({ scheme: "file" }, hoverProvider),
   );
 
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -171,8 +165,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
     vscode.commands.registerCommand("codeAtlas.stop", () => controller.stop()),
     vscode.commands.registerCommand("codeAtlas.showMcpInfo", () => showMcpInfo()),
-    vscode.commands.registerCommand("codeAtlas.showHoverNarration", () => {
-      vscode.commands.executeCommand("editor.action.showHover").then(undefined, () => {});
+    vscode.commands.registerCommand("codeAtlas.openNarration", () => {
+      vscode.commands.executeCommand("codeAtlas.tour.focus").then(undefined, () => {});
     }),
     vscode.commands.registerCommand("codeAtlas.cycleTts", async () => {
       const cfg = vscode.workspace.getConfiguration("codeAtlas");
