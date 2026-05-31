@@ -158,6 +158,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("codeAtlas.importTour", () => importTour(controller, log)),
     vscode.commands.registerCommand("codeAtlas.next", () => controller.next()),
     vscode.commands.registerCommand("codeAtlas.back", () => controller.back()),
+    vscode.commands.registerCommand("codeAtlas.revealCurrent", () => controller.revealCurrent()),
     vscode.commands.registerCommand("codeAtlas.deeper", () => copyDeepenPrompt(controller, viewProvider, log)),
     vscode.commands.registerCommand(
       "codeAtlas.followUp",

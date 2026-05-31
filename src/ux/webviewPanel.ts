@@ -123,6 +123,9 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         case "showStep":
           if (typeof msg.index === "number") await this.controller.showStep(msg.index);
           break;
+        case "revealCurrent":
+          await this.controller.revealCurrent();
+          break;
         case "dismissBridge":
           this.bridge = null;
           await this.render();
@@ -420,6 +423,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         <div class="controls">
           <button id="back" ${index === 0 ? "disabled" : ""} title="Previous stop">← Back</button>
           <button id="next" ${index >= total - 1 ? "disabled" : ""} title="Next stop">Next →</button>
+          <button id="revealCurrent" title="Jump back to this step's selected code">↩ Code</button>
           <button id="deeper" title="Copy a 'deepen this step' prompt to clipboard for your Claude Code session">📋 Deepen</button>
           <button id="stop" title="Stop this tour">Stop</button>
           <button id="playPause" class="secondary" ${ttsProvider === "off" ? "disabled" : ""} title="Read this stop aloud">🔊 Speak</button>
@@ -451,6 +455,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     on("importTour", "importTour");
     on("next", "next");
     on("back", "back");
+    on("revealCurrent", "revealCurrent");
     on("deeper", "deeper");
     on("stop", "stop");
     on("exportTour", "exportTour");

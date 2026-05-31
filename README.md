@@ -33,7 +33,7 @@ The engine emits steps the extension *executes*. It is not an unconstrained agen
   - File walkthrough
   - Request lifecycle trace
   - Bug investigation path
-- Sidebar webview with a fixed navigation dock for **Next / Back / Go deeper / Stop**, follow-up prompts, and a compactable route list above the current step explanation.
+- Sidebar webview with a fixed navigation dock for **Next / Back / Jump to code / Go deeper / Stop**, follow-up prompts, and a compactable route list above the current step explanation.
 - Mock provider that emits a 4-step tour of this extension itself so you can run it immediately.
 - Anthropic Claude provider stub wired to settings (`codeAtlas.anthropicApiKey`, `codeAtlas.model`) — throws until implemented.
 - Cursor / Windsurf compatible: only standard `vscode` API is used.

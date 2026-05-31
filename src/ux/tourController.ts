@@ -278,6 +278,12 @@ export class TourController {
     this.onChangeEmitter.fire();
   }
 
+  /** Re-open and reveal the currently selected tour step without changing state. */
+  async revealCurrent(): Promise<void> {
+    if (!this.plan || this.index < 0) return;
+    await this.applyCurrent();
+  }
+
   /**
    * Clear the active tour from memory. The persisted record stays on disk so
    * the user can resume from the sidebar list.
