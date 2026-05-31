@@ -41,6 +41,7 @@ export class TtsManager implements vscode.Disposable {
   private fetchAbort: AbortController | null = null;
   private requestSeq = 0;
   private warnedMissing = new Set<string>();
+  private lastHostedWarn = 0;
 
   constructor(
     private readonly controller: TourController,
@@ -255,12 +256,15 @@ export class TtsManager implements vscode.Disposable {
   }
 
   /** A hosted request failed: log it, reset the webview button out of its
-   *  "Loading voice…" state, and show a one-time, actionable warning. */
+   *  "Loading voice…" state, and show an actionable warning. Throttled by time
+   *  (not a permanent dedup) so a deliberate Speak click always surfaces the
+   *  error, while rapid auto-narration stepping doesn't spam toasts. */
   private failHosted(label: string, detail: string, settingId: string): void {
     this.log.appendLine(`[tts] ${label} failed: ${detail}`);
     this.webviewSink?.({ type: "tts.cancel" });
-    if (this.warnedMissing.has(settingId)) return;
-    this.warnedMissing.add(settingId);
+    const now = Date.now();
+    if (now - this.lastHostedWarn < 8000) return;
+    this.lastHostedWarn = now;
     void vscode.window
       .showWarningMessage(`Code Atlas: ${label} TTS failed — ${detail}`, "Open Settings", "Show Log")
       .then((choice) => {

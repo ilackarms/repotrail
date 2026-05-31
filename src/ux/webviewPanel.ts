@@ -164,6 +164,16 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
                   if (c === "Show Details") this.log.show(true);
                 });
             }
+            if (msg.audioFailed) {
+              const detail = msg.autoplayBlocked
+                ? "the sidebar blocked audio autoplay. Tell me and I'll route playback through an unlocked AudioContext."
+                : "the audio could not be played in the sidebar. See the Code Atlas output log.";
+              void vscode.window
+                .showWarningMessage(`Code Atlas: ${detail}`, "Show Log")
+                .then((c) => {
+                  if (c === "Show Log") this.log.show(true);
+                });
+            }
           }
           break;
         case "resumeTour":
@@ -561,6 +571,14 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       }
     }
 
+    // Report a webview-side audio failure to the host so it isn't silent — it
+    // lands in the Output channel and raises a toast. autoplayBlocked flags the
+    // common case (play() rejected because the click gesture expired during the
+    // network round-trip) so the host can word the warning helpfully.
+    function reportAudioFailure(detail, autoplayBlocked) {
+      try { send({ type: "tts.log", message: "audio playback failed: " + detail, audioFailed: true, autoplayBlocked: !!autoplayBlocked }); } catch (e) {}
+    }
+
     function playBytes(mime, b64, token) {
       try {
         const bin = atob(b64);
@@ -570,6 +588,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           .then(() => { if (token === speakToken) setState("idle"); });
       } catch (err) {
         console.error("[code-atlas tts] audio decode failed", err);
+        reportAudioFailure("decode failed: " + ((err && err.message) || err), false);
         if (token === speakToken) setState("idle");
       }
     }
@@ -584,12 +603,23 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         if (audioEl) { try { audioEl.pause(); } catch (e) {} }
         audioEl = new Audio(url);
         mode = "audio";
+        let started = false;
         const done = () => { try { URL.revokeObjectURL(url); } catch (e) {} resolve(); };
+        audioEl.onplaying = () => { started = true; if (token === speakToken) setState("playing"); };
         audioEl.onended = done;
-        audioEl.onerror = done;
+        audioEl.onerror = () => {
+          const e = audioEl && audioEl.error;
+          reportAudioFailure("media error" + (e && e.code ? " code " + e.code : ""), false);
+          done();
+        };
         audioEl.play()
           .then(() => { if (token === speakToken) setState("playing"); })
-          .catch((e) => { console.error("[code-atlas tts] play failed", e); done(); });
+          .catch((e) => {
+            const blocked = e && (e.name === "NotAllowedError" || /gesture|user activation/i.test(e.message || ""));
+            console.error("[code-atlas tts] play failed", e);
+            if (!started) reportAudioFailure((e && e.name ? e.name + ": " : "") + ((e && e.message) || e), blocked);
+            done();
+          });
       });
     }
 
