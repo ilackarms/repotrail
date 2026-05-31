@@ -2,7 +2,7 @@
   "name": "code-atlas",
   "displayName": "Code Atlas",
   "description": "AI-guided codebase walkthroughs. Interactive tours of repos, PRs, subsystems, and execution flows.",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "publisher": "code-atlas",
   "private": true,
   "engines": {
@@ -124,7 +124,14 @@
         },
         "codeAtlas.tts.provider": {
           "type": "string",
-          "enum": ["off", "kokoro", "system", "say", "elevenlabs", "openai"],
+          "enum": [
+            "off",
+            "kokoro",
+            "system",
+            "say",
+            "elevenlabs",
+            "openai"
+          ],
           "enumDescriptions": [
             "No narration.",
             "Local Kokoro-82M neural voice (experimental). Free and natural; runs in a background Web Worker via WASM and downloads a ~80MB model on first use. Inference is CPU-heavy and slow on some machines — falls back to the system voice if it stalls.",
@@ -166,10 +173,15 @@
           "default": "",
           "markdownDescription": "OpenAI API key, used when provider is 'openai'. Falls back to the `OPENAI_API_KEY` env var."
         },
+        "codeAtlas.tts.openAiModel": {
+          "type": "string",
+          "default": "gpt-4o-mini-tts",
+          "description": "OpenAI TTS model. gpt-4o-mini-tts is steerable (honors openAiInstructions) and recommended for code review. Use tts-1 or tts-1-hd if your key/project lacks access to gpt-4o-mini-tts."
+        },
         "codeAtlas.tts.openAiVoice": {
           "type": "string",
-          "default": "alloy",
-          "description": "OpenAI TTS voice (alloy, ash, ballad, coral, echo, sage, shimmer, verse)."
+          "default": "ash",
+          "description": "OpenAI TTS voice. For reading code review feedback, calm/clear voices work best: ash, sage, alloy. (Also: ballad, coral, echo, shimmer, verse.)"
         },
         "codeAtlas.tts.openAiInstructions": {
           "type": "string",

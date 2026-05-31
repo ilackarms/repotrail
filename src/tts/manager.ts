@@ -176,6 +176,7 @@ export class TtsManager implements vscode.Disposable {
       },
       "audio/mpeg",
       "ElevenLabs",
+      "codeAtlas.tts.elevenLabsApiKey",
     );
   }
 
@@ -185,23 +186,28 @@ export class TtsManager implements vscode.Disposable {
       this.warnMissingKey("OpenAI", "codeAtlas.tts.openAiApiKey");
       return;
     }
-    const voice = cfg.get<string>("tts.openAiVoice", "alloy");
+    const model = cfg.get<string>("tts.openAiModel", "gpt-4o-mini-tts");
+    const voice = cfg.get<string>("tts.openAiVoice", "ash");
     const instructions = cfg.get<string>("tts.openAiInstructions", "").trim();
+    // Only gpt-4o-mini-tts accepts `instructions`; sending it to tts-1/tts-1-hd
+    // is a 400.
+    const steerable = model.startsWith("gpt-4o");
     await this.fetchAndPlay(
       "https://api.openai.com/v1/audio/speech",
       {
         method: "POST",
         headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
         body: JSON.stringify({
-          model: "gpt-4o-mini-tts",
+          model,
           voice,
           input: text,
           response_format: "mp3",
-          ...(instructions ? { instructions } : {}),
+          ...(steerable && instructions ? { instructions } : {}),
         }),
       },
       "audio/mpeg",
       "OpenAI",
+      "codeAtlas.tts.openAiApiKey",
     );
   }
 
@@ -216,18 +222,24 @@ export class TtsManager implements vscode.Disposable {
     init: RequestInit,
     mime: string,
     label: string,
+    settingId: string,
   ): Promise<void> {
     const seq = ++this.requestSeq;
     const ac = new AbortController();
     this.fetchAbort = ac;
     try {
       const res = await fetch(url, { ...init, signal: ac.signal });
+      if (seq !== this.requestSeq) return; // superseded or cancelled — a newer request owns the button
       if (!res.ok) {
         const body = await res.text().catch(() => "");
-        this.log.appendLine(`[tts] ${label} HTTP ${res.status}: ${body.slice(0, 300)}`);
-        if (res.status === 401 || res.status === 403) {
-          this.warnMissingKey(label, label === "ElevenLabs" ? "codeAtlas.tts.elevenLabsApiKey" : "codeAtlas.tts.openAiApiKey", "rejected the API key");
-        }
+        this.log.appendLine(`[tts] ${label} HTTP ${res.status}: ${body.slice(0, 500)}`);
+        const hint =
+          res.status === 401 || res.status === 403
+            ? "rejected the API key"
+            : res.status === 404
+              ? "model not found for this key — try a different codeAtlas.tts.*Model"
+              : `HTTP ${res.status}`;
+        this.failHosted(label, `${hint}. ${summarizeApiError(body)}`.trim(), settingId);
         return;
       }
       const buf = Buffer.from(await res.arrayBuffer());
@@ -235,10 +247,29 @@ export class TtsManager implements vscode.Disposable {
       this.sendToWebview({ type: "tts.audio", mime, dataBase64: buf.toString("base64") });
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
-      this.log.appendLine(`[tts] ${label} request failed: ${err instanceof Error ? err.message : String(err)}`);
+      if (seq !== this.requestSeq) return;
+      this.failHosted(label, err instanceof Error ? err.message : String(err), settingId);
     } finally {
       if (this.fetchAbort === ac) this.fetchAbort = null;
     }
+  }
+
+  /** A hosted request failed: log it, reset the webview button out of its
+   *  "Loading voice…" state, and show a one-time, actionable warning. */
+  private failHosted(label: string, detail: string, settingId: string): void {
+    this.log.appendLine(`[tts] ${label} failed: ${detail}`);
+    this.webviewSink?.({ type: "tts.cancel" });
+    if (this.warnedMissing.has(settingId)) return;
+    this.warnedMissing.add(settingId);
+    void vscode.window
+      .showWarningMessage(`Code Atlas: ${label} TTS failed — ${detail}`, "Open Settings", "Show Log")
+      .then((choice) => {
+        if (choice === "Open Settings") {
+          void vscode.commands.executeCommand("workbench.action.openSettings", settingId);
+        } else if (choice === "Show Log") {
+          this.log.show(true);
+        }
+      });
   }
 
   private warnMissingKey(label: string, settingId: string, reason = "needs an API key"): void {
@@ -253,6 +284,19 @@ export class TtsManager implements vscode.Disposable {
         }
       });
   }
+}
+
+/** Pull the human-readable message out of an OpenAI/ElevenLabs JSON error body. */
+function summarizeApiError(body: string): string {
+  try {
+    const j = JSON.parse(body) as { error?: { message?: string } | string; detail?: { message?: string } | string };
+    const e = j.error ?? j.detail;
+    if (typeof e === "string") return e;
+    if (e && typeof e.message === "string") return e.message;
+  } catch {
+    /* not JSON */
+  }
+  return "";
 }
 
 export function currentProvider(): TtsProvider {
