@@ -5,12 +5,6 @@ extension is the editor surface; the supported generation path is any
 MCP-capable external agent over local MCP. The repo-owned Claude Code skill is
 the bundled convenience harness.
 
-## Knowledge Pack
-
-Before non-trivial work, read `docs/knowledge-pack/README.md`. Keep
-`docs/knowledge-pack/` updated when architecture, release rules, product
-priorities, or known risks change.
-
 ## Commands
 
 - `pnpm install` - install deps
