@@ -58,7 +58,7 @@ export async function executeStep(
 ): Promise<ExecuteResult> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
-    vscode.window.showErrorMessage("Code Atlas: open a workspace first.");
+    vscode.window.showErrorMessage("RepoTrail: open a workspace first.");
     return { drift: "ok" };
   }
   if (!step.file) return { drift: "ok" };
@@ -69,7 +69,7 @@ export async function executeStep(
     doc = await vscode.workspace.openTextDocument(uri);
   } catch (err) {
     logger?.appendLine(`[editor] open failed for ${step.file}: ${String(err)}`);
-    vscode.window.showErrorMessage(`Code Atlas: cannot open ${step.file}.`);
+    vscode.window.showErrorMessage(`RepoTrail: cannot open ${step.file}.`);
     return { drift: "missing" };
   }
   const editor = await vscode.window.showTextDocument(doc, { preview: false });

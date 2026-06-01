@@ -1,16 +1,11 @@
 import * as vscode from "vscode";
-import { gatherRepoContext } from "./analysis/repoContext";
-import { ClaudeTourProvider } from "./engine/claudeProvider";
-import { MockTourProvider } from "./engine/mockProvider";
-import { TourProvider } from "./engine/tourProvider";
-import { TourKind, TourRequest } from "./engine/types";
 import {
   parseTourJson,
   planToJson,
   planToMarkdown,
   slugForFilename,
 } from "./engine/tourSerialize";
-import { CodeAtlasMcpServer } from "./mcp/server";
+import { RepoTrailMcpServer } from "./mcp/server";
 import { listRepoTours, readRepoTour, REPO_TOURS_DIR, saveRepoTour } from "./storage/repoTours";
 import { deleteTour, listTours, loadTour, saveTour } from "./storage/tourStore";
 import { availableProviders, TtsManager, TtsProvider } from "./tts/manager";
@@ -19,25 +14,17 @@ import { setEditorLogger } from "./ux/editorActions";
 import { TourController } from "./ux/tourController";
 import { TourViewProvider } from "./ux/webviewPanel";
 
-const TOUR_KIND_PICKS: { label: string; value: TourKind; description: string }[] = [
-  { label: "Architecture overview", value: "architecture", description: "Top-level systems and how they connect" },
-  { label: "PR / diff walkthrough", value: "pr-diff", description: "Explain the changes in a unified diff" },
-  { label: "File walkthrough", value: "file-walkthrough", description: "Tour a specific file end-to-end" },
-  { label: "Request lifecycle trace", value: "request-lifecycle", description: "Follow a request through the stack" },
-  { label: "Bug investigation path", value: "bug-investigation", description: "Trace likely causes of a reported bug" },
-];
-
-let mcp: CodeAtlasMcpServer | null = null;
+let mcp: RepoTrailMcpServer | null = null;
 let statusItem: vscode.StatusBarItem | null = null;
 let tourStatusItem: vscode.StatusBarItem | null = null;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  const log = vscode.window.createOutputChannel("Code Atlas");
+  const log = vscode.window.createOutputChannel("RepoTrail");
   context.subscriptions.push(log);
   setEditorLogger(log);
   log.appendLine(`[ext] activate ${(context.extension.packageJSON as { version?: string }).version ?? "?"}`);
 
-  const controller = new TourController(pickProvider());
+  const controller = new TourController();
   controller.setPersistFn((record) => {
     if (!record) return;
     saveTour(record).catch((err) =>
@@ -47,9 +34,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(async (e) => {
-      if (e.affectsConfiguration("codeAtlas")) {
-        controller.setProvider(pickProvider());
-        if (e.affectsConfiguration("codeAtlas.mcpEnabled") || e.affectsConfiguration("codeAtlas.mcpPort")) {
+      if (e.affectsConfiguration("repoTrail")) {
+        if (e.affectsConfiguration("repoTrail.mcpEnabled") || e.affectsConfiguration("repoTrail.mcpPort")) {
           await restartMcp(context, controller);
           viewProvider.refresh();
         }
@@ -64,7 +50,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return listTours(root);
   });
   viewProvider.setMcpStatusLoader(() => ({
-    enabled: vscode.workspace.getConfiguration("codeAtlas").get<boolean>("mcpEnabled", true),
+    enabled: vscode.workspace.getConfiguration("repoTrail").get<boolean>("mcpEnabled", true),
     port: mcp?.port ?? null,
   }));
   viewProvider.setRepoTourLoader(async () => {
@@ -76,17 +62,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.window.registerWebviewViewProvider(TourViewProvider.viewType, viewProvider),
   );
 
-  // Status-bar tour indicator: "Atlas k/N" while a tour is active, click to focus.
+  // Status-bar tour indicator: "Trail k/N" while a tour is active, click to focus.
   tourStatusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-  tourStatusItem.command = "codeAtlas.tour.focus";
+  tourStatusItem.command = "repoTrail.tour.focus";
   context.subscriptions.push(tourStatusItem);
   const refreshTourStatus = () => {
     const snap = controller.snapshot();
     if (snap.plan && snap.plan.steps.length > 0) {
-      tourStatusItem!.text = `$(map) Atlas ${snap.index + 1}/${snap.plan.steps.length}`;
+      tourStatusItem!.text = `$(map) Trail ${snap.index + 1}/${snap.plan.steps.length}`;
       tourStatusItem!.tooltip = snap.current?.title
-        ? `Code Atlas — ${snap.current.title}\nClick to open the tour panel.`
-        : "Code Atlas tour";
+        ? `RepoTrail — ${snap.current.title}\nClick to open the tour panel.`
+        : "RepoTrail tour";
       tourStatusItem!.show();
     } else {
       tourStatusItem!.hide();
@@ -105,138 +91,87 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusItem.command = "codeAtlas.showMcpInfo";
+  statusItem.command = "repoTrail.showMcpInfo";
   context.subscriptions.push(statusItem);
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("codeAtlas.startTour", async () => {
+    vscode.commands.registerCommand("repoTrail.tour.focus", async () => {
+      await vscode.commands.executeCommand("workbench.view.extension.repoTrail");
+    }),
+    vscode.commands.registerCommand("repoTrail.startTour", async () => {
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!root) {
-        vscode.window.showErrorMessage("Code Atlas: open a folder/workspace first.");
+        vscode.window.showErrorMessage("RepoTrail: open a folder/workspace first.");
         return;
       }
-      // The in-extension LLM provider is still a stub. With no API key, "Start
-      // Tour" would silently run the canned mock — misleading, because the real
-      // path is the external Claude Code agent over MCP. Be honest about it.
-      if (!hasApiKey()) {
-        const pick = await vscode.window.showInformationMessage(
-          "Code Atlas tours are generated by your AI agent (Claude Code) over MCP — not inside the extension. Ask it for a tour, or run the built-in sample.",
-          "Copy tour prompt",
-          "Run sample tour",
-        );
-        if (pick === "Copy tour prompt") {
-          await vscode.commands.executeCommand("codeAtlas.startFromAgent");
-        } else if (pick === "Run sample tour") {
-          await vscode.commands.executeCommand("codeAtlas.runSampleTour");
-        }
-        return;
-      }
-      const picked = await vscode.window.showQuickPick(TOUR_KIND_PICKS, {
-        placeHolder: "What kind of tour?",
-        matchOnDescription: true,
-      });
-      if (!picked) return;
-
-      const ctx = await gatherRepoContext();
-      const req: TourRequest = {
-        kind: picked.value,
-        workspaceRoot: root,
-        files: ctx?.files ?? [],
-      };
-      try {
-        await controller.start(req);
-        await vscode.commands.executeCommand("codeAtlas.tour.focus");
-      } catch (err) {
-        vscode.window.showErrorMessage(
-          `Code Atlas: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }),
-    vscode.commands.registerCommand("codeAtlas.startFromAgent", async () => {
       const prompt =
-        "Give me a Code Atlas tour of this repository — an architecture overview. " +
+        "Give me a RepoTrail tour of this repository — an architecture overview. " +
         "(Or ask for: a PR/diff walkthrough, a file walkthrough, a request-lifecycle trace, or a bug-investigation tour.)";
       await vscode.env.clipboard.writeText(prompt);
-      await vscode.commands.executeCommand("codeAtlas.tour.focus").then(undefined, () => {});
+      await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
       const pick = await vscode.window.showInformationMessage(
-        "Tour prompt copied. Paste it into your Claude Code session — it'll generate the tour and push it here. Not connected yet?",
-        "Show MCP connection",
+        "Tour prompt copied. Paste it into a Claude Code session with the RepoTrail harness installed.",
+        "Show MCP setup",
       );
-      if (pick === "Show MCP connection") showMcpInfo();
+      if (pick === "Show MCP setup") showMcpInfo(context);
     }),
-    vscode.commands.registerCommand("codeAtlas.runSampleTour", async () => {
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      if (!root) {
-        vscode.window.showErrorMessage("Code Atlas: open a folder/workspace first.");
-        return;
-      }
-      const ctx = await gatherRepoContext();
-      const plan = await new MockTourProvider().generate({
-        kind: "architecture",
-        workspaceRoot: root,
-        files: ctx?.files ?? [],
-      });
-      await controller.loadPlan(plan);
-      await vscode.commands.executeCommand("codeAtlas.tour.focus").then(undefined, () => {});
-      vscode.window.setStatusBarMessage("Code Atlas: sample tour loaded (demo).", 2500);
-    }),
-    vscode.commands.registerCommand("codeAtlas.exportTour", () => exportActiveTour(controller, log)),
-    vscode.commands.registerCommand("codeAtlas.importTour", () => importTour(controller, log)),
-    vscode.commands.registerCommand("codeAtlas.saveTourToRepo", () => saveTourToRepo(controller, log)),
-    vscode.commands.registerCommand("codeAtlas.tourFromHere", () => tourFromHere()),
-    vscode.commands.registerCommand("codeAtlas.next", () => controller.next()),
-    vscode.commands.registerCommand("codeAtlas.back", () => controller.back()),
-    vscode.commands.registerCommand("codeAtlas.showStep", (index?: number) => {
+    vscode.commands.registerCommand("repoTrail.exportTour", () => exportActiveTour(controller, log)),
+    vscode.commands.registerCommand("repoTrail.importTour", () => importTour(controller, log)),
+    vscode.commands.registerCommand("repoTrail.saveTourToRepo", () => saveTourToRepo(controller, log)),
+    vscode.commands.registerCommand("repoTrail.tourFromHere", () => tourFromHere()),
+    vscode.commands.registerCommand("repoTrail.next", () => controller.next()),
+    vscode.commands.registerCommand("repoTrail.back", () => controller.back()),
+    vscode.commands.registerCommand("repoTrail.showStep", (index?: number) => {
       if (typeof index === "number") void controller.showStep(index);
     }),
-    vscode.commands.registerCommand("codeAtlas.togglePlay", () => viewProvider.togglePlay()),
-    vscode.commands.registerCommand("codeAtlas.revealCurrent", () => controller.revealCurrent()),
-    vscode.commands.registerCommand("codeAtlas.resumeRepoTour", async (file?: string) => {
+    vscode.commands.registerCommand("repoTrail.togglePlay", () => viewProvider.togglePlay()),
+    vscode.commands.registerCommand("repoTrail.revealCurrent", () => controller.revealCurrent()),
+    vscode.commands.registerCommand("repoTrail.resumeRepoTour", async (file?: string) => {
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!root || !file) return;
       const plan = await readRepoTour(root, file);
       if (!plan) {
-        vscode.window.showErrorMessage(`Code Atlas: ${REPO_TOURS_DIR}/${file} isn't a valid tour.`);
+        vscode.window.showErrorMessage(`RepoTrail: ${REPO_TOURS_DIR}/${file} isn't a valid tour.`);
         return;
       }
       await controller.loadPlan(plan);
-      await vscode.commands.executeCommand("codeAtlas.tour.focus").then(undefined, () => {});
+      await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
     }),
-    vscode.commands.registerCommand("codeAtlas.deeper", () => copyDeepenPrompt(controller, viewProvider, log)),
+    vscode.commands.registerCommand("repoTrail.deeper", () => copyDeepenPrompt(controller, viewProvider, log)),
     vscode.commands.registerCommand(
-      "codeAtlas.followUp",
+      "repoTrail.followUp",
       (question?: string) => copyFollowUpPrompt(controller, viewProvider, question ?? "", log),
     ),
-    vscode.commands.registerCommand("codeAtlas.stop", () => controller.stop()),
-    vscode.commands.registerCommand("codeAtlas.showMcpInfo", () => showMcpInfo()),
-    vscode.commands.registerCommand("codeAtlas.openNarration", () => {
-      vscode.commands.executeCommand("codeAtlas.tour.focus").then(undefined, () => {});
+    vscode.commands.registerCommand("repoTrail.stop", () => controller.stop()),
+    vscode.commands.registerCommand("repoTrail.showMcpInfo", () => showMcpInfo(context)),
+    vscode.commands.registerCommand("repoTrail.openNarration", () => {
+      vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
     }),
-    vscode.commands.registerCommand("codeAtlas.cycleTts", async () => {
-      const cfg = vscode.workspace.getConfiguration("codeAtlas");
+    vscode.commands.registerCommand("repoTrail.cycleTts", async () => {
+      const cfg = vscode.workspace.getConfiguration("repoTrail");
       const cur = cfg.get<string>("tts.provider", "system") as TtsProvider;
       const order = availableProviders();
       const idx = order.indexOf(cur);
       const next = order[(idx + 1) % order.length] ?? "off";
       await cfg.update("tts.provider", next, vscode.ConfigurationTarget.Global);
-      vscode.window.setStatusBarMessage(`Code Atlas TTS: ${next}`, 1500);
+      vscode.window.setStatusBarMessage(`RepoTrail TTS: ${next}`, 1500);
       // Switching providers no longer auto-speaks — it only stops any current
       // narration. Use the Speak button to start playback on demand.
       tts.cancel();
     }),
-    vscode.commands.registerCommand("codeAtlas.speakCurrent", () => tts.speakCurrent()),
-    vscode.commands.registerCommand("codeAtlas.stopTts", () => tts.cancel()),
-    vscode.commands.registerCommand("codeAtlas.resumeTour", async (id?: string) => {
+    vscode.commands.registerCommand("repoTrail.speakCurrent", () => tts.speakCurrent()),
+    vscode.commands.registerCommand("repoTrail.stopTts", () => tts.cancel()),
+    vscode.commands.registerCommand("repoTrail.resumeTour", async (id?: string) => {
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!root) {
-        vscode.window.showErrorMessage("Code Atlas: open a workspace first.");
+        vscode.window.showErrorMessage("RepoTrail: open a workspace first.");
         return;
       }
       let chosen = id;
       if (!chosen) {
         const all = await listTours(root);
         if (all.length === 0) {
-          vscode.window.showInformationMessage("Code Atlas: no saved tours for this workspace.");
+          vscode.window.showInformationMessage("RepoTrail: no saved tours for this workspace.");
           return;
         }
         const pick = await vscode.window.showQuickPick(
@@ -253,20 +188,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const rec = await loadTour(root, chosen);
       if (!rec) {
-        vscode.window.showErrorMessage(`Code Atlas: tour ${chosen} not found.`);
+        vscode.window.showErrorMessage(`RepoTrail: tour ${chosen} not found.`);
         return;
       }
       await controller.resume(rec);
-      await vscode.commands.executeCommand("codeAtlas.tour.focus").then(undefined, () => {});
+      await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
     }),
-    vscode.commands.registerCommand("codeAtlas.deleteTour", async (id?: string) => {
+    vscode.commands.registerCommand("repoTrail.deleteTour", async (id?: string) => {
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!root) return;
       let chosen = id;
       if (!chosen) {
         const all = await listTours(root);
         if (all.length === 0) {
-          vscode.window.showInformationMessage("Code Atlas: no saved tours.");
+          vscode.window.showInformationMessage("RepoTrail: no saved tours.");
           return;
         }
         const pick = await vscode.window.showQuickPick(
@@ -297,12 +232,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 /**
  * On startup, offer to bring back the most recent tour for this workspace so a
  * window reload doesn't feel like losing your place. Controlled by
- * codeAtlas.autoResume: "prompt" (default) asks, "auto" restores silently,
+ * repoTrail.autoResume: "prompt" (default) asks, "auto" restores silently,
  * "off" does nothing.
  */
 async function maybeAutoResume(controller: TourController, log: vscode.OutputChannel): Promise<void> {
-  if (controller.activeTourId) return; // an agent/sample already loaded one
-  const mode = vscode.workspace.getConfiguration("codeAtlas").get<string>("autoResume", "prompt");
+  if (controller.activeTourId) return; // an agent/import already loaded one
+  const mode = vscode.workspace.getConfiguration("repoTrail").get<string>("autoResume", "prompt");
   if (mode === "off") return;
   const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!root) return;
@@ -320,7 +255,7 @@ async function maybeAutoResume(controller: TourController, log: vscode.OutputCha
     const rec = await loadTour(root, latest.id);
     if (!rec) return;
     await controller.resume(rec);
-    await vscode.commands.executeCommand("codeAtlas.tour.focus").then(undefined, () => {});
+    await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
   };
 
   if (mode === "auto") {
@@ -329,7 +264,7 @@ async function maybeAutoResume(controller: TourController, log: vscode.OutputCha
     return;
   }
   const pick = await vscode.window.showInformationMessage(
-    `Code Atlas: resume "${latest.title}" (step ${latest.lastIndex + 1} of ${latest.stepCount})?`,
+    `RepoTrail: resume "${latest.title}" (step ${latest.lastIndex + 1} of ${latest.stepCount})?`,
     "Resume",
     "Not now",
   );
@@ -343,27 +278,12 @@ export async function deactivate(): Promise<void> {
   }
 }
 
-function hasApiKey(): boolean {
-  const cfg = vscode.workspace.getConfiguration("codeAtlas");
-  return Boolean(cfg.get<string>("anthropicApiKey") || process.env.ANTHROPIC_API_KEY);
-}
-
-function pickProvider(): TourProvider {
-  const cfg = vscode.workspace.getConfiguration("codeAtlas");
-  const apiKey = cfg.get<string>("anthropicApiKey") || process.env.ANTHROPIC_API_KEY || "";
-  const model = cfg.get<string>("model") || "claude-opus-4-7";
-  if (apiKey) {
-    return new ClaudeTourProvider(apiKey, model);
-  }
-  return new MockTourProvider();
-}
-
 async function restartMcp(context: vscode.ExtensionContext, controller: TourController): Promise<void> {
   if (mcp) {
     await mcp.stop().catch(() => {});
     mcp = null;
   }
-  const cfg = vscode.workspace.getConfiguration("codeAtlas");
+  const cfg = vscode.workspace.getConfiguration("repoTrail");
   if (!cfg.get<boolean>("mcpEnabled", true)) {
     updateStatus("disabled");
     return;
@@ -371,7 +291,7 @@ async function restartMcp(context: vscode.ExtensionContext, controller: TourCont
   const basePort = cfg.get<number>("mcpPort", 7777);
   const portRange = cfg.get<number>("mcpPortRange", 16);
   const version = (context.extension.packageJSON as { version?: string }).version ?? "0.0.0";
-  const server = new CodeAtlasMcpServer(controller, version);
+  const server = new RepoTrailMcpServer(controller, version);
   try {
     const actual = await server.startWithFallback(basePort, portRange);
     mcp = server;
@@ -379,7 +299,7 @@ async function restartMcp(context: vscode.ExtensionContext, controller: TourCont
   } catch (err) {
     updateStatus("error");
     vscode.window.showErrorMessage(
-      `Code Atlas MCP server failed to bind any port in ${basePort}..${basePort + portRange - 1}: ` +
+      `RepoTrail MCP server failed to bind any port in ${basePort}..${basePort + portRange - 1}: ` +
         `${err instanceof Error ? err.message : String(err)}.`,
     );
   }
@@ -388,14 +308,14 @@ async function restartMcp(context: vscode.ExtensionContext, controller: TourCont
 function updateStatus(state: "listening" | "disabled" | "error", port?: number): void {
   if (!statusItem) return;
   if (state === "listening" && port) {
-    statusItem.text = `$(map) Atlas :${port}`;
-    statusItem.tooltip = `Code Atlas MCP listening on http://127.0.0.1:${port}/mcp\nClick for connection details.`;
+    statusItem.text = `$(map) Trail :${port}`;
+    statusItem.tooltip = "RepoTrail MCP is listening on 127.0.0.1. Click for the tokenized connection URL.";
   } else if (state === "disabled") {
-    statusItem.text = "$(map) Atlas off";
-    statusItem.tooltip = "Code Atlas MCP server is disabled (codeAtlas.mcpEnabled = false).";
+    statusItem.text = "$(map) Trail off";
+    statusItem.tooltip = "RepoTrail MCP server is disabled (repoTrail.mcpEnabled = false).";
   } else {
-    statusItem.text = "$(warning) Atlas error";
-    statusItem.tooltip = "Code Atlas MCP server failed to start. Click for details.";
+    statusItem.text = "$(warning) Trail error";
+    statusItem.tooltip = "RepoTrail MCP server failed to start. Click for details.";
   }
   statusItem.show();
 }
@@ -413,21 +333,21 @@ function copyDeepenPrompt(
 ): void {
   const snap = controller.snapshot();
   if (!snap.plan || !snap.current) {
-    vscode.window.showInformationMessage("Code Atlas: no active tour.");
+    vscode.window.showInformationMessage("RepoTrail: no active tour.");
     return;
   }
   const idx = snap.index + 1;
   const prompt =
-    `Deepen step ${idx} of the active Code Atlas tour: "${snap.current.title}" (${snap.current.file}).\n\n` +
-    `Call mcp__code-atlas__get_state to confirm the current index, then read the relevant code, ` +
-    `then call mcp__code-atlas__insert_step one or more times with \`at\` = current index + 1, +2, ... ` +
+    `Deepen step ${idx} of the active RepoTrail tour: "${snap.current.title}" (${snap.current.file}).\n\n` +
+    `Call mcp__repotrail__get_state to confirm the current index, then read the relevant code, ` +
+    `then call mcp__repotrail__insert_step one or more times with \`at\` = current index + 1, +2, ... ` +
     `to splice in 2–4 sub-steps that zoom into this area at finer granularity. Keep ranges tight ` +
-    `(see the granularity rule in the code-atlas skill).`;
+    `(see the granularity rule in the repotrail skill).`;
   void vscode.env.clipboard.writeText(prompt);
   // Show the exact prompt in the sidebar so the handoff is visible, not a blind
   // clipboard write the user has to trust.
   viewProvider.showBridgePrompt(`Deepen step ${idx}`, prompt);
-  vscode.window.setStatusBarMessage(`Code Atlas: deepen prompt copied for step ${idx}.`, 2500);
+  vscode.window.setStatusBarMessage(`RepoTrail: deepen prompt copied for step ${idx}.`, 2500);
   log.appendLine(`[deeper] copied prompt for step ${idx}`);
 }
 
@@ -439,7 +359,7 @@ function copyFollowUpPrompt(
 ): void {
   const snap = controller.snapshot();
   if (!snap.plan || !snap.current) {
-    vscode.window.showInformationMessage("Code Atlas: no active tour.");
+    vscode.window.showInformationMessage("RepoTrail: no active tour.");
     return;
   }
   const trimmed = question.trim();
@@ -449,13 +369,13 @@ function copyFollowUpPrompt(
   }
   const idx = snap.index + 1;
   const prompt =
-    `Follow-up about step ${idx} of the active Code Atlas tour: "${snap.current.title}" (${snap.current.file}).\n\n` +
+    `Follow-up about step ${idx} of the active RepoTrail tour: "${snap.current.title}" (${snap.current.file}).\n\n` +
     `Question: ${trimmed}\n\n` +
     `Read the relevant code, answer in chat. If the answer is pin-worthy, also call ` +
-    `mcp__code-atlas__insert_step to add a clarifying stop after the current index.`;
+    `mcp__repotrail__insert_step to add a clarifying stop after the current index.`;
   void vscode.env.clipboard.writeText(prompt);
   viewProvider.showBridgePrompt(`Follow-up on step ${idx}`, prompt);
-  vscode.window.setStatusBarMessage("Code Atlas: follow-up prompt copied.", 2500);
+  vscode.window.setStatusBarMessage("RepoTrail: follow-up prompt copied.", 2500);
   log.appendLine(`[followUp] copied prompt for step ${idx}`);
 }
 
@@ -466,7 +386,7 @@ function copyFollowUpPrompt(
 async function exportActiveTour(controller: TourController, log: vscode.OutputChannel): Promise<void> {
   const snap = controller.snapshot();
   if (!snap.plan || snap.plan.steps.length === 0) {
-    vscode.window.showInformationMessage("Code Atlas: no active tour to export.");
+    vscode.window.showInformationMessage("RepoTrail: no active tour to export.");
     return;
   }
   const fmt = await vscode.window.showQuickPick(
@@ -501,13 +421,13 @@ async function exportActiveTour(controller: TourController, log: vscode.OutputCh
 
   const target = await vscode.window.showSaveDialog({
     defaultUri,
-    filters: isJson ? { "Code Atlas tour": ["json"] } : { Markdown: ["md"] },
+    filters: isJson ? { "RepoTrail tour": ["json"] } : { Markdown: ["md"] },
   });
   if (!target) return;
   try {
     await vscode.workspace.fs.writeFile(target, Buffer.from(content, "utf8"));
     const open = await vscode.window.showInformationMessage(
-      `Code Atlas: tour exported to ${target.fsPath.split("/").pop()}.`,
+      `RepoTrail: tour exported to ${target.fsPath.split("/").pop()}.`,
       "Open",
     );
     if (open === "Open") {
@@ -516,7 +436,7 @@ async function exportActiveTour(controller: TourController, log: vscode.OutputCh
     }
   } catch (err) {
     log.appendLine(`[export] failed: ${err instanceof Error ? err.message : String(err)}`);
-    vscode.window.showErrorMessage("Code Atlas: export failed (see Output ▸ Code Atlas).");
+    vscode.window.showErrorMessage("RepoTrail: export failed (see Output ▸ RepoTrail).");
   }
 }
 
@@ -526,7 +446,7 @@ async function importTour(controller: TourController, log: vscode.OutputChannel)
   const picks = await vscode.window.showOpenDialog({
     canSelectMany: false,
     defaultUri: root,
-    filters: { "Code Atlas tour": ["json"] },
+    filters: { "RepoTrail tour": ["json"] },
     openLabel: "Import tour",
   });
   if (!picks || picks.length === 0) return;
@@ -534,32 +454,32 @@ async function importTour(controller: TourController, log: vscode.OutputChannel)
     const bytes = await vscode.workspace.fs.readFile(picks[0]);
     const plan = parseTourJson(Buffer.from(bytes).toString("utf8"));
     if (!plan) {
-      vscode.window.showErrorMessage("Code Atlas: that file isn't a valid exported tour.");
+      vscode.window.showErrorMessage("RepoTrail: that file isn't a valid exported tour.");
       return;
     }
     await controller.loadPlan(plan);
-    await vscode.commands.executeCommand("codeAtlas.tour.focus").then(undefined, () => {});
-    vscode.window.setStatusBarMessage(`Code Atlas: imported "${plan.title}" (${plan.steps.length} stops).`, 3000);
+    await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
+    vscode.window.setStatusBarMessage(`RepoTrail: imported "${plan.title}" (${plan.steps.length} stops).`, 3000);
   } catch (err) {
     log.appendLine(`[import] failed: ${err instanceof Error ? err.message : String(err)}`);
-    vscode.window.showErrorMessage("Code Atlas: import failed (see Output ▸ Code Atlas).");
+    vscode.window.showErrorMessage("RepoTrail: import failed (see Output ▸ RepoTrail).");
   }
 }
 
 /**
- * Write the active tour into the repo's .codeatlas/ folder as JSON. The user
+ * Write the active tour into the repo's .repotrail/ folder as JSON. The user
  * then chooses whether/when to `git commit` it — we never touch git. Once
  * committed, teammates see it in their Start tab.
  */
 async function saveTourToRepo(controller: TourController, log: vscode.OutputChannel): Promise<void> {
   const snap = controller.snapshot();
   if (!snap.plan || snap.plan.steps.length === 0) {
-    vscode.window.showInformationMessage("Code Atlas: no active tour to save.");
+    vscode.window.showInformationMessage("RepoTrail: no active tour to save.");
     return;
   }
   const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!root) {
-    vscode.window.showErrorMessage("Code Atlas: open a workspace first.");
+    vscode.window.showErrorMessage("RepoTrail: open a workspace first.");
     return;
   }
   const slug = slugForFilename(snap.plan.title);
@@ -568,7 +488,7 @@ async function saveTourToRepo(controller: TourController, log: vscode.OutputChan
     const file = await saveRepoTour(root, slug, content);
     const rel = `${REPO_TOURS_DIR}/${file.split("/").pop()}`;
     const pick = await vscode.window.showInformationMessage(
-      `Code Atlas: saved to ${rel}. Commit it to share this tour with the team.`,
+      `RepoTrail: saved to ${rel}. Commit it to share this tour with the team.`,
       "Open",
     );
     if (pick === "Open") {
@@ -577,7 +497,7 @@ async function saveTourToRepo(controller: TourController, log: vscode.OutputChan
     }
   } catch (err) {
     log.appendLine(`[repo-save] failed: ${err instanceof Error ? err.message : String(err)}`);
-    vscode.window.showErrorMessage("Code Atlas: save to repo failed (see Output ▸ Code Atlas).");
+    vscode.window.showErrorMessage("RepoTrail: save to repo failed (see Output ▸ RepoTrail).");
   }
 }
 
@@ -589,7 +509,7 @@ async function tourFromHere(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   const root = vscode.workspace.workspaceFolders?.[0];
   if (!editor || !root) {
-    vscode.window.showInformationMessage("Code Atlas: open a file to tour from here.");
+    vscode.window.showInformationMessage("RepoTrail: open a file to tour from here.");
     return;
   }
   const rel = vscode.workspace.asRelativePath(editor.document.uri, false);
@@ -599,39 +519,49 @@ async function tourFromHere(): Promise<void> {
     ? `the selected code in \`${rel}\` (lines ${sel.start.line + 1}–${sel.end.line + 1})`
     : `\`${rel}\``;
   const prompt =
-    `Give me a Code Atlas tour starting from ${scope}. ` +
+    `Give me a RepoTrail tour starting from ${scope}. ` +
     `Walk through what it does and how it connects to the rest of the codebase, ` +
-    `following the code-atlas skill (push stops over MCP).`;
+    `following the repotrail skill (push stops over MCP).`;
   await vscode.env.clipboard.writeText(prompt);
-  await vscode.commands.executeCommand("codeAtlas.tour.focus").then(undefined, () => {});
-  vscode.window.setStatusBarMessage("Code Atlas: 'tour from here' prompt copied for Claude Code.", 3000);
+  await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
+  vscode.window.setStatusBarMessage("RepoTrail: 'tour from here' prompt copied for Claude Code.", 3000);
 }
 
-function showMcpInfo(): void {
-  const cfg = vscode.workspace.getConfiguration("codeAtlas");
+function showMcpInfo(context: vscode.ExtensionContext): void {
+  const cfg = vscode.workspace.getConfiguration("repoTrail");
   const enabled = cfg.get<boolean>("mcpEnabled", true);
   if (!enabled) {
-    vscode.window.showInformationMessage("Code Atlas MCP server is disabled. Enable in settings.");
+    vscode.window.showInformationMessage("RepoTrail MCP server is disabled. Enable in settings.");
     return;
   }
-  const port = mcp?.port ?? cfg.get<number>("mcpPort", 7777);
-  const url = `http://127.0.0.1:${port}/mcp`;
+  const url = mcp?.connectionUrl;
+  if (!url) {
+    vscode.window.showInformationMessage("RepoTrail MCP server is not running yet.");
+    return;
+  }
+  const harnessPath = vscode.Uri.joinPath(context.extensionUri, "harness", "claude", "repotrail").fsPath;
+  const installHarnessCmd =
+    `mkdir -p ~/.claude/skills && rm -rf ~/.claude/skills/repotrail && cp -R ${shellQuote(harnessPath)} ~/.claude/skills/repotrail`;
   // User-scope registration is one-time and survives across Claude Code sessions;
   // tools auto-load on every new session. Prefer this over per-project.
-  const userScopeCmd = `claude mcp add --scope user --transport http code-atlas ${url}`;
-  const projectScopeCmd = `claude mcp add --transport http code-atlas ${url}`;
+  const userScopeCmd = `claude mcp add --scope user --transport http repotrail ${shellQuote(url)}`;
+  const projectScopeCmd = `claude mcp add --transport http repotrail ${shellQuote(url)}`;
   vscode.window
     .showInformationMessage(
-      `Code Atlas MCP: ${url}`,
-      "Copy global `claude mcp add` (recommended)",
+      "RepoTrail MCP is ready. Install the harness, add the MCP server, then start a new Claude Code session.",
+      "Copy harness install",
+      "Copy global MCP add",
       "Copy project-scope command",
       "Copy URL",
     )
     .then((pick) => {
-      if (pick?.startsWith("Copy global")) {
+      if (pick === "Copy harness install") {
+        vscode.env.clipboard.writeText(installHarnessCmd);
+        vscode.window.showInformationMessage("Copied harness install command for Claude Code.");
+      } else if (pick === "Copy global MCP add") {
         vscode.env.clipboard.writeText(userScopeCmd);
         vscode.window.showInformationMessage(
-          "Copied. Run once in any terminal — new Claude Code sessions auto-load Code Atlas tools.",
+          "Copied. Run once in any terminal — new Claude Code sessions auto-load RepoTrail tools.",
         );
       } else if (pick === "Copy project-scope command") {
         vscode.env.clipboard.writeText(projectScopeCmd);
@@ -639,4 +569,8 @@ function showMcpInfo(): void {
         vscode.env.clipboard.writeText(url);
       }
     });
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }

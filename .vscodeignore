@@ -3,6 +3,9 @@
 .idea/**
 .claude/**
 .omx/**
+docs/knowledge-pack/**
+media/sidebar.svg
+media/mcp-setup.svg
 src/**
 .gitignore
 .gitattributes

@@ -17,7 +17,7 @@ type WebviewSink = (msg: { type: string; text?: string }) => void;
  * Kokoro model) survive the user collapsing the sidebar mid-utterance.
  */
 export class TourViewProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = "codeAtlas.tour";
+  public static readonly viewType = "repoTrail.tour";
 
   private view: vscode.WebviewView | undefined;
   private onSinkChange: ((sink: WebviewSink | null) => void) | null = null;
@@ -46,7 +46,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     // Speak button's enabled state stay in sync (config changes don't trigger a
     // controller change on their own).
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("codeAtlas.tts")) void this.render();
+      if (e.affectsConfiguration("repoTrail.tts")) void this.render();
     });
   }
 
@@ -56,7 +56,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     void this.render();
   }
 
-  /** Lets the extension supply tours committed to the repo (.codeatlas/). */
+  /** Lets the extension supply tours committed to the repo (.repotrail/). */
   setRepoTourLoader(fn: () => Promise<RepoTourSummary[]>): void {
     this.repoTourLoader = fn;
     void this.render();
@@ -113,19 +113,13 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     view.webview.onDidReceiveMessage(async (msg) => {
       switch (msg?.type) {
         case "start":
-          await vscode.commands.executeCommand("codeAtlas.startTour");
-          break;
-        case "startFromAgent":
-          await vscode.commands.executeCommand("codeAtlas.startFromAgent");
-          break;
-        case "runSample":
-          await vscode.commands.executeCommand("codeAtlas.runSampleTour");
+          await vscode.commands.executeCommand("repoTrail.startTour");
           break;
         case "importTour":
-          await vscode.commands.executeCommand("codeAtlas.importTour");
+          await vscode.commands.executeCommand("repoTrail.importTour");
           break;
         case "exportTour":
-          await vscode.commands.executeCommand("codeAtlas.exportTour");
+          await vscode.commands.executeCommand("repoTrail.exportTour");
           break;
         case "next":
           await this.controller.next();
@@ -144,24 +138,24 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           await this.render();
           break;
         case "deeper":
-          await vscode.commands.executeCommand("codeAtlas.deeper");
+          await vscode.commands.executeCommand("repoTrail.deeper");
           break;
         case "followUp":
           if (typeof msg.question === "string" && msg.question.trim()) {
-            await vscode.commands.executeCommand("codeAtlas.followUp", msg.question);
+            await vscode.commands.executeCommand("repoTrail.followUp", msg.question);
           }
           break;
         case "stop":
           this.controller.stop();
           break;
         case "speakCurrent":
-          await vscode.commands.executeCommand("codeAtlas.speakCurrent");
+          await vscode.commands.executeCommand("repoTrail.speakCurrent");
           break;
         case "stopTts":
-          await vscode.commands.executeCommand("codeAtlas.stopTts");
+          await vscode.commands.executeCommand("repoTrail.stopTts");
           break;
         case "openTtsSettings":
-          await vscode.commands.executeCommand("workbench.action.openSettings", "codeAtlas.tts.provider");
+          await vscode.commands.executeCommand("workbench.action.openSettings", "repoTrail.tts.provider");
           break;
         case "tts.log":
           if (typeof msg.message === "string") {
@@ -170,7 +164,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
               this.warnedKokoroFallback = true;
               void vscode.window
                 .showWarningMessage(
-                  "Code Atlas: the Kokoro neural voice failed to load — using the system voice instead.",
+                  "RepoTrail: the Kokoro neural voice failed to load — using the system voice instead.",
                   "Show Details",
                 )
                 .then((c) => {
@@ -180,9 +174,9 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
             if (msg.audioFailed) {
               const detail = msg.autoplayBlocked
                 ? "the sidebar blocked audio autoplay. Tell me and I'll route playback through an unlocked AudioContext."
-                : "the audio could not be played in the sidebar. See the Code Atlas output log.";
+                : "the audio could not be played in the sidebar. See the RepoTrail output log.";
               void vscode.window
-                .showWarningMessage(`Code Atlas: ${detail}`, "Show Log")
+                .showWarningMessage(`RepoTrail: ${detail}`, "Show Log")
                 .then((c) => {
                   if (c === "Show Log") this.log.show(true);
                 });
@@ -191,17 +185,17 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           break;
         case "resumeTour":
           if (typeof msg.id === "string") {
-            await vscode.commands.executeCommand("codeAtlas.resumeTour", msg.id);
+            await vscode.commands.executeCommand("repoTrail.resumeTour", msg.id);
           }
           break;
         case "resumeRepoTour":
           if (typeof msg.file === "string") {
-            await vscode.commands.executeCommand("codeAtlas.resumeRepoTour", msg.file);
+            await vscode.commands.executeCommand("repoTrail.resumeRepoTour", msg.file);
           }
           break;
         case "deleteTour":
           if (typeof msg.id === "string") {
-            await vscode.commands.executeCommand("codeAtlas.deleteTour", msg.id);
+            await vscode.commands.executeCommand("repoTrail.deleteTour", msg.id);
           }
           break;
         case "refreshTours":
@@ -217,7 +211,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   private async render(): Promise<void> {
     if (!this.view) return;
     const snap = this.controller.snapshot();
-    const provider = vscode.workspace.getConfiguration("codeAtlas").get<string>("tts.provider", "system");
+    const provider = vscode.workspace.getConfiguration("repoTrail").get<string>("tts.provider", "system");
     const tours = snap.plan ? [] : await this.loadTours();
     const repoTours = snap.plan ? [] : await this.loadRepoTours();
 
@@ -295,7 +289,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
 
     const nonce = randomBytes(16).toString("hex");
 
-    // Ordered list of every stop — the actual "atlas". Click to jump.
+    // Ordered list of every stop. Click to jump.
     const overview = (() => {
       if (!plan || plan.steps.length === 0) return "";
       const rows = plan.steps
@@ -370,7 +364,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
 
     // Empty state: be honest that tours are generated by the agent over MCP.
     const mcpLine = (() => {
-      if (!extra.mcp.enabled) return `MCP server off — enable <code>codeAtlas.mcpEnabled</code> so your agent can connect.`;
+      if (!extra.mcp.enabled) return `MCP server off — enable <code>repoTrail.mcpEnabled</code> so your agent can connect.`;
       if (extra.mcp.port) return `MCP listening on <code>127.0.0.1:${extra.mcp.port}</code> — your agent can drive tours.`;
       return `MCP server starting…`;
     })();
@@ -379,10 +373,9 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       ? ""
       : `
         <h2>No active tour</h2>
-        <div class="explanation">Code Atlas tours are generated by your AI agent (Claude Code) over MCP, then you navigate them here. Ask it for <em>"a Code Atlas tour of this repo"</em> — or kick the tires with a sample.</div>
+        <div class="explanation">RepoTrail tours are generated by your Claude Code harness over MCP, then you navigate them here. Ask it for <em>"a RepoTrail tour of this repo"</em>.</div>
         <div class="controls">
-          <button id="startFromAgent">Start a tour from Claude Code</button>
-          <button id="runSample" class="secondary">Run sample tour</button>
+          <button id="start">Copy tour prompt</button>
           <button id="importTour" class="secondary">Import tour…</button>
         </div>
         <div class="meta">${mcpLine}</div>`;
@@ -415,7 +408,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         <ul class="tour-list">${rows}</ul>`;
     })();
 
-    // Tours committed into the repo (.codeatlas/) — the team-shared artifact.
+    // Tours committed into the repo (.repotrail/) — the team-shared artifact.
     const repoTourList = (() => {
       if (snap.plan || extra.repoTours.length === 0) return "";
       const rows = extra.repoTours
@@ -552,8 +545,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       try { vscode.setState({ ...readState(), ...patch }); } catch (e) {}
     };
     const on = (id, type) => document.getElementById(id)?.addEventListener("click", () => send({ type }));
-    on("startFromAgent", "startFromAgent");
-    on("runSample", "runSample");
+    on("start", "start");
     on("importTour", "importTour");
     on("next", "next");
     on("back", "back");
@@ -663,7 +655,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         u.onend = () => { if (token === speakToken) { setState("idle"); naturalEnd(); } };
         window.speechSynthesis?.speak(u);
       } catch (err) {
-        console.error("[code-atlas tts] system speak failed", err);
+        console.error("[repotrail tts] system speak failed", err);
         if (token === speakToken) setState("idle");
       }
     }
@@ -684,7 +676,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         playBlob(new Blob([bytes], { type: mime || "audio/mpeg" }), token)
           .then(() => { if (token === speakToken) { setState("idle"); naturalEnd(); } });
       } catch (err) {
-        console.error("[code-atlas tts] audio decode failed", err);
+        console.error("[repotrail tts] audio decode failed", err);
         reportAudioFailure("decode failed: " + ((err && err.message) || err), false);
         if (token === speakToken) setState("idle");
       }
@@ -713,7 +705,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           .then(() => { if (token === speakToken) setState("playing"); })
           .catch((e) => {
             const blocked = e && (e.name === "NotAllowedError" || /gesture|user activation/i.test(e.message || ""));
-            console.error("[code-atlas tts] play failed", e);
+            console.error("[repotrail tts] play failed", e);
             if (!started) reportAudioFailure((e && e.name ? e.name + ": " : "") + ((e && e.message) || e), blocked);
             done();
           });
@@ -758,7 +750,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       };
       kokoroWorker.onerror = (err) => {
         const detail = (err && (err.message || err.filename)) || "unknown worker error";
-        console.error("[code-atlas tts] kokoro worker crashed", err);
+        console.error("[repotrail tts] kokoro worker crashed", err);
         send({ type: "tts.log", message: "kokoro worker crashed: " + detail });
         for (const p of kokoroPending.values()) p.reject(new Error("kokoro worker error"));
         kokoroPending.clear();
@@ -798,7 +790,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           wav = await kokoroGenerate(chunks[i], voice);
         } catch (e) {
           const detail = (e && (e.message || String(e))) || "unknown error";
-          console.error("[code-atlas tts] kokoro unavailable, using system voice", e);
+          console.error("[repotrail tts] kokoro unavailable, using system voice", e);
           send({ type: "tts.log", message: "kokoro generate failed: " + detail, kokoroFellBack: true });
           if (token === speakToken) speakSystem(chunks.slice(i).join(" "), token);
           return;

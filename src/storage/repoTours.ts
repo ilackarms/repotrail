@@ -4,21 +4,21 @@ import { parseTourJson } from "../engine/tourSerialize";
 import { TourPlan } from "../engine/types";
 
 /**
- * Tours committed into the repository under `<root>/.codeatlas/*.json`.
+ * Tours committed into the repository under `<root>/.repotrail/*.json`.
  *
  * This is the team-artifact path: a senior dev generates a tour, saves it here,
  * and `git commit`s it. Anyone who clones the repo sees it in the Start tab and
- * can replay it. Files use the same export envelope as `codeAtlas.exportTour`,
- * so an exported `.json` can simply be dropped into `.codeatlas/`.
+ * can replay it. Files use the same export envelope as `repoTrail.exportTour`,
+ * so an exported `.json` can simply be dropped into `.repotrail/`.
  *
  * The extension never runs git — committing (whether and when) is entirely the
  * user's call. We only read and write files inside the folder.
  */
 
-export const REPO_TOURS_DIR = ".codeatlas";
+export const REPO_TOURS_DIR = ".repotrail";
 
 export interface RepoTourSummary {
-  /** Filename within .codeatlas/ (e.g. "architecture.json"). */
+  /** Filename within .repotrail/ (e.g. "architecture.json"). */
   file: string;
   title: string;
   kind: string;
@@ -58,7 +58,7 @@ export async function listRepoTours(workspaceRoot: string): Promise<RepoTourSumm
 }
 
 export async function readRepoTour(workspaceRoot: string, file: string): Promise<TourPlan | null> {
-  // Guard against path traversal — only accept a bare filename in .codeatlas/.
+  // Guard against path traversal — only accept a bare filename in .repotrail/.
   const safe = path.basename(file);
   try {
     const raw = await fs.readFile(path.join(dir(workspaceRoot), safe), "utf8");

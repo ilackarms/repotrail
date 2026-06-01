@@ -1,10 +1,31 @@
 {
-  "name": "code-atlas",
-  "displayName": "Code Atlas",
-  "description": "AI-guided codebase walkthroughs. Interactive tours of repos, PRs, subsystems, and execution flows.",
+  "name": "repotrail",
+  "displayName": "RepoTrail",
+  "description": "Agent-guided codebase tours in VS Code, driven by a local MCP harness.",
   "version": "0.10.0",
-  "publisher": "code-atlas",
-  "private": true,
+  "publisher": "repotrail",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ilackarms/repotrail.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ilackarms/repotrail/issues"
+  },
+  "homepage": "https://github.com/ilackarms/repotrail#readme",
+  "keywords": [
+    "ai",
+    "mcp",
+    "claude",
+    "code tour",
+    "walkthrough",
+    "onboarding"
+  ],
+  "galleryBanner": {
+    "color": "#111827",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -19,187 +40,172 @@
   "contributes": {
     "commands": [
       {
-        "command": "codeAtlas.startTour",
-        "title": "Code Atlas: Start Tour"
+        "command": "repoTrail.startTour",
+        "title": "RepoTrail: Start Tour"
       },
       {
-        "command": "codeAtlas.startFromAgent",
-        "title": "Code Atlas: Start Tour from Claude Code"
+        "command": "repoTrail.showMcpInfo",
+        "title": "RepoTrail: Show MCP Setup"
       },
       {
-        "command": "codeAtlas.runSampleTour",
-        "title": "Code Atlas: Run Sample Tour (demo)"
+        "command": "repoTrail.exportTour",
+        "title": "RepoTrail: Export Tour"
       },
       {
-        "command": "codeAtlas.exportTour",
-        "title": "Code Atlas: Export Tour"
+        "command": "repoTrail.importTour",
+        "title": "RepoTrail: Import Tour"
       },
       {
-        "command": "codeAtlas.importTour",
-        "title": "Code Atlas: Import Tour"
+        "command": "repoTrail.saveTourToRepo",
+        "title": "RepoTrail: Save Tour to Repo (.repotrail/)"
       },
       {
-        "command": "codeAtlas.saveTourToRepo",
-        "title": "Code Atlas: Save Tour to Repo (.codeatlas/)"
+        "command": "repoTrail.tourFromHere",
+        "title": "RepoTrail: Tour From Here"
       },
       {
-        "command": "codeAtlas.tourFromHere",
-        "title": "Code Atlas: Tour From Here"
+        "command": "repoTrail.togglePlay",
+        "title": "RepoTrail: Play / Pause Tour Narration"
       },
       {
-        "command": "codeAtlas.togglePlay",
-        "title": "Code Atlas: Play / Pause Tour Narration"
+        "command": "repoTrail.showStep",
+        "title": "RepoTrail: Show Step"
       },
       {
-        "command": "codeAtlas.showStep",
-        "title": "Code Atlas: Show Step"
+        "command": "repoTrail.resumeRepoTour",
+        "title": "RepoTrail: Resume Repo Tour"
       },
       {
-        "command": "codeAtlas.resumeRepoTour",
-        "title": "Code Atlas: Resume Repo Tour"
+        "command": "repoTrail.next",
+        "title": "RepoTrail: Next Step"
       },
       {
-        "command": "codeAtlas.next",
-        "title": "Code Atlas: Next Step"
+        "command": "repoTrail.back",
+        "title": "RepoTrail: Previous Step"
       },
       {
-        "command": "codeAtlas.back",
-        "title": "Code Atlas: Previous Step"
+        "command": "repoTrail.revealCurrent",
+        "title": "RepoTrail: Jump to Current Step Code"
       },
       {
-        "command": "codeAtlas.revealCurrent",
-        "title": "Code Atlas: Jump to Current Step Code"
+        "command": "repoTrail.deeper",
+        "title": "RepoTrail: Go Deeper"
       },
       {
-        "command": "codeAtlas.deeper",
-        "title": "Code Atlas: Go Deeper"
+        "command": "repoTrail.stop",
+        "title": "RepoTrail: Stop Tour"
       },
       {
-        "command": "codeAtlas.stop",
-        "title": "Code Atlas: Stop Tour"
+        "command": "repoTrail.cycleTts",
+        "title": "RepoTrail: Cycle TTS Mode"
       },
       {
-        "command": "codeAtlas.cycleTts",
-        "title": "Code Atlas: Cycle TTS Mode"
+        "command": "repoTrail.speakCurrent",
+        "title": "RepoTrail: Speak Current Step"
       },
       {
-        "command": "codeAtlas.speakCurrent",
-        "title": "Code Atlas: Speak Current Step"
+        "command": "repoTrail.stopTts",
+        "title": "RepoTrail: Stop Speech"
       },
       {
-        "command": "codeAtlas.stopTts",
-        "title": "Code Atlas: Stop Speech"
+        "command": "repoTrail.resumeTour",
+        "title": "RepoTrail: Resume Saved Tour"
       },
       {
-        "command": "codeAtlas.resumeTour",
-        "title": "Code Atlas: Resume Saved Tour"
-      },
-      {
-        "command": "codeAtlas.deleteTour",
-        "title": "Code Atlas: Delete Saved Tour"
+        "command": "repoTrail.deleteTour",
+        "title": "RepoTrail: Delete Saved Tour"
       }
     ],
     "keybindings": [
       {
-        "command": "codeAtlas.next",
+        "command": "repoTrail.next",
         "key": "alt+right",
-        "when": "codeAtlas.tourActive"
+        "when": "repoTrail.tourActive"
       },
       {
-        "command": "codeAtlas.back",
+        "command": "repoTrail.back",
         "key": "alt+left",
-        "when": "codeAtlas.tourActive"
+        "when": "repoTrail.tourActive"
       },
       {
-        "command": "codeAtlas.togglePlay",
+        "command": "repoTrail.togglePlay",
         "key": "alt+p",
-        "when": "codeAtlas.tourActive"
+        "when": "repoTrail.tourActive"
       }
     ],
     "menus": {
       "editor/context": [
         {
-          "command": "codeAtlas.tourFromHere",
+          "command": "repoTrail.tourFromHere",
           "group": "navigation@99",
           "when": "editorTextFocus"
         }
       ],
       "commandPalette": [
         {
-          "command": "codeAtlas.showStep",
+          "command": "repoTrail.showStep",
           "when": "false"
         },
         {
-          "command": "codeAtlas.resumeRepoTour",
+          "command": "repoTrail.resumeRepoTour",
           "when": "false"
         },
         {
-          "command": "codeAtlas.next",
-          "when": "codeAtlas.tourActive"
+          "command": "repoTrail.next",
+          "when": "repoTrail.tourActive"
         },
         {
-          "command": "codeAtlas.back",
-          "when": "codeAtlas.tourActive"
+          "command": "repoTrail.back",
+          "when": "repoTrail.tourActive"
         },
         {
-          "command": "codeAtlas.revealCurrent",
-          "when": "codeAtlas.tourActive"
+          "command": "repoTrail.revealCurrent",
+          "when": "repoTrail.tourActive"
         },
         {
-          "command": "codeAtlas.togglePlay",
-          "when": "codeAtlas.tourActive"
+          "command": "repoTrail.togglePlay",
+          "when": "repoTrail.tourActive"
         },
         {
-          "command": "codeAtlas.saveTourToRepo",
-          "when": "codeAtlas.tourActive"
+          "command": "repoTrail.saveTourToRepo",
+          "when": "repoTrail.tourActive"
         },
         {
-          "command": "codeAtlas.exportTour",
-          "when": "codeAtlas.tourActive"
+          "command": "repoTrail.exportTour",
+          "when": "repoTrail.tourActive"
         },
         {
-          "command": "codeAtlas.deeper",
-          "when": "codeAtlas.tourActive"
+          "command": "repoTrail.deeper",
+          "when": "repoTrail.tourActive"
         },
         {
-          "command": "codeAtlas.stop",
-          "when": "codeAtlas.tourActive"
+          "command": "repoTrail.stop",
+          "when": "repoTrail.tourActive"
         }
       ]
     },
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "codeAtlas",
-          "title": "Code Atlas",
-          "icon": "$(map)"
+          "id": "repoTrail",
+          "title": "RepoTrail",
+          "icon": "media/activity-icon.svg"
         }
       ]
     },
     "views": {
-      "codeAtlas": [
+      "repoTrail": [
         {
-          "id": "codeAtlas.tour",
+          "id": "repoTrail.tour",
           "name": "Tour",
           "type": "webview"
         }
       ]
     },
     "configuration": {
-      "title": "Code Atlas",
+      "title": "RepoTrail",
       "properties": {
-        "codeAtlas.anthropicApiKey": {
-          "type": "string",
-          "default": "",
-          "description": "Anthropic API key for LLM-backed tour generation. Leave empty to use the mock provider.",
-          "markdownDescription": "Anthropic API key. Store securely — prefer `ANTHROPIC_API_KEY` env var or VS Code secret storage in production."
-        },
-        "codeAtlas.model": {
-          "type": "string",
-          "default": "claude-opus-4-7",
-          "description": "Anthropic model id used for tour generation."
-        },
-        "codeAtlas.autoResume": {
+        "repoTrail.autoResume": {
           "type": "string",
           "enum": ["prompt", "auto", "off"],
           "enumDescriptions": [
@@ -210,22 +216,22 @@
           "default": "prompt",
           "description": "What to do with the most recent saved tour when VS Code opens this workspace. A window reload otherwise drops you to the empty state even though the tour is still saved."
         },
-        "codeAtlas.mcpEnabled": {
+        "repoTrail.mcpEnabled": {
           "type": "boolean",
           "default": true,
-          "description": "Run an MCP server so external agents (Claude Code, etc.) can drive Code Atlas tours."
+          "description": "Run an MCP server so external agents (Claude Code, etc.) can drive RepoTrail tours."
         },
-        "codeAtlas.mcpPort": {
+        "repoTrail.mcpPort": {
           "type": "number",
           "default": 7777,
-          "description": "Preferred port for the Code Atlas MCP HTTP server on 127.0.0.1. If in use, the extension probes the next mcpPortRange ports."
+          "description": "Preferred port for the RepoTrail MCP HTTP server on 127.0.0.1. If in use, the extension probes the next mcpPortRange ports."
         },
-        "codeAtlas.mcpPortRange": {
+        "repoTrail.mcpPortRange": {
           "type": "number",
           "default": 16,
           "description": "Number of consecutive ports to probe starting at mcpPort before giving up."
         },
-        "codeAtlas.tts.provider": {
+        "repoTrail.tts.provider": {
           "type": "string",
           "enum": [
             "off",
@@ -239,54 +245,54 @@
             "No narration.",
             "Local Kokoro-82M neural voice (experimental). Free and natural; runs in a background Web Worker via WASM and downloads a ~80MB model on first use. Inference is CPU-heavy and slow on some machines — falls back to the system voice if it stalls.",
             "Browser SpeechSynthesis using native OS voices. Free, instant, works offline. Robotic but reliable — the default.",
-            "Shell out to a system command (macOS `say`; override via codeAtlas.tts.command on Linux).",
-            "ElevenLabs Flash v2.5 — natural hosted voice with low latency. Requires codeAtlas.tts.elevenLabsApiKey.",
-            "OpenAI gpt-4o-mini-tts — natural, tone-steerable hosted voice. Requires codeAtlas.tts.openAiApiKey."
+            "Shell out to a system command (macOS `say`; override via repoTrail.tts.command on Linux).",
+            "ElevenLabs Flash v2.5 — natural hosted voice with low latency. Requires repoTrail.tts.elevenLabsApiKey.",
+            "OpenAI gpt-4o-mini-tts — natural, tone-steerable hosted voice. Requires repoTrail.tts.openAiApiKey."
           ],
           "default": "system",
           "markdownDescription": "Which engine reads tour narration aloud. **system** (default) uses free native OS voices — instant and reliable. **kokoro** is a free, natural neural voice that runs locally in a background worker, but model load/inference is CPU-heavy (experimental). **say** shells out to a command. **elevenlabs**/**openai** are hosted neural voices that need an API key."
         },
-        "codeAtlas.tts.command": {
+        "repoTrail.tts.command": {
           "type": "string",
           "default": "say",
-          "description": "Command invoked when codeAtlas.tts.provider is 'say'. The narration text is passed as a single argv[1]. Use `espeak` or `spd-say` on Linux."
+          "description": "Command invoked when repoTrail.tts.provider is 'say'. The narration text is passed as a single argv[1]. Use `espeak` or `spd-say` on Linux."
         },
-        "codeAtlas.tts.kokoroVoice": {
+        "repoTrail.tts.kokoroVoice": {
           "type": "string",
           "default": "af_heart",
-          "description": "Kokoro voice id used when codeAtlas.tts.provider is 'kokoro' (e.g. af_heart, af_bella, af_nicole, am_michael, am_adam, bf_emma, bm_george)."
+          "description": "Kokoro voice id used when repoTrail.tts.provider is 'kokoro' (e.g. af_heart, af_bella, af_nicole, am_michael, am_adam, bf_emma, bm_george)."
         },
-        "codeAtlas.tts.elevenLabsApiKey": {
+        "repoTrail.tts.elevenLabsApiKey": {
           "type": "string",
           "default": "",
           "markdownDescription": "ElevenLabs API key, used when provider is 'elevenlabs'. Falls back to the `ELEVENLABS_API_KEY` env var. Prefer the env var or secret storage over committing a key."
         },
-        "codeAtlas.tts.elevenLabsVoiceId": {
+        "repoTrail.tts.elevenLabsVoiceId": {
           "type": "string",
           "default": "21m00Tcm4TlvDq8ikWAM",
           "description": "ElevenLabs voice id (default: Rachel)."
         },
-        "codeAtlas.tts.elevenLabsModel": {
+        "repoTrail.tts.elevenLabsModel": {
           "type": "string",
           "default": "eleven_flash_v2_5",
           "description": "ElevenLabs model id. eleven_flash_v2_5 is the low-latency default; eleven_multilingual_v2 is higher quality but slower and pricier."
         },
-        "codeAtlas.tts.openAiApiKey": {
+        "repoTrail.tts.openAiApiKey": {
           "type": "string",
           "default": "",
           "markdownDescription": "OpenAI API key, used when provider is 'openai'. Falls back to the `OPENAI_API_KEY` env var."
         },
-        "codeAtlas.tts.openAiModel": {
+        "repoTrail.tts.openAiModel": {
           "type": "string",
           "default": "gpt-4o-mini-tts",
           "description": "OpenAI TTS model. gpt-4o-mini-tts is steerable (honors openAiInstructions) and recommended for code review. Use tts-1 or tts-1-hd if your key/project lacks access to gpt-4o-mini-tts."
         },
-        "codeAtlas.tts.openAiVoice": {
+        "repoTrail.tts.openAiVoice": {
           "type": "string",
           "default": "ash",
           "description": "OpenAI TTS voice. For reading code review feedback, calm/clear voices work best: ash, sage, alloy. (Also: ballad, coral, echo, shimmer, verse.)"
         },
-        "codeAtlas.tts.openAiInstructions": {
+        "repoTrail.tts.openAiInstructions": {
           "type": "string",
           "default": "Read this code walkthrough aloud like a friendly senior engineer pair-programming: clear, calm, with natural pacing.",
           "description": "Tone/style instructions passed to gpt-4o-mini-tts. Only the gpt-4o-mini-tts model honors this."
@@ -300,7 +306,7 @@
     "watch": "tsc -watch -p ./ --noEmit",
     "build": "pnpm typecheck && pnpm compile",
     "package": "pnpm build && vsce package --no-dependencies",
-    "install-local": "pnpm package && code --install-extension code-atlas-$npm_package_version.vsix --force",
+    "install-local": "pnpm package && code --install-extension repotrail-$npm_package_version.vsix --force",
     "vscode:prepublish": "pnpm build"
   },
   "devDependencies": {
@@ -311,7 +317,6 @@
     "typescript": "^5.4.0"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.30.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^4.4.3"
   }

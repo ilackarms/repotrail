@@ -15,14 +15,14 @@ export type TtsWebviewMsg =
 
 /**
  * Coordinates text-to-speech for tour narration across several backends, chosen
- * by the `codeAtlas.tts.provider` setting:
+ * by the `repoTrail.tts.provider` setting:
  *
  * - "off": no audio.
  * - "kokoro": local Kokoro-82M neural voice. Runs entirely in the sidebar
  *   webview via WASM (downloads the model on first use, then offline). Free,
  *   natural — the default.
  * - "system": webview SpeechSynthesis using native OS voices. Free, robotic.
- * - "say": spawn macOS `say` (override via codeAtlas.tts.command on Linux).
+ * - "say": spawn macOS `say` (override via repoTrail.tts.command on Linux).
  * - "elevenlabs" / "openai": hosted neural voices. Audio is fetched here in the
  *   extension host (keeping the API key out of the webview) and the bytes are
  *   posted to the webview for playback.
@@ -113,7 +113,7 @@ export class TtsManager implements vscode.Disposable {
       this.webviewSink?.({ type: "tts.cancel" });
       return;
     }
-    const cfg = vscode.workspace.getConfiguration("codeAtlas");
+    const cfg = vscode.workspace.getConfiguration("repoTrail");
     switch (provider) {
       case "system":
         this.sendToWebview({ type: "tts.speak", engine: "system", text });
@@ -142,7 +142,7 @@ export class TtsManager implements vscode.Disposable {
     if (this.webviewSink) {
       this.webviewSink(msg);
     } else {
-      this.log.appendLine("[tts] webview sink unavailable — open the Code Atlas sidebar to hear narration.");
+      this.log.appendLine("[tts] webview sink unavailable — open the RepoTrail sidebar to hear narration.");
     }
   }
 
@@ -162,7 +162,7 @@ export class TtsManager implements vscode.Disposable {
   private async speakViaElevenLabs(text: string, cfg: vscode.WorkspaceConfiguration): Promise<void> {
     const key = (cfg.get<string>("tts.elevenLabsApiKey", "") || process.env.ELEVENLABS_API_KEY || "").trim();
     if (!key) {
-      this.warnMissingKey("ElevenLabs", "codeAtlas.tts.elevenLabsApiKey");
+      this.warnMissingKey("ElevenLabs", "repoTrail.tts.elevenLabsApiKey");
       return;
     }
     const voiceId = cfg.get<string>("tts.elevenLabsVoiceId", "21m00Tcm4TlvDq8ikWAM");
@@ -177,14 +177,14 @@ export class TtsManager implements vscode.Disposable {
       },
       "audio/mpeg",
       "ElevenLabs",
-      "codeAtlas.tts.elevenLabsApiKey",
+      "repoTrail.tts.elevenLabsApiKey",
     );
   }
 
   private async speakViaOpenAi(text: string, cfg: vscode.WorkspaceConfiguration): Promise<void> {
     const key = (cfg.get<string>("tts.openAiApiKey", "") || process.env.OPENAI_API_KEY || "").trim();
     if (!key) {
-      this.warnMissingKey("OpenAI", "codeAtlas.tts.openAiApiKey");
+      this.warnMissingKey("OpenAI", "repoTrail.tts.openAiApiKey");
       return;
     }
     const model = cfg.get<string>("tts.openAiModel", "gpt-4o-mini-tts");
@@ -208,7 +208,7 @@ export class TtsManager implements vscode.Disposable {
       },
       "audio/mpeg",
       "OpenAI",
-      "codeAtlas.tts.openAiApiKey",
+      "repoTrail.tts.openAiApiKey",
     );
   }
 
@@ -238,7 +238,7 @@ export class TtsManager implements vscode.Disposable {
           res.status === 401 || res.status === 403
             ? "rejected the API key"
             : res.status === 404
-              ? "model not found for this key — try a different codeAtlas.tts.*Model"
+              ? "model not found for this key — try a different repoTrail.tts.*Model"
               : `HTTP ${res.status}`;
         this.failHosted(label, `${hint}. ${summarizeApiError(body)}`.trim(), settingId);
         return;
@@ -266,7 +266,7 @@ export class TtsManager implements vscode.Disposable {
     if (now - this.lastHostedWarn < 8000) return;
     this.lastHostedWarn = now;
     void vscode.window
-      .showWarningMessage(`Code Atlas: ${label} TTS failed — ${detail}`, "Open Settings", "Show Log")
+      .showWarningMessage(`RepoTrail: ${label} TTS failed — ${detail}`, "Open Settings", "Show Log")
       .then((choice) => {
         if (choice === "Open Settings") {
           void vscode.commands.executeCommand("workbench.action.openSettings", settingId);
@@ -281,7 +281,7 @@ export class TtsManager implements vscode.Disposable {
     if (this.warnedMissing.has(settingId)) return;
     this.warnedMissing.add(settingId);
     void vscode.window
-      .showWarningMessage(`Code Atlas: ${label} TTS ${reason}.`, "Open Settings")
+      .showWarningMessage(`RepoTrail: ${label} TTS ${reason}.`, "Open Settings")
       .then((choice) => {
         if (choice === "Open Settings") {
           void vscode.commands.executeCommand("workbench.action.openSettings", settingId);
@@ -304,7 +304,7 @@ function summarizeApiError(body: string): string {
 }
 
 export function currentProvider(): TtsProvider {
-  const raw = vscode.workspace.getConfiguration("codeAtlas").get<string>("tts.provider", "system");
+  const raw = vscode.workspace.getConfiguration("repoTrail").get<string>("tts.provider", "system");
   return (ALL_PROVIDERS as string[]).includes(raw) ? (raw as TtsProvider) : "system";
 }
 
@@ -314,7 +314,7 @@ export function currentProvider(): TtsProvider {
  * (config or env) so cycling can't land on a silent, key-less provider.
  */
 export function availableProviders(): TtsProvider[] {
-  const cfg = vscode.workspace.getConfiguration("codeAtlas");
+  const cfg = vscode.workspace.getConfiguration("repoTrail");
   const list: TtsProvider[] = ["off", "kokoro", "system", "say"];
   if ((cfg.get<string>("tts.elevenLabsApiKey", "") || process.env.ELEVENLABS_API_KEY || "").trim()) {
     list.push("elevenlabs");

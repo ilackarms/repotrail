@@ -12,7 +12,7 @@ import { TourKind, TourPlan, TourStep } from "./types";
 const EXPORT_VERSION = 1;
 
 interface TourExportEnvelope {
-  codeAtlasTour: number; // schema version marker
+  repoTrailTour: number; // schema version marker
   exportedAt: string;
   plan: TourPlan;
 }
@@ -20,7 +20,7 @@ interface TourExportEnvelope {
 /** Serialize a plan to a re-importable JSON envelope. */
 export function planToJson(plan: TourPlan, exportedAt: string): string {
   const envelope: TourExportEnvelope = {
-    codeAtlasTour: EXPORT_VERSION,
+    repoTrailTour: EXPORT_VERSION,
     exportedAt,
     plan,
   };
@@ -29,7 +29,7 @@ export function planToJson(plan: TourPlan, exportedAt: string): string {
 
 /**
  * Parse a previously-exported tour. Accepts three shapes for resilience:
- *   1. the export envelope `{ codeAtlasTour, plan }`
+ *   1. the export envelope `{ repoTrailTour, plan }`
  *   2. a stored TourRecord `{ plan, ... }`
  *   3. a bare TourPlan `{ kind, title, steps }`
  * Returns null if nothing plan-shaped is found.
@@ -114,7 +114,7 @@ function normalizeKind(value: unknown): TourKind {
  */
 export function planToMarkdown(plan: TourPlan, exportedAt: string): string {
   const lines: string[] = [];
-  lines.push(`# ${plan.title || "Code Atlas tour"}`);
+  lines.push(`# ${plan.title || "RepoTrail tour"}`);
   lines.push("");
   lines.push(`_${plan.kind} tour · ${plan.steps.length} stops · exported ${exportedAt}_`);
   lines.push("");

@@ -45,16 +45,16 @@ export class TourCodeLensProvider implements vscode.CodeLensProvider {
 
       lenses.push(
         new vscode.CodeLens(lensRange, { title: header, command: "" }),
-        new vscode.CodeLens(lensRange, { title: "$(arrow-left) Back", command: "codeAtlas.back" }),
-        new vscode.CodeLens(lensRange, { title: "Next $(arrow-right)", command: "codeAtlas.next" }),
+        new vscode.CodeLens(lensRange, { title: "$(arrow-left) Back", command: "repoTrail.back" }),
+        new vscode.CodeLens(lensRange, { title: "Next $(arrow-right)", command: "repoTrail.next" }),
         new vscode.CodeLens(lensRange, {
           title: "$(clippy) Deepen (copy prompt)",
-          command: "codeAtlas.deeper",
+          command: "repoTrail.deeper",
           tooltip: "Copy a 'deepen this step' prompt to your clipboard for paste into Claude Code.",
         }),
-        new vscode.CodeLens(lensRange, { title: "$(stop-circle) Stop", command: "codeAtlas.stop" }),
-        new vscode.CodeLens(lensRange, { title: "$(book) Open narration", command: "codeAtlas.openNarration" }),
-        new vscode.CodeLens(lensRange, { title: ttsLensLabel(), command: "codeAtlas.cycleTts" }),
+        new vscode.CodeLens(lensRange, { title: "$(stop-circle) Stop", command: "repoTrail.stop" }),
+        new vscode.CodeLens(lensRange, { title: "$(book) Open narration", command: "repoTrail.openNarration" }),
+        new vscode.CodeLens(lensRange, { title: ttsLensLabel(), command: "repoTrail.cycleTts" }),
       );
       if (snap.currentDrift !== "ok") {
         lenses.push(
@@ -78,10 +78,10 @@ export class TourCodeLensProvider implements vscode.CodeLensProvider {
       const icon = drift === "missing" ? "$(error)" : drift === "relocated" ? "$(warning)" : "$(circle-small-filled)";
       lenses.push(
         new vscode.CodeLens(new vscode.Range(line, 0, line, 0), {
-          title: `${icon} Atlas stop ${i + 1}: ${step.title}`,
-          command: "codeAtlas.showStep",
+          title: `${icon} Trail stop ${i + 1}: ${step.title}`,
+          command: "repoTrail.showStep",
           arguments: [i],
-          tooltip: "Jump to this Code Atlas stop.",
+          tooltip: "Jump to this RepoTrail stop.",
         }),
       );
     });
@@ -91,7 +91,7 @@ export class TourCodeLensProvider implements vscode.CodeLensProvider {
 }
 
 function ttsLensLabel(): string {
-  const provider = vscode.workspace.getConfiguration("codeAtlas").get<string>("tts.provider", "system");
+  const provider = vscode.workspace.getConfiguration("repoTrail").get<string>("tts.provider", "system");
   if (provider === "off") return "$(unmute) TTS";
   return `$(megaphone) TTS: ${provider}`;
 }

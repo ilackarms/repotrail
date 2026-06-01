@@ -1,119 +1,103 @@
-# Code Atlas
+# RepoTrail
 
-**AI-guided codebase walkthroughs inside your editor.**
+**Agent-guided codebase tours inside VS Code.**
 
-Code Atlas turns "I just inherited this repo" / "what does this PR actually do?" / "where does this request go?" into an interactive, narrated tour. The AI picks the stops; the editor opens the files, highlights the right ranges, and walks you through.
+RepoTrail turns a repo walkthrough into an editor-native route: your Claude Code
+harness chooses the stops, RepoTrail opens the files, highlights tight ranges,
+shows narration, and lets you move through the route with Back/Next, CodeLens,
+and the sidebar.
 
-## Vision
+![RepoTrail sidebar](media/sidebar.png)
 
-Three layers, kept strictly separate:
+## How It Works
 
-1. **Editor UX layer** — opens files, highlights ranges, reveals symbols, renders narration, owns next/back/deeper controls. The *only* part that touches `vscode.window`.
-2. **Tour engine** — turns a `TourRequest` into a `TourPlan` of declarative steps. Pure data in, pure data out. Never drives the editor.
-3. **Repo analysis layer** — feeds the engine context: file lists today, ripgrep + git diff next, Tree-sitter / LSP / call graphs later.
+RepoTrail has one supported generation path:
 
-The engine emits steps the extension *executes*. It is not an unconstrained agent puppeteering the IDE.
+1. The VS Code extension runs a local MCP server on `127.0.0.1`.
+2. The bundled Claude Code harness connects to that MCP server.
+3. The harness reads your repo, emits a complete tour up front, and lands the
+   editor on stop 1.
+4. You navigate locally in VS Code. Follow-ups and "go deeper" prompts return
+   to the harness, which can insert or update tour steps.
 
-```jsonc
-{
-  "title": "HTTP entrypoint",
-  "file": "src/server.ts",
-  "range": { "startLine": 40, "startColumn": 1, "endLine": 78, "endColumn": 1 },
-  "explanation": "This is where incoming HTTP requests enter the system.",
-  "actions": ["openFile", "highlightRange", "showNarration"]
-}
+The extension does not ship a built-in LLM provider and does not send source
+code to a hosted service by itself.
+
+## Install The Claude Code Harness
+
+After installing the extension, open the target workspace in VS Code and run:
+
+```text
+RepoTrail: Show MCP Setup
 ```
 
-## MVP (what's in this scaffold)
+Use the command buttons to copy:
 
-- VS Code extension, TypeScript, pnpm.
-- Command **Code Atlas: Start Tour** with a QuickPick of tour kinds:
-  - Architecture overview
-  - PR / diff walkthrough
-  - File walkthrough
-  - Request lifecycle trace
-  - Bug investigation path
-- Sidebar webview with a fixed navigation dock for **Next / Back / Jump to code / Go deeper / Stop**, follow-up prompts, and a compactable route list above the current step explanation.
-- Mock provider that emits a 4-step tour of this extension itself so you can run it immediately.
-- Anthropic Claude provider stub wired to settings (`codeAtlas.anthropicApiKey`, `codeAtlas.model`) — throws until implemented.
-- Cursor / Windsurf compatible: only standard `vscode` API is used.
+1. The harness install command.
+2. The `claude mcp add --scope user --transport http repotrail ...` command.
 
-## Folder layout
+Then start a new Claude Code session in the same repo and ask:
 
-```
-src/
-├── extension.ts                # activate(), command registration, provider selection
-├── ux/
-│   ├── tourController.ts       # plan + index state, next/back/deeper/followUp
-│   ├── webviewPanel.ts         # sidebar narration view
-│   └── editorActions.ts        # ONLY place that opens files / draws decorations
-├── engine/
-│   ├── types.ts                # TourStep / TourPlan / TourRequest schemas
-│   ├── tourProvider.ts         # TourProvider interface
-│   ├── mockProvider.ts         # canned demo tour
-│   └── claudeProvider.ts       # Anthropic stub (TODO)
-└── analysis/
-    └── repoContext.ts          # workspace file listing (extend later)
+```text
+Give me a RepoTrail tour of this repository.
 ```
 
-## Running locally
+![RepoTrail MCP setup](media/mcp-setup.png)
+
+## Features
+
+- Full-route tours for architecture, PR/diff walkthroughs, file walkthroughs,
+  request lifecycle traces, and bug investigation paths.
+- Tight highlighted ranges with auto-captured anchors that detect code drift.
+- Sidebar route list with seen-state dimming and current-step narration.
+- CodeLens controls above highlighted stops.
+- Keyboard navigation with `Alt+Left`, `Alt+Right`, and `Alt+P`.
+- Optional narration via system speech, local Kokoro, macOS/Linux command TTS,
+  ElevenLabs, or OpenAI TTS.
+- Export to Markdown or JSON, import JSON tours, and save team-shared tours in
+  `.repotrail/`.
+- Per-workspace resume from `~/.repotrail/tours/`.
+
+## Security And Privacy
+
+- The MCP server binds only to `127.0.0.1`.
+- `/mcp` requires an unguessable local auth token. RepoTrail writes the live
+  tokenized URL to `~/.repotrail/ports.json` and copies that URL in setup
+  commands.
+- MCP step files must be workspace-relative and cannot escape the workspace.
+- Hosted TTS providers are opt-in and require your own API key. Audio requests
+  are made by the extension host, not the webview.
+- RepoTrail itself does not collect telemetry.
+
+See [PRIVACY.md](PRIVACY.md) for the longer policy.
+
+## Commands
+
+- `RepoTrail: Start Tour` - copy a prompt for the external harness.
+- `RepoTrail: Show MCP Setup` - copy the harness install command, MCP add
+  command, or tokenized MCP URL.
+- `RepoTrail: Tour From Here` - copy a prompt scoped to the active file or
+  selection.
+- `RepoTrail: Export Tour` / `RepoTrail: Import Tour`.
+- `RepoTrail: Save Tour to Repo (.repotrail/)`.
+- `RepoTrail: Resume Saved Tour` / `RepoTrail: Delete Saved Tour`.
+
+## Development
 
 ```bash
 pnpm install
-pnpm compile
+pnpm build
+pnpm package
+pnpm install-local
 ```
 
-Then in VS Code: **Run and Debug → Run Extension** (F5). In the dev host:
-1. Open any folder.
-2. Run **Code Atlas: Start Tour**.
-3. Pick a kind. Use the Code Atlas sidebar to step through.
+The primary validation gate is `pnpm build`. The packaged VSIX is installed
+locally with `pnpm install-local`.
 
-## Configuration
+## Limitations
 
-- `codeAtlas.anthropicApiKey` — leave empty to use the mock provider. Setting it activates `ClaudeTourProvider` (stub).
-- `codeAtlas.model` — Anthropic model id, defaults to `claude-opus-4-7`.
-- `ANTHROPIC_API_KEY` env var is also honored.
-
-## TODO
-
-### LLM integration (`src/engine/claudeProvider.ts`)
-- [ ] System prompt explaining the `TourPlan` schema (lift from `engine/types.ts`).
-- [ ] Compact repo context: top-level tree + selected file excerpts.
-- [ ] Tool-use / JSON-mode call so the model is forced to emit valid steps.
-- [ ] Validate response against `TourStep` shape before returning.
-- [ ] Cache plans by `(workspaceRoot, kind, contextHash)`.
-- [ ] Token budgeting + progressive expansion for large repos.
-
-### Repo analysis (`src/analysis/`)
-- [ ] `ripgrep.ts` — symbol/keyword search over the workspace.
-- [ ] `gitDiff.ts` — parse unified diffs for PR-mode tours.
-- [ ] `treesitter.ts` — semantic chunks per file.
-- [ ] LSP symbol queries for `revealSymbol` actions.
-- [ ] Lightweight call graph + dependency map.
-
-### UX polish
-- [x] Progress bar in the webview.
-- [ ] Inline-edit explanations.
-- [x] Export tour as Markdown / re-importable JSON (`codeAtlas.exportTour` / `importTour`).
-- [x] Repo-committed tours (`.codeatlas/`) — shared in the Start tab, "Save to repo".
-- [x] Route overview list of all stops with click-to-jump (the "atlas" view).
-- [x] Stale-stop detection + re-anchoring as code drifts (drift markers).
-- [x] Editor-as-map: overview-ruler ticks + CodeLens markers for in-file stops.
-- [x] Continuous Play mode (read aloud + auto-advance).
-- [x] Stable sidebar navigation dock with compactable route list.
-- [x] Honest in-editor entry point — agent handoff + sample, no silent mock.
-- [x] Clipboard-bridge feedback — inline prompt + "steps added" banner.
-- [x] Narration stays in the sidebar instead of hover popups over code.
-- [x] Keyboard nav (`Alt+←/→`, `Alt+P`) + status-bar tour indicator.
-- [x] Mark-as-seen route dimming; right-click "Tour From Here".
-- [x] Auto-resume last tour on reload (`codeAtlas.autoResume`).
-- [ ] Multi-file overview pane (mini-map of all step files).
-
-### Compatibility
-- [x] No proprietary APIs — should work in Cursor / Windsurf out of the box.
-- [ ] Manually verify in Cursor + Windsurf once a real provider lands.
-
-## Non-goals (for now)
-
-- Mutating files. Tours read; refactors are a separate product.
-- Free-form agent control of the IDE. Steps are declarative on purpose.
+- Claude Code must start a new session after MCP registration so it can load the
+  `mcp__repotrail__*` tools.
+- RepoTrail is read-only. It navigates and explains code; it does not refactor
+  files.
+- Open VSX publishing is not part of the first launch.

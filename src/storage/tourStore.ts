@@ -5,14 +5,14 @@ import * as path from "node:path";
 import { TourPlan } from "../engine/types";
 
 /**
- * Per-workspace tour persistence at ~/.code-atlas/tours/<workspace-hash>/<id>.json
+ * Per-workspace tour persistence at ~/.repotrail/tours/<workspace-hash>/<id>.json
  *
  * Workspace path is hashed for a stable, FS-safe directory name; the raw path
  * is stored inside the record for traceability. Records persist across reloads
  * and extension reinstalls so the user can resume any tour they've taken.
  */
 
-const ROOT = path.join(os.homedir(), ".code-atlas", "tours");
+const ROOT = path.join(os.homedir(), ".repotrail", "tours");
 
 export interface TourRecord {
   id: string;

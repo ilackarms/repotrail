@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="640" viewBox="0 0 1100 640" role="img" aria-label="RepoTrail sidebar tour screenshot">
+  <rect width="1100" height="640" fill="#0f172a"/>
+  <rect x="40" y="40" width="1020" height="560" rx="18" fill="#111827" stroke="#334155"/>
+  <rect x="40" y="40" width="250" height="560" rx="18" fill="#0b1220"/>
+  <rect x="310" y="70" width="710" height="42" rx="8" fill="#1f2937"/>
+  <rect x="330" y="84" width="210" height="12" rx="6" fill="#38bdf8"/>
+  <rect x="330" y="145" width="620" height="16" rx="8" fill="#475569"/>
+  <rect x="330" y="182" width="520" height="16" rx="8" fill="#334155"/>
+  <rect x="330" y="219" width="650" height="16" rx="8" fill="#334155"/>
+  <rect x="330" y="300" width="580" height="120" rx="10" fill="#020617" stroke="#1e40af"/>
+  <rect x="352" y="325" width="310" height="14" rx="7" fill="#22d3ee"/>
+  <rect x="352" y="360" width="420" height="14" rx="7" fill="#334155"/>
+  <rect x="352" y="390" width="380" height="14" rx="7" fill="#334155"/>
+  <text x="78" y="92" fill="#e5e7eb" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="700">RepoTrail</text>
+  <text x="78" y="126" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="15">Architecture tour</text>
+  <rect x="78" y="158" width="170" height="12" rx="6" fill="#38bdf8"/>
+  <rect x="78" y="190" width="170" height="44" rx="8" fill="#1e293b" stroke="#38bdf8"/>
+  <text x="98" y="218" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="15">1. Entrypoint</text>
+  <rect x="78" y="246" width="170" height="44" rx="8" fill="#111827" stroke="#334155"/>
+  <text x="98" y="274" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="15">2. Routing</text>
+  <rect x="78" y="302" width="170" height="44" rx="8" fill="#111827" stroke="#334155"/>
+  <text x="98" y="330" fill="#cbd5e1" font-family="Inter, Arial, sans-serif" font-size="15">3. Controller</text>
+  <rect x="78" y="370" width="78" height="38" rx="8" fill="#0f172a" stroke="#475569"/>
+  <text x="103" y="394" fill="#e2e8f0" font-family="Inter, Arial, sans-serif" font-size="14">Back</text>
+  <rect x="170" y="370" width="78" height="38" rx="8" fill="#38bdf8"/>
+  <text x="195" y="394" fill="#082f49" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="700">Next</text>
+  <path d="M842 496 C900 430 872 356 938 296 C974 263 1009 249 1030 246" fill="none" stroke="#22c55e" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="842" cy="496" r="12" fill="#22c55e"/>
+  <circle cx="938" cy="296" r="12" fill="#22c55e"/>
+  <circle cx="1030" cy="246" r="12" fill="#22c55e"/>
+</svg>

@@ -1,4 +1,5 @@
 import * as http from "node:http";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -6,12 +7,13 @@ import * as vscode from "vscode";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
-import { TourController, UserAction } from "../ux/tourController";
+import { TourController } from "../ux/tourController";
 import { gatherRepoContext } from "../analysis/repoContext";
 import { TourKind, TourPlan } from "../engine/types";
 
-const PORT_REGISTRY_DIR = path.join(os.homedir(), ".code-atlas");
+const PORT_REGISTRY_DIR = path.join(os.homedir(), ".repotrail");
 const PORT_REGISTRY_FILE = path.join(PORT_REGISTRY_DIR, "ports.json");
+const MAX_BODY_BYTES = 1024 * 1024;
 
 /**
  * HTTP-based MCP server that lets an external agentic harness (Claude Code,
@@ -25,16 +27,17 @@ const PORT_REGISTRY_FILE = path.join(PORT_REGISTRY_DIR, "ports.json");
  * underlying TourController is shared (the source of truth), so tool
  * implementations close over it; only the protocol machinery is rebuilt.
  */
-export class CodeAtlasMcpServer {
+export class RepoTrailMcpServer {
   private server: http.Server | null = null;
   private actualPort = 0;
+  private readonly authToken = randomBytes(32).toString("hex");
   private output: vscode.OutputChannel;
 
   constructor(
     private readonly controller: TourController,
     private readonly extensionVersion: string,
   ) {
-    this.output = vscode.window.createOutputChannel("Code Atlas MCP");
+    this.output = vscode.window.createOutputChannel("RepoTrail MCP");
   }
 
   /**
@@ -95,6 +98,10 @@ export class CodeAtlasMcpServer {
     return this.actualPort;
   }
 
+  get connectionUrl(): string {
+    return `http://127.0.0.1:${this.actualPort}/mcp?token=${this.authToken}`;
+  }
+
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     if (!req.url) {
       res.writeHead(400).end();
@@ -113,9 +120,18 @@ export class CodeAtlasMcpServer {
       res.writeHead(404).end();
       return;
     }
+    if (req.method !== "POST") {
+      writeJsonRpcError(res, 405, -32600, "RepoTrail MCP expects POST /mcp.");
+      return;
+    }
+    if (!this.isAuthorized(req, url)) {
+      this.output.appendLine(`[mcp] rejected unauthorized request from ${req.socket.remoteAddress ?? "unknown"}`);
+      writeJsonRpcError(res, 401, -32001, "Unauthorized RepoTrail MCP request.");
+      return;
+    }
 
     // Stateless: build a fresh McpServer + transport per request.
-    const mcp = new McpServer({ name: "code-atlas", version: this.extensionVersion });
+    const mcp = new McpServer({ name: "repotrail", version: this.extensionVersion });
     this.registerTools(mcp);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
@@ -127,15 +143,16 @@ export class CodeAtlasMcpServer {
 
     try {
       await mcp.connect(transport);
-      const body = req.method === "POST" ? await readJson(req) : undefined;
+      const body = await readJson(req, MAX_BODY_BYTES);
       await transport.handleRequest(req, res, body);
     } catch (err) {
-      const msg = err instanceof Error ? err.stack ?? err.message : String(err);
-      this.output.appendLine(`[mcp] ${req.method} ${url.pathname} failed: ${msg}`);
+      const status = err instanceof HttpError ? err.status : 500;
+      const message = err instanceof HttpError ? err.message : "RepoTrail MCP request failed.";
+      const logMsg = err instanceof Error ? err.stack ?? err.message : String(err);
+      const code = status === 400 ? -32700 : -32603;
+      this.output.appendLine(`[mcp] ${req.method} ${url.pathname} failed: ${logMsg}`);
       if (!res.headersSent) {
-        res
-          .writeHead(500, { "content-type": "application/json" })
-          .end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32603, message: msg } }));
+        writeJsonRpcError(res, status, code, message);
       } else {
         try {
           res.end();
@@ -145,6 +162,14 @@ export class CodeAtlasMcpServer {
       }
       cleanup();
     }
+  }
+
+  private isAuthorized(req: http.IncomingMessage, url: URL): boolean {
+    const token = url.searchParams.get("token") ?? bearerToken(req.headers.authorization);
+    if (!token) return false;
+    const expected = Buffer.from(this.authToken);
+    const actual = Buffer.from(token);
+    return expected.length === actual.length && timingSafeEqual(expected, actual);
   }
 
   private registerTools(server: McpServer): void {
@@ -191,14 +216,15 @@ export class CodeAtlasMcpServer {
         },
       },
       async ({ kind, title, summary }) => {
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         const plan: TourPlan = {
           kind: kind as TourKind,
           title,
           summary: summary ?? "",
           steps: [],
         };
-        this.controller.startEmpty(plan);
-        await vscode.commands.executeCommand("codeAtlas.tour.focus").then(undefined, () => {});
+        this.controller.startEmpty(plan, root);
+        await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
         return {
           content: [{ type: "text", text: JSON.stringify({ ok: true, kind, title }) }],
         };
@@ -231,7 +257,7 @@ export class CodeAtlasMcpServer {
       async ({ title, file, explanation, range }) => {
         const index = await this.controller.appendStep({
           title,
-          file,
+          file: normalizeWorkspaceFile(file),
           explanation,
           range: range
             ? {
@@ -279,7 +305,7 @@ export class CodeAtlasMcpServer {
       range?: { startLine: number; startColumn?: number; endLine: number; endColumn?: number };
     }) => ({
       title: input.title,
-      file: input.file,
+      file: normalizeWorkspaceFile(input.file),
       explanation: input.explanation,
       range: input.range
         ? {
@@ -380,28 +406,6 @@ export class CodeAtlasMcpServer {
     );
 
     server.registerTool(
-      "wait_for_user",
-      {
-        title: "Wait for user navigation",
-        description:
-          "Block until the user clicks Next, Back, Go deeper, or Stop in the Code Atlas sidebar. Returns the action. If no action arrives within timeout_seconds, returns {action: 'timeout'}. Default timeout 30s. Call this in a loop after add_step to drive a turn-based tour.",
-        inputSchema: {
-          timeout_seconds: z
-            .number()
-            .int()
-            .min(1)
-            .max(300)
-            .default(30)
-            .describe("Max seconds to wait before returning 'timeout'."),
-        },
-      },
-      async ({ timeout_seconds }) => {
-        const action = await waitForAction(this.controller, timeout_seconds ?? 30);
-        return { content: [{ type: "text", text: JSON.stringify({ action }) }] };
-      },
-    );
-
-    server.registerTool(
       "end_tour",
       {
         title: "End the tour",
@@ -420,7 +424,13 @@ export class CodeAtlasMcpServer {
       await fs.mkdir(PORT_REGISTRY_DIR, { recursive: true });
       const existing = await readRegistry();
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "_no_workspace";
-      existing[root] = { port: this.actualPort, pid: process.pid, version: this.extensionVersion };
+      existing[root] = {
+        port: this.actualPort,
+        pid: process.pid,
+        version: this.extensionVersion,
+        token: this.authToken,
+        url: this.connectionUrl,
+      };
       await fs.writeFile(PORT_REGISTRY_FILE, JSON.stringify(existing, null, 2), "utf8");
     } catch (err) {
       this.output.appendLine(`[mcp] publishPort failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -441,7 +451,7 @@ export class CodeAtlasMcpServer {
   }
 }
 
-type RegistryEntry = { port: number; pid: number; version: string };
+type RegistryEntry = { port: number; pid: number; version: string; token: string; url: string };
 type Registry = Record<string, RegistryEntry>;
 
 async function readRegistry(): Promise<Registry> {
@@ -453,32 +463,70 @@ async function readRegistry(): Promise<Registry> {
   }
 }
 
-async function readJson(req: http.IncomingMessage): Promise<unknown> {
+async function readJson(req: http.IncomingMessage, maxBytes: number): Promise<unknown> {
   const chunks: Buffer[] = [];
+  let total = 0;
   for await (const chunk of req) {
-    chunks.push(chunk as Buffer);
+    const buf = chunk as Buffer;
+    total += buf.length;
+    if (total > maxBytes) {
+      throw new HttpError(413, "RepoTrail MCP request body is too large.");
+    }
+    chunks.push(buf);
   }
   const body = Buffer.concat(chunks).toString("utf8");
   if (!body.trim()) return undefined;
-  return JSON.parse(body);
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new HttpError(400, "RepoTrail MCP request body is not valid JSON.");
+  }
 }
 
-function waitForAction(
-  controller: TourController,
-  timeoutSeconds: number,
-): Promise<UserAction | "timeout"> {
-  return new Promise((resolve) => {
-    const sub = controller.onUserAction((action) => {
-      cleanup();
-      resolve(action);
-    });
-    const timer = setTimeout(() => {
-      cleanup();
-      resolve("timeout");
-    }, timeoutSeconds * 1000);
-    const cleanup = () => {
-      sub.dispose();
-      clearTimeout(timer);
-    };
-  });
+class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+function writeJsonRpcError(
+  res: http.ServerResponse,
+  status: number,
+  code: number,
+  message: string,
+): void {
+  res
+    .writeHead(status, { "content-type": "application/json" })
+    .end(JSON.stringify({ jsonrpc: "2.0", error: { code, message } }));
+}
+
+function bearerToken(header: string | undefined): string | null {
+  if (!header) return null;
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  return match?.[1] ?? null;
+}
+
+function normalizeWorkspaceFile(file: string): string {
+  if (!file || file.includes("\0")) {
+    throw new Error("Tour step file must be a non-empty workspace-relative path.");
+  }
+  const normalized = file.replace(/\\/g, "/");
+  if (normalized.startsWith("/") || /^[A-Za-z]:\//.test(normalized)) {
+    throw new Error("Tour step file must be workspace-relative, not absolute.");
+  }
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length === 0 || parts.includes("..")) {
+    throw new Error("Tour step file cannot escape the workspace.");
+  }
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!root) return parts.join("/");
+  const resolved = path.resolve(root, ...parts);
+  const rel = path.relative(root, resolved);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw new Error("Tour step file cannot escape the workspace.");
+  }
+  return parts.join("/");
 }

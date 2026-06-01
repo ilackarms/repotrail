@@ -1,10 +1,7 @@
 import * as vscode from "vscode";
-import { TourProvider } from "../engine/tourProvider";
-import { DriftStatus, TourPlan, TourRequest, TourStep } from "../engine/types";
+import { DriftStatus, TourPlan, TourStep } from "../engine/types";
 import { newTourId, TourRecord } from "../storage/tourStore";
 import { checkStepDrift, clearHighlights, executeStep } from "./editorActions";
-
-export type UserAction = "next" | "back" | "deeper" | "stop";
 
 /**
  * What produced the most recent onDidChange. Lets the UX distinguish an agent
@@ -26,19 +23,11 @@ export type TourMutation =
  * Owns the active TourPlan and current step index. The webview view, the
  * extension's commands, and the MCP server all talk to this controller —
  * never to editorActions directly.
- *
- * Two control modes coexist:
- *   - "provider" mode: a TourProvider pre-generated all steps. next/back
- *     navigate within plan.steps; deeper calls provider.deepen.
- *   - "agent" mode: an external agent (via MCP) drives the tour by calling
- *     `appendStep` and waiting on `onUserAction`. next/back still navigate;
- *     when the agent wants to add more steps it calls appendStep.
  */
 export type PersistFn = (record: TourRecord | null) => void;
 
 export class TourController {
   private plan: TourPlan | null = null;
-  private request: TourRequest | null = null;
   private index = 0;
   private tourId: string | null = null;
   private workspaceRoot: string | null = null;
@@ -50,23 +39,15 @@ export class TourController {
   private driftByIndex = new Map<number, DriftStatus>();
   private seen = new Set<number>();
   private readonly onChangeEmitter = new vscode.EventEmitter<void>();
-  private readonly userActionEmitter = new vscode.EventEmitter<UserAction>();
   readonly onDidChange = this.onChangeEmitter.event;
-  readonly onUserAction = this.userActionEmitter.event;
-
-  constructor(private provider: TourProvider) {}
-
-  setProvider(p: TourProvider): void {
-    this.provider = p;
-  }
 
   setPersistFn(fn: PersistFn): void {
     this.persistFn = fn;
   }
 
-  private resolveWorkspaceRoot(req?: TourRequest): string {
+  private resolveWorkspaceRoot(workspaceRoot?: string): string {
     return (
-      req?.workspaceRoot ??
+      workspaceRoot ??
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
       "_no_workspace"
     );
@@ -90,37 +71,18 @@ export class TourController {
   }
 
   private setActiveContext(active: boolean): void {
-    void vscode.commands.executeCommand("setContext", "codeAtlas.tourActive", active);
-  }
-
-  /** Start a tour by asking the configured provider to generate the plan. */
-  async start(req: TourRequest): Promise<void> {
-    this.request = req;
-    this.plan = await this.provider.generate(req);
-    this.index = 0;
-    this.tourId = newTourId();
-    this.workspaceRoot = this.resolveWorkspaceRoot(req);
-    this.createdAt = Date.now();
-    this.lastMutationKind = "start";
-    this.driftByIndex.clear();
-    this.seen = new Set();
-    this.setActiveContext(true);
-    await this.applyCurrent();
-    this.persist();
-    this.onChangeEmitter.fire();
-    void this.scanDrift();
+    void vscode.commands.executeCommand("setContext", "repoTrail.tourActive", active);
   }
 
   /**
    * Initialize an empty plan that will be filled in step-by-step by an agent.
    * Used by the MCP `start_tour` tool.
    */
-  startEmpty(plan: TourPlan, req?: TourRequest): void {
+  startEmpty(plan: TourPlan, workspaceRoot?: string): void {
     this.plan = plan;
-    this.request = req ?? null;
     this.index = -1; // nothing applied yet; appendStep will set to 0
     this.tourId = newTourId();
-    this.workspaceRoot = this.resolveWorkspaceRoot(req);
+    this.workspaceRoot = this.resolveWorkspaceRoot(workspaceRoot);
     this.createdAt = Date.now();
     this.lastMutationKind = "start";
     this.driftByIndex.clear();
@@ -132,16 +94,14 @@ export class TourController {
   }
 
   /**
-   * Load a fully-formed plan as a brand-new tour (imported file or sample
-   * demo). Unlike `resume`, this mints a fresh id so it persists as its own
-   * entry, and lands the user on the first step.
+   * Load a fully-formed plan as a brand-new tour. Unlike `resume`, this mints
+   * a fresh id so it persists as its own entry, and lands the user on step 1.
    */
-  async loadPlan(plan: TourPlan, req?: TourRequest): Promise<void> {
+  async loadPlan(plan: TourPlan, workspaceRoot?: string): Promise<void> {
     this.plan = plan;
-    this.request = req ?? null;
     this.index = plan.steps.length > 0 ? 0 : -1;
     this.tourId = newTourId();
-    this.workspaceRoot = this.resolveWorkspaceRoot(req);
+    this.workspaceRoot = this.resolveWorkspaceRoot(workspaceRoot);
     this.createdAt = Date.now();
     this.lastMutationKind = "start";
     this.driftByIndex.clear();
@@ -160,7 +120,6 @@ export class TourController {
     this.workspaceRoot = record.workspaceRoot;
     this.createdAt = record.createdAt;
     this.index = Math.max(0, Math.min(record.lastIndex, record.plan.steps.length - 1));
-    this.request = null;
     this.lastMutationKind = "start";
     this.driftByIndex.clear();
     this.seen = new Set(record.seen ?? []);
@@ -259,7 +218,6 @@ export class TourController {
       this.persist();
       this.onChangeEmitter.fire();
     }
-    this.userActionEmitter.fire("next");
   }
 
   async back(): Promise<void> {
@@ -271,25 +229,6 @@ export class TourController {
       this.persist();
       this.onChangeEmitter.fire();
     }
-    this.userActionEmitter.fire("back");
-  }
-
-  async deeper(): Promise<void> {
-    if (!this.plan) return;
-    if (this.request && this.provider.deepen) {
-      const current = this.plan.steps[this.index];
-      const expanded = await this.provider.deepen(current, this.request);
-      this.plan.steps.splice(this.index + 1, 0, ...expanded);
-      this.onChangeEmitter.fire();
-    }
-    this.userActionEmitter.fire("deeper");
-  }
-
-  async followUp(question: string): Promise<string> {
-    if (!this.plan || !this.provider.followUp) {
-      return "No active tour.";
-    }
-    return this.provider.followUp(question, this.plan, this.index);
   }
 
   async showStep(index: number): Promise<void> {
@@ -316,7 +255,6 @@ export class TourController {
     // Persist final state before tearing down in-memory references.
     this.persist();
     this.plan = null;
-    this.request = null;
     this.index = 0;
     this.tourId = null;
     this.workspaceRoot = null;
@@ -327,7 +265,6 @@ export class TourController {
     this.setActiveContext(false);
     clearHighlights();
     this.onChangeEmitter.fire();
-    this.userActionEmitter.fire("stop");
   }
 
   snapshot(): {

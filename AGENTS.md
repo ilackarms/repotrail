@@ -1,60 +1,61 @@
-# Code Atlas
+# RepoTrail
 
-VS Code extension. AI-guided codebase tours. TypeScript + pnpm. All-in-extension architecture.
+VS Code extension. Agent-guided codebase tours. TypeScript + pnpm. The
+extension is the editor surface; the supported generation path is the
+repo-owned Claude Code harness over local MCP.
 
-## Knowledge pack (load-bearing)
+## Knowledge Pack
 
-Before non-trivial work, read `docs/knowledge-pack/README.md`. It is the
-evolving project memory seeded from Session Manager recall. Use it for prior
-decisions, UX context, architecture history, and refresh commands.
-
-Keep `docs/knowledge-pack/` updated when new sessions change architecture,
-release rules, product priorities, or known risks.
+Before non-trivial work, read `docs/knowledge-pack/README.md`. Keep
+`docs/knowledge-pack/` updated when architecture, release rules, product
+priorities, or known risks change.
 
 ## Commands
-- `pnpm install` — install deps
-- `pnpm typecheck` — `tsc -p ./ --noEmit`
-- `pnpm compile` — `node esbuild.mjs`
-- `pnpm watch` — incremental typecheck during dev
-- `pnpm build` — typecheck then bundle; primary validation gate
-- `pnpm package` — build + `vsce package --no-dependencies`
-- `pnpm install-local` — build + reinstall into VS Code (`code --install-extension … --force`)
-- F5 in VS Code → "Run Extension" launches the dev extension host
 
-## Release rule (load-bearing)
+- `pnpm install` - install deps
+- `pnpm typecheck` - `tsc -p ./ --noEmit`
+- `pnpm compile` - `node esbuild.mjs`
+- `pnpm watch` - incremental typecheck during dev
+- `pnpm build` - typecheck then bundle; primary validation gate
+- `pnpm package` - build + `vsce package --no-dependencies`
+- `pnpm install-local` - build + reinstall into VS Code
 
-After every complete fix or feature, do all three without being asked:
+## Release Rule
 
-1. `git commit` the change (Conventional Commits: `fix:`, `feat:`, `chore:`).
-2. `pnpm package` to rebuild the `.vsix`.
-3. `code --install-extension code-atlas-<version>.vsix --force` (or just `pnpm install-local`).
+After every complete user-visible fix or feature:
 
-Bump the patch version in `package.json` when the change is user-visible so the `.vsix` filename advances. Skip only if the user explicitly says "don't commit" / "don't reinstall" for a specific change.
+1. Commit the change.
+2. Run `pnpm package`.
+3. Run `pnpm install-local`.
 
-## Architecture rule (load-bearing)
+Skip only if the user explicitly says not to commit, package, or reinstall.
 
-Layers, strictly separated:
+## Architecture Rule
 
-1. **`src/ux/`** — only place that touches `vscode.window` / opens files / draws decorations. Never imports from `engine/` types except as data.
-2. **`src/engine/`** — pure data. Turns `TourRequest` → `TourPlan` (see `engine/types.ts`). MUST NOT import `vscode`. Provider impls live here.
-3. **`src/analysis/`** — workspace introspection. May import `vscode` for FS access, but returns plain data to the engine.
-4. **`src/mcp/`** — local Streamable HTTP MCP server. Drives the shared `TourController`; bound to `127.0.0.1`.
-5. **`src/storage/`** — per-workspace tour persistence. Keep writes atomic.
-6. **`src/tts/`** — narration. `speechText.ts` is pure preprocessing; hosted audio fetches happen in the extension host.
+Layers stay separated:
 
-`editorActions.ts` is the only module that calls `vscode.window.show*`. Keep it that way — auditability of editor side-effects depends on it.
+1. `src/ux/` owns editor effects, webview UI, CodeLens, and commands that touch
+   VS Code UI. `editorActions.ts` remains the single chokepoint for opening
+   files, showing editors, decorations, and editor side effects.
+2. `src/engine/` is pure data: `TourPlan`, `TourStep`, serialization, and
+   schema-adjacent helpers. It must not import `vscode`.
+3. `src/analysis/` may use VS Code APIs for workspace introspection, but returns
+   plain data.
+4. `src/mcp/` exposes the token-authenticated local Streamable HTTP MCP server
+   on `127.0.0.1` and drives the shared `TourController`.
+5. `src/storage/` owns per-workspace tour persistence under
+   `~/.repotrail/tours/` and repo-shared tours under `.repotrail/`.
+6. `src/tts/` owns narration. `speechText.ts` is pure preprocessing; hosted
+   audio fetches happen in the extension host.
+7. `harness/claude/repotrail/` is the repo-owned Claude Code harness. Keep it in
+   sync with MCP tool names and setup behavior.
 
-## Tour step schema
+## Product Rule
 
-`TourStep` is the wire format between engine and UX. Any new provider must emit this shape (`engine/types.ts`). Ranges are 1-indexed; conversion to 0-indexed VS Code `Range` happens in `editorActions.ts`.
+RepoTrail has one supported generation path: the external harness calls MCP and
+emits a complete tour. Do not reintroduce mock tours, built-in provider
+generation, API-key-driven in-extension generation, or polling-style tour
+control.
 
-## Provider selection
-
-`extension.ts::pickProvider()` returns `ClaudeTourProvider` if an API key is set, else `MockTourProvider`. The Claude one is a stub — see `TODO(llm)`. Real useful tours currently come from an external agent over MCP, not from the in-extension provider.
-
-## What's deferred
-
-Tree-sitter / LSP / git diff / PR mode / ripgrep / tests / CI. See README TODO section.
-
-@docs/knowledge-pack/README.md
-@mastery.md
+`TourStep` is the wire format between the harness/MCP server and UX. Ranges are
+1-indexed; conversion to VS Code ranges happens in `editorActions.ts`.
