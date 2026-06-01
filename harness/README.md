@@ -5,10 +5,9 @@ Streamable HTTP MCP server and serves a generic skill document from that same
 server; any local agent that can fetch the skill and call MCP can create and
 refine tours.
 
-The generic skill source lives in `harness/repo-trail/SKILL.md` and is served at
-`/skill.md?token=<token>`. Claude Code support is bundled as a convenience
-adapter in `harness/claude/repo-trail/`, and the extension can install that
-adapter with **RepoTrail: Install Claude Code Adapter**.
+The single skill source lives in `harness/repo-trail/SKILL.md` and is served at
+`/skill.md?token=<token>`. The extension can also install that same skill into
+Claude Code with **RepoTrail: Install repo-trail Skill for Claude Code**.
 
 ## Connection
 

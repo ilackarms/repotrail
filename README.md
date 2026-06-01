@@ -49,16 +49,16 @@ Give me a RepoTrail tour of this repository.
 
 ![RepoTrail MCP setup](media/mcp-setup.png)
 
-## Optional Claude Code Adapter
+## Optional Claude Code Install
 
-Claude Code can use the hosted generic skill, or you can install the bundled
-adapter locally:
+Claude Code can use the hosted skill, or you can install the same `repo-trail`
+skill locally:
 
 ```text
-RepoTrail: Install Claude Code Adapter
+RepoTrail: Install repo-trail Skill for Claude Code
 ```
 
-That installs the Claude adapter to `~/.claude/skills/repo-trail/`. Then run
+That installs the skill to `~/.claude/skills/repo-trail/`. Then run
 **RepoTrail: Copy Agent Setup** and paste the setup prompt into a new Claude
 Code session.
 
@@ -123,8 +123,8 @@ See [PRIVACY.md](PRIVACY.md) for the longer policy.
 - `RepoTrail: Start Tour` - copy a prompt for your connected agent.
 - `RepoTrail: Copy Agent Setup` - copy a prompt that tells any agent where to
   fetch the hosted RepoTrail skill and how to connect MCP.
-- `RepoTrail: Install Claude Code Adapter` - install the optional Claude Code
-  adapter to `~/.claude/skills/repo-trail/`.
+- `RepoTrail: Install repo-trail Skill for Claude Code` - install the same
+  `repo-trail` skill to `~/.claude/skills/repo-trail/`.
 - `RepoTrail: Tour From Here` - copy a prompt scoped to the active file or
   selection.
 - `RepoTrail: Export Tour` / `RepoTrail: Import Tour`.

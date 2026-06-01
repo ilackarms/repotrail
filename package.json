@@ -48,8 +48,8 @@
         "title": "RepoTrail: Copy Agent Setup"
       },
       {
-        "command": "repoTrail.installClaudeAdapter",
-        "title": "RepoTrail: Install Claude Code Adapter"
+        "command": "repoTrail.installSkillForClaude",
+        "title": "RepoTrail: Install repo-trail Skill for Claude Code"
       },
       {
         "command": "repoTrail.exportTour",

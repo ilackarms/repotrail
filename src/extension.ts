@@ -145,7 +145,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
     vscode.commands.registerCommand("repoTrail.stop", () => controller.stop()),
     vscode.commands.registerCommand("repoTrail.copyAgentBootstrap", () => copyAgentBootstrap()),
-    vscode.commands.registerCommand("repoTrail.installClaudeAdapter", () => installClaudeAdapter(context)),
+    vscode.commands.registerCommand("repoTrail.installSkillForClaude", () => installSkillForClaude(context)),
     vscode.commands.registerCommand("repoTrail.showMcpInfo", () => showMcpInfo()),
     vscode.commands.registerCommand("repoTrail.openNarration", () => {
       vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
@@ -556,8 +556,8 @@ async function copyAgentBootstrap(): Promise<void> {
   vscode.window.showInformationMessage("Copied RepoTrail agent setup. Paste it into your agent.");
 }
 
-async function installClaudeAdapter(context: vscode.ExtensionContext): Promise<void> {
-  const sourceDir = vscode.Uri.joinPath(context.extensionUri, "harness", "claude", "repo-trail").fsPath;
+async function installSkillForClaude(context: vscode.ExtensionContext): Promise<void> {
+  const sourceDir = vscode.Uri.joinPath(context.extensionUri, "harness", "repo-trail").fsPath;
   const skillsDir = path.join(os.homedir(), ".claude", "skills");
   const targetDir = path.join(skillsDir, "repo-trail");
   const legacyDirs = [path.join(skillsDir, "repotrail"), path.join(skillsDir, ["code", "atlas"].join("-"))];
@@ -568,14 +568,14 @@ async function installClaudeAdapter(context: vscode.ExtensionContext): Promise<v
     await fs.mkdir(skillsDir, { recursive: true });
     await fs.cp(sourceDir, targetDir, { recursive: true });
     vscode.window.showInformationMessage(
-      "RepoTrail Claude Code adapter installed as repo-trail. Add the MCP server if needed, then start a new Claude Code session.",
+      "repo-trail skill installed for Claude Code. Add the MCP server if needed, then start a new Claude Code session.",
       "Copy agent setup",
     ).then((pick) => {
       if (pick === "Copy agent setup") showMcpInfo();
     });
   } catch (err) {
     vscode.window.showErrorMessage(
-      `RepoTrail: failed to install Claude Code adapter: ${err instanceof Error ? err.message : String(err)}`,
+      `RepoTrail: failed to install repo-trail skill for Claude Code: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }

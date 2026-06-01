@@ -2,8 +2,8 @@
 
 VS Code extension. Agent-guided codebase tours. TypeScript + pnpm. The
 extension is the editor surface; the supported generation path is any
-MCP-capable external agent over local MCP. The repo-owned Claude Code adapter is
-the bundled convenience harness.
+MCP-capable external agent over local MCP. `harness/repo-trail/SKILL.md` is the
+single canonical skill.
 
 ## Commands
 
@@ -45,8 +45,6 @@ Layers stay separated:
 7. `harness/repo-trail/SKILL.md` is the generic skill served by the local HTTP
    server at `/skill.md?token=<token>`.
 8. `harness/README.md` documents the generic MCP harness contract.
-9. `harness/claude/repo-trail/` is the repo-owned Claude Code convenience adapter.
-   Keep it in sync with MCP tool names and setup behavior.
 
 ## Product Rule
 
