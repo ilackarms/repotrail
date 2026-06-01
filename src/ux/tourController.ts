@@ -1,8 +1,8 @@
 import * as vscode from "vscode";
 import { TourProvider } from "../engine/tourProvider";
-import { TourPlan, TourRequest, TourStep } from "../engine/types";
+import { DriftStatus, TourPlan, TourRequest, TourStep } from "../engine/types";
 import { newTourId, TourRecord } from "../storage/tourStore";
-import { clearHighlights, executeStep } from "./editorActions";
+import { checkStepDrift, clearHighlights, executeStep } from "./editorActions";
 
 export type UserAction = "next" | "back" | "deeper" | "stop";
 
@@ -45,6 +45,10 @@ export class TourController {
   private createdAt: number | null = null;
   private persistFn: PersistFn | null = null;
   private lastMutationKind: TourMutation = null;
+  // Per-step drift status (does the highlighted code still match what the tour
+  // was authored against?) and the set of visited ("understood") steps.
+  private driftByIndex = new Map<number, DriftStatus>();
+  private seen = new Set<number>();
   private readonly onChangeEmitter = new vscode.EventEmitter<void>();
   private readonly userActionEmitter = new vscode.EventEmitter<UserAction>();
   readonly onDidChange = this.onChangeEmitter.event;
@@ -81,7 +85,12 @@ export class TourController {
       updatedAt: Date.now(),
       lastIndex: this.index,
       plan: this.plan,
+      seen: [...this.seen].sort((a, b) => a - b),
     });
+  }
+
+  private setActiveContext(active: boolean): void {
+    void vscode.commands.executeCommand("setContext", "codeAtlas.tourActive", active);
   }
 
   /** Start a tour by asking the configured provider to generate the plan. */
@@ -93,9 +102,13 @@ export class TourController {
     this.workspaceRoot = this.resolveWorkspaceRoot(req);
     this.createdAt = Date.now();
     this.lastMutationKind = "start";
+    this.driftByIndex.clear();
+    this.seen = new Set();
+    this.setActiveContext(true);
     await this.applyCurrent();
     this.persist();
     this.onChangeEmitter.fire();
+    void this.scanDrift();
   }
 
   /**
@@ -110,6 +123,9 @@ export class TourController {
     this.workspaceRoot = this.resolveWorkspaceRoot(req);
     this.createdAt = Date.now();
     this.lastMutationKind = "start";
+    this.driftByIndex.clear();
+    this.seen = new Set();
+    this.setActiveContext(true);
     clearHighlights();
     this.persist();
     this.onChangeEmitter.fire();
@@ -128,9 +144,13 @@ export class TourController {
     this.workspaceRoot = this.resolveWorkspaceRoot(req);
     this.createdAt = Date.now();
     this.lastMutationKind = "start";
+    this.driftByIndex.clear();
+    this.seen = new Set();
+    this.setActiveContext(true);
     await this.applyCurrent();
     this.persist();
     this.onChangeEmitter.fire();
+    void this.scanDrift();
   }
 
   /** Load a previously-saved tour back into the controller. */
@@ -142,9 +162,13 @@ export class TourController {
     this.index = Math.max(0, Math.min(record.lastIndex, record.plan.steps.length - 1));
     this.request = null;
     this.lastMutationKind = "start";
+    this.driftByIndex.clear();
+    this.seen = new Set(record.seen ?? []);
+    this.setActiveContext(true);
     await this.applyCurrent();
     this.persist(); // bump updatedAt so resume bubbles to top of list
     this.onChangeEmitter.fire();
+    void this.scanDrift();
   }
 
   get activeTourId(): string | null {
@@ -298,22 +322,76 @@ export class TourController {
     this.workspaceRoot = null;
     this.createdAt = null;
     this.lastMutationKind = "stop";
+    this.driftByIndex.clear();
+    this.seen = new Set();
+    this.setActiveContext(false);
     clearHighlights();
     this.onChangeEmitter.fire();
     this.userActionEmitter.fire("stop");
   }
 
-  snapshot(): { plan: TourPlan | null; index: number; current: TourStep | null } {
+  snapshot(): {
+    plan: TourPlan | null;
+    index: number;
+    current: TourStep | null;
+    drift: Record<number, DriftStatus>;
+    currentDrift: DriftStatus;
+    seen: number[];
+  } {
+    const drift: Record<number, DriftStatus> = {};
+    for (const [i, s] of this.driftByIndex) if (s !== "ok") drift[i] = s;
     return {
       plan: this.plan,
       index: this.index,
       current: this.plan && this.index >= 0 ? this.plan.steps[this.index] ?? null : null,
+      drift,
+      currentDrift: this.driftByIndex.get(this.index) ?? "ok",
+      seen: [...this.seen].sort((a, b) => a - b),
     };
   }
 
   private async applyCurrent(): Promise<void> {
     if (!this.plan || this.index < 0) return;
     clearHighlights();
-    await executeStep(this.plan.steps[this.index]);
+    const step = this.plan.steps[this.index];
+    const result = await executeStep(step, {
+      allSteps: this.plan.steps,
+      currentIndex: this.index,
+    });
+    this.driftByIndex.set(this.index, result.drift);
+    this.seen.add(this.index);
+    if (result.capturedAnchor && !step.anchor) {
+      step.anchor = result.capturedAnchor;
+      this.persist();
+    }
+  }
+
+  /**
+   * Pre-scan every ranged step for drift against the current files (used on
+   * load/resume/import so the route can flag stale stops before the user walks
+   * to them). Captures missing anchors as a side effect. Best-effort.
+   */
+  private async scanDrift(): Promise<void> {
+    if (!this.plan) return;
+    const planAtStart = this.plan;
+    let changed = false;
+    for (let i = 0; i < planAtStart.steps.length; i++) {
+      if (this.plan !== planAtStart) return; // tour changed under us — abort
+      const step = planAtStart.steps[i];
+      if (!step.range) continue;
+      try {
+        const res = await checkStepDrift(step);
+        this.driftByIndex.set(i, res.drift);
+        if (res.capturedAnchor && !step.anchor) {
+          step.anchor = res.capturedAnchor;
+          changed = true;
+        }
+      } catch {
+        /* ignore a single bad file */
+      }
+    }
+    if (this.plan !== planAtStart) return;
+    if (changed) this.persist();
+    this.onChangeEmitter.fire();
   }
 }

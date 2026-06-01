@@ -21,6 +21,8 @@ export interface TourRecord {
   updatedAt: number;
   lastIndex: number;
   plan: TourPlan;
+  /** Indices the user has visited ("understood"), for route dimming. */
+  seen?: number[];
 }
 
 export interface TourSummary {

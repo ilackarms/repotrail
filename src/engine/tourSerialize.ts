@@ -74,6 +74,7 @@ function normalizeStep(value: unknown): TourStep | null {
     explanation: typeof s.explanation === "string" ? s.explanation : "",
     range,
     symbol: typeof s.symbol === "string" ? s.symbol : undefined,
+    anchor: typeof s.anchor === "string" ? s.anchor : undefined,
     actions: range
       ? ["openFile", "highlightRange", "showNarration"]
       : ["openFile", "showNarration"],

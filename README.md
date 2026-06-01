@@ -92,16 +92,22 @@ Then in VS Code: **Run and Debug → Run Extension** (F5). In the dev host:
 - [ ] Lightweight call graph + dependency map.
 
 ### UX polish
-- [ ] Progress bar in the webview.
+- [x] Progress bar in the webview.
 - [ ] Inline-edit explanations.
 - [x] Export tour as Markdown / re-importable JSON (`codeAtlas.exportTour` / `importTour`).
+- [x] Repo-committed tours (`.codeatlas/`) — shared in the Start tab, "Save to repo".
 - [x] Route overview list of all stops with click-to-jump (the "atlas" view).
+- [x] Stale-stop detection + re-anchoring as code drifts (drift markers).
+- [x] Editor-as-map: overview-ruler ticks + CodeLens markers for in-file stops.
+- [x] Continuous Play mode (read aloud + auto-advance).
 - [x] Stable sidebar navigation dock with compactable route list.
 - [x] Honest in-editor entry point — agent handoff + sample, no silent mock.
 - [x] Clipboard-bridge feedback — inline prompt + "steps added" banner.
 - [x] Narration stays in the sidebar instead of hover popups over code.
+- [x] Keyboard nav (`Alt+←/→`, `Alt+P`) + status-bar tour indicator.
+- [x] Mark-as-seen route dimming; right-click "Tour From Here".
+- [x] Auto-resume last tour on reload (`codeAtlas.autoResume`).
 - [ ] Multi-file overview pane (mini-map of all step files).
-- [ ] Persist last tour per workspace so reloads resume.
 
 ### Compatibility
 - [x] No proprietary APIs — should work in Cursor / Windsurf out of the box.

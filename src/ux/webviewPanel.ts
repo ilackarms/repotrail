@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
+import { RepoTourSummary } from "../storage/repoTours";
 import { TourSummary } from "../storage/tourStore";
 import { TourController } from "./tourController";
 
@@ -21,6 +22,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   private view: vscode.WebviewView | undefined;
   private onSinkChange: ((sink: WebviewSink | null) => void) | null = null;
   private tourListLoader: (() => Promise<TourSummary[]>) | null = null;
+  private repoTourLoader: (() => Promise<RepoTourSummary[]>) | null = null;
   private mcpStatusLoader: (() => { enabled: boolean; port: number | null }) | null = null;
 
   private warnedKokoroFallback = false;
@@ -54,10 +56,21 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     void this.render();
   }
 
+  /** Lets the extension supply tours committed to the repo (.codeatlas/). */
+  setRepoTourLoader(fn: () => Promise<RepoTourSummary[]>): void {
+    this.repoTourLoader = fn;
+    void this.render();
+  }
+
   /** Lets the extension report MCP server status for the empty-state hint. */
   setMcpStatusLoader(fn: () => { enabled: boolean; port: number | null }): void {
     this.mcpStatusLoader = fn;
     void this.render();
+  }
+
+  /** Toggle continuous "play the tour" mode (from a command/keybinding). */
+  togglePlay(): void {
+    this.view?.webview.postMessage({ type: "tts.togglePlay" });
   }
 
   /**
@@ -181,6 +194,11 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
             await vscode.commands.executeCommand("codeAtlas.resumeTour", msg.id);
           }
           break;
+        case "resumeRepoTour":
+          if (typeof msg.file === "string") {
+            await vscode.commands.executeCommand("codeAtlas.resumeRepoTour", msg.file);
+          }
+          break;
         case "deleteTour":
           if (typeof msg.id === "string") {
             await vscode.commands.executeCommand("codeAtlas.deleteTour", msg.id);
@@ -201,6 +219,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     const snap = this.controller.snapshot();
     const provider = vscode.workspace.getConfiguration("codeAtlas").get<string>("tts.provider", "system");
     const tours = snap.plan ? [] : await this.loadTours();
+    const repoTours = snap.plan ? [] : await this.loadRepoTours();
 
     const total = snap.plan?.steps.length ?? 0;
     const tourId = this.controller.activeTourId;
@@ -230,6 +249,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       addedBanner,
       bridge: this.bridge,
       mcp,
+      repoTours,
     });
   }
 
@@ -237,6 +257,15 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     if (!this.tourListLoader) return [];
     try {
       return await this.tourListLoader();
+    } catch {
+      return [];
+    }
+  }
+
+  private async loadRepoTours(): Promise<RepoTourSummary[]> {
+    if (!this.repoTourLoader) return [];
+    try {
+      return await this.repoTourLoader();
     } catch {
       return [];
     }
@@ -250,10 +279,13 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       addedBanner: number;
       bridge: { label: string; prompt: string; index: number } | null;
       mcp: { enabled: boolean; port: number | null };
+      repoTours: RepoTourSummary[];
     },
   ): string {
     const { plan, index, current } = snap;
     const total = plan?.steps.length ?? 0;
+    const seenSet = new Set(snap.seen);
+    const progressPct = total > 0 ? Math.round(((index + 1) / total) * 100) : 0;
     const title = current?.title ?? "No active tour";
     const explanation = current?.explanation ?? "";
     const fileLabel = current?.file ?? "";
@@ -269,11 +301,27 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       const rows = plan.steps
         .map((s, i) => {
           const loc = s.range ? `${s.file}:${s.range.startLine}` : s.file;
+          const drift = snap.drift[i];
+          const driftIcon = drift === "missing" ? "⚠" : drift === "relocated" ? "↪" : "";
+          const driftTitle =
+            drift === "missing"
+              ? "The anchored code is gone — this stop may be stale."
+              : drift === "relocated"
+                ? "Code moved since this stop was authored — highlight re-anchored."
+                : "";
+          const cls = [
+            "stop",
+            i === index ? "active" : "",
+            seenSet.has(i) && i !== index ? "seen" : "",
+            drift && drift !== "ok" ? "drift" : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
           return `
-            <li class="stop ${i === index ? "active" : ""}" data-index="${i}">
+            <li class="${cls}" data-index="${i}">
               <span class="stop-num">${i + 1}</span>
               <span class="stop-body">
-                <span class="stop-title">${escape(s.title)}</span>
+                <span class="stop-title">${seenSet.has(i) && i !== index ? "✓ " : ""}${driftIcon ? `<span class="drift-mark" title="${escape(driftTitle)}">${driftIcon}</span> ` : ""}${escape(s.title)}</span>
                 <span class="stop-loc">${escape(loc)}</span>
               </span>
             </li>`;
@@ -296,6 +344,15 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       extra.addedBanner > 0
         ? `<div class="banner">▲ ${extra.addedBanner} step${extra.addedBanner === 1 ? "" : "s"} added by the agent — click <strong>Next →</strong> or pick one from the route below.</div>`
         : "";
+
+    // Drift notice: the code this stop points at changed since the tour was
+    // authored. "relocated" = we found it and re-anchored; "missing" = gone.
+    const driftBadge =
+      snap.currentDrift === "relocated"
+        ? `<div class="drift-badge relocated">↪ The code for this stop moved since the tour was authored — the highlight was re-anchored to where it is now.</div>`
+        : snap.currentDrift === "missing"
+          ? `<div class="drift-badge missing">⚠ The code this stop described is no longer in the file — the highlight may be stale. The tour may need updating.</div>`
+          : "";
 
     // The exact prompt a deepen/follow-up just copied, so the user sees what to
     // paste rather than getting a blind "copied to clipboard" toast.
@@ -355,6 +412,28 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         .join("");
       return `
         <h3 class="section-h">Saved tours</h3>
+        <ul class="tour-list">${rows}</ul>`;
+    })();
+
+    // Tours committed into the repo (.codeatlas/) — the team-shared artifact.
+    const repoTourList = (() => {
+      if (snap.plan || extra.repoTours.length === 0) return "";
+      const rows = extra.repoTours
+        .map(
+          (t) => `
+            <li class="tour-item">
+              <div class="tour-row">
+                <div class="tour-title" title="${escape(t.title)}">${escape(t.title || "(untitled)")}</div>
+                <div class="tour-meta">${escape(t.kind)} · ${t.stepCount} stops · ${escape(t.file)}</div>
+              </div>
+              <div class="tour-actions">
+                <button class="repo-resume" data-file="${escape(t.file)}">Open</button>
+              </div>
+            </li>`,
+        )
+        .join("");
+      return `
+        <h3 class="section-h">Tours in this repo</h3>
         <ul class="tour-list">${rows}</ul>`;
     })();
 
@@ -419,6 +498,14 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   .stop-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .stop-loc { color: var(--vscode-descriptionForeground); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .stop.active .stop-loc { color: inherit; opacity: 0.8; }
+  .stop.seen:not(.active) .stop-title { opacity: 0.6; }
+  .stop.seen:not(.active) .stop-num { opacity: 0.6; }
+  .drift-mark { color: var(--vscode-editorWarning-foreground, #cca700); }
+  .progress { height: 3px; border-radius: 2px; background: var(--vscode-panel-border, rgba(127,127,127,0.3)); margin-bottom: 8px; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--vscode-progressBar-background, var(--vscode-focusBorder)); transition: width 0.2s ease; }
+  .drift-badge { border-radius: 3px; padding: 6px 8px; margin-bottom: 12px; font-size: 12px; line-height: 1.4; }
+  .drift-badge.relocated { background: var(--vscode-inputValidation-warningBackground, var(--vscode-textBlockQuote-background)); border: 1px solid var(--vscode-inputValidation-warningBorder, var(--vscode-editorWarning-foreground)); }
+  .drift-badge.missing { background: var(--vscode-inputValidation-errorBackground, var(--vscode-textBlockQuote-background)); border: 1px solid var(--vscode-inputValidation-errorBorder, var(--vscode-editorError-foreground)); }
 </style>
 </head>
 <body class="${plan ? "active" : "empty"}">
@@ -429,6 +516,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           <span class="step-count">Step ${index + 1} of ${total}</span>
           <span class="file-chip" title="${escape(fileLabel)}">${escape(fileLabel)}</span>
         </div>
+        <div class="progress" title="${index + 1} of ${total}"><div class="progress-fill" style="width:${progressPct}%"></div></div>
         <h2 class="nav-title">${escape(title)}</h2>
         <div class="controls">
           <button id="back" ${index === 0 ? "disabled" : ""} title="Previous stop">← Back</button>
@@ -437,7 +525,8 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           <button id="deeper" title="Copy a 'deepen this step' prompt to clipboard for your Claude Code session">📋 Deepen</button>
           <button id="stop" title="Stop this tour">Stop</button>
           <button id="playPause" class="secondary" ${ttsProvider === "off" ? "disabled" : ""} title="Read this stop aloud">🔊 Speak</button>
-          <button id="exportTour" class="secondary" title="Export this tour as Markdown or a re-importable JSON file">⤓ Export</button>
+          <button id="playTour" class="secondary" ${ttsProvider === "off" || total < 2 ? "disabled" : ""} title="Play the whole tour: read each stop aloud and auto-advance">▶ Play</button>
+          <button id="exportTour" class="secondary" title="Export this tour as Markdown, JSON, or save it into the repo">⤓ Export</button>
         </div>
         <input id="q" class="follow-up" placeholder="Follow-up question — Enter to copy prompt" />
         <div class="meta">Voice: ${escape(ttsProvider)} · <a href="#" id="openTtsSettings">settings</a> · Deepen/follow-up copy prompts for Claude Code.</div>
@@ -445,13 +534,16 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       </section>
       <main class="tour-main">
         ${banner}
+        ${driftBadge}
         ${bridgeBlock}
         <div class="explanation">${escape(explanation)}</div>
       </main>
     </div>
-  ` : `${emptyState}${tourList}`}
+  ` : `${emptyState}${tourList}${repoTourList}`}
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
+    const HAS_TOUR = ${plan ? "true" : "false"};
+    const IS_LAST = ${plan ? (index >= total - 1 ? "true" : "false") : "true"};
     const send = (msg) => vscode.postMessage(msg);
     const readState = () => {
       try { return vscode.getState?.() || {}; } catch (e) { return {}; }
@@ -498,6 +590,9 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     document.querySelectorAll("button.resume").forEach((b) => {
       b.addEventListener("click", () => send({ type: "resumeTour", id: b.getAttribute("data-id") }));
     });
+    document.querySelectorAll("button.repo-resume").forEach((b) => {
+      b.addEventListener("click", () => send({ type: "resumeRepoTour", file: b.getAttribute("data-file") }));
+    });
     document.querySelectorAll("button.del").forEach((b) => {
       b.addEventListener("click", () => {
         const id = b.getAttribute("data-id");
@@ -516,10 +611,12 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     // we never play an old utterance over a newer step. Pause/resume act on the
     // live SpeechSynthesis queue or <audio> element without a host round-trip.
     const btn = document.getElementById("playPause");
+    const playBtn = document.getElementById("playTour");
     let audioEl = null;
     let speakToken = 0;
     let mode = null;     // 'synth' | 'audio'
     let state = "idle";  // idle | preparing | playing | paused
+    let playMode = false; // continuous "play the tour" auto-advance
 
     function setState(s) {
       state = s;
@@ -563,7 +660,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         u.rate = 1.05;
         mode = "synth";
         u.onstart = () => { if (token === speakToken) setState("playing"); };
-        u.onend = () => { if (token === speakToken) setState("idle"); };
+        u.onend = () => { if (token === speakToken) { setState("idle"); naturalEnd(); } };
         window.speechSynthesis?.speak(u);
       } catch (err) {
         console.error("[code-atlas tts] system speak failed", err);
@@ -585,7 +682,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         const bytes = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         playBlob(new Blob([bytes], { type: mime || "audio/mpeg" }), token)
-          .then(() => { if (token === speakToken) setState("idle"); });
+          .then(() => { if (token === speakToken) { setState("idle"); naturalEnd(); } });
       } catch (err) {
         console.error("[code-atlas tts] audio decode failed", err);
         reportAudioFailure("decode failed: " + ((err && err.message) || err), false);
@@ -709,8 +806,45 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         if (token !== speakToken) return;
         await playBlob(new Blob([wav], { type: "audio/wav" }), token);
       }
-      if (token === speakToken) setState("idle");
+      if (token === speakToken) { setState("idle"); naturalEnd(); }
     }
+
+    // ---- Continuous "Play the tour" mode -----------------------------------
+    // Narration already auto-plays on each step change (the host speaks the new
+    // step). Play mode adds auto-advance: when a stop finishes reading, move to
+    // the next one. The flag is persisted so it survives the webview reload that
+    // every navigation triggers, keeping the chain going across stops.
+    function updatePlayBtn() {
+      if (!playBtn) return;
+      playBtn.textContent = playMode ? "⏹ Stop play" : "▶ Play";
+    }
+    function setPlayMode(on) {
+      playMode = on;
+      writeState({ playMode: on });
+      updatePlayBtn();
+    }
+    function naturalEnd() {
+      if (!playMode) return;
+      if (IS_LAST) { setPlayMode(false); return; }
+      send({ type: "next" }); // host advances + auto-speaks the next stop
+    }
+    playBtn?.addEventListener("click", () => {
+      if (!playMode) {
+        setPlayMode(true);
+        if (state === "idle") send({ type: "speakCurrent" }); // kick off if not already reading
+      } else {
+        setPlayMode(false);
+        stopAll();
+        setState("idle");
+        send({ type: "stopTts" });
+      }
+    });
+    // Restore play flag across the reload; clear it once the tour ends.
+    (function initPlay() {
+      if (!HAS_TOUR) { if (readState().playMode) writeState({ playMode: false }); playMode = false; }
+      else { playMode = !!readState().playMode; }
+      updatePlayBtn();
+    })();
 
     window.addEventListener("message", (e) => {
       const m = e.data;
@@ -729,6 +863,9 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       } else if (m.type === "tts.cancel") {
         stopAll();
         setState("idle");
+        if (playMode) setPlayMode(false);
+      } else if (m.type === "tts.togglePlay") {
+        playBtn?.click();
       }
     });
   </script>

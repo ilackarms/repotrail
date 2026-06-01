@@ -3,10 +3,12 @@ import { TourController } from "./tourController";
 
 /**
  * Renders a control strip as CodeLenses on the line above the current step's
- * highlight. Shows step title + Back / Next / Deeper / Stop / Open narration.
+ * highlight (Back / Next / Deeper / Stop / Open narration / TTS), plus a small
+ * clickable marker on every *other* stop that lives in the same file — so the
+ * editor itself becomes a map of the tour. Drifted stops are flagged.
  *
- * Refreshes on controller.onDidChange. Only emits for the file the current
- * step points at. If the agent omitted `range`, anchors to line 1.
+ * Refreshes on controller.onDidChange. If the agent omitted `range`, anchors to
+ * line 1.
  */
 export class TourCodeLensProvider implements vscode.CodeLensProvider {
   private readonly emitter = new vscode.EventEmitter<void>();
@@ -23,34 +25,68 @@ export class TourCodeLensProvider implements vscode.CodeLensProvider {
     const folder = vscode.workspace.workspaceFolders?.[0];
     if (!folder) return [];
 
-    const expected = vscode.Uri.joinPath(folder.uri, snap.current.file).toString();
-    if (doc.uri.toString() !== expected) return [];
+    const lenses: vscode.CodeLens[] = [];
+    const lineCount = Math.max(0, doc.lineCount - 1);
+    const anchorLine = (step: { range?: { startLine: number } }) =>
+      Math.min(Math.max(0, (step.range?.startLine ?? 1) - 1), lineCount);
 
-    const startLine = Math.max(0, (snap.current.range?.startLine ?? 1) - 1);
-    const anchored = Math.min(startLine, Math.max(0, doc.lineCount - 1));
-    const lensRange = new vscode.Range(anchored, 0, anchored, 0);
+    const onCurrentFile =
+      doc.uri.toString() === vscode.Uri.joinPath(folder.uri, snap.current.file).toString();
 
-    const header = `$(map) Step ${snap.index + 1}/${snap.plan.steps.length}: ${snap.current.title}`;
+    if (onCurrentFile) {
+      const lensRange = new vscode.Range(anchorLine(snap.current), 0, anchorLine(snap.current), 0);
+      const driftMark =
+        snap.currentDrift === "relocated"
+          ? "$(warning) "
+          : snap.currentDrift === "missing"
+            ? "$(error) "
+            : "";
+      const header = `${driftMark || "$(map) "}Step ${snap.index + 1}/${snap.plan.steps.length}: ${snap.current.title}`;
 
-    return [
-      new vscode.CodeLens(lensRange, { title: header, command: "" }),
-      new vscode.CodeLens(lensRange, { title: "$(arrow-left) Back", command: "codeAtlas.back" }),
-      new vscode.CodeLens(lensRange, { title: "Next $(arrow-right)", command: "codeAtlas.next" }),
-      new vscode.CodeLens(lensRange, {
-        title: "$(clippy) Deepen (copy prompt)",
-        command: "codeAtlas.deeper",
-        tooltip: "Copy a 'deepen this step' prompt to your clipboard for paste into Claude Code.",
-      }),
-      new vscode.CodeLens(lensRange, { title: "$(stop-circle) Stop", command: "codeAtlas.stop" }),
-      new vscode.CodeLens(lensRange, {
-        title: "$(book) Open narration",
-        command: "codeAtlas.openNarration",
-      }),
-      new vscode.CodeLens(lensRange, {
-        title: ttsLensLabel(),
-        command: "codeAtlas.cycleTts",
-      }),
-    ];
+      lenses.push(
+        new vscode.CodeLens(lensRange, { title: header, command: "" }),
+        new vscode.CodeLens(lensRange, { title: "$(arrow-left) Back", command: "codeAtlas.back" }),
+        new vscode.CodeLens(lensRange, { title: "Next $(arrow-right)", command: "codeAtlas.next" }),
+        new vscode.CodeLens(lensRange, {
+          title: "$(clippy) Deepen (copy prompt)",
+          command: "codeAtlas.deeper",
+          tooltip: "Copy a 'deepen this step' prompt to your clipboard for paste into Claude Code.",
+        }),
+        new vscode.CodeLens(lensRange, { title: "$(stop-circle) Stop", command: "codeAtlas.stop" }),
+        new vscode.CodeLens(lensRange, { title: "$(book) Open narration", command: "codeAtlas.openNarration" }),
+        new vscode.CodeLens(lensRange, { title: ttsLensLabel(), command: "codeAtlas.cycleTts" }),
+      );
+      if (snap.currentDrift !== "ok") {
+        lenses.push(
+          new vscode.CodeLens(lensRange, {
+            title:
+              snap.currentDrift === "relocated"
+                ? "$(info) code moved since this stop was authored — highlight re-anchored"
+                : "$(info) the anchored code is gone — highlight may be stale",
+            command: "",
+          }),
+        );
+      }
+    }
+
+    // Clickable jump markers for the OTHER stops that live in this file.
+    snap.plan.steps.forEach((step, i) => {
+      if (i === snap.index) return;
+      if (vscode.Uri.joinPath(folder.uri, step.file).toString() !== doc.uri.toString()) return;
+      const line = anchorLine(step);
+      const drift = snap.drift[i];
+      const icon = drift === "missing" ? "$(error)" : drift === "relocated" ? "$(warning)" : "$(circle-small-filled)";
+      lenses.push(
+        new vscode.CodeLens(new vscode.Range(line, 0, line, 0), {
+          title: `${icon} Atlas stop ${i + 1}: ${step.title}`,
+          command: "codeAtlas.showStep",
+          arguments: [i],
+          tooltip: "Jump to this Code Atlas stop.",
+        }),
+      );
+    });
+
+    return lenses;
   }
 }
 

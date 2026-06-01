@@ -2,7 +2,7 @@
   "name": "code-atlas",
   "displayName": "Code Atlas",
   "description": "AI-guided codebase walkthroughs. Interactive tours of repos, PRs, subsystems, and execution flows.",
-  "version": "0.9.5",
+  "version": "0.10.0",
   "publisher": "code-atlas",
   "private": true,
   "engines": {
@@ -37,6 +37,26 @@
       {
         "command": "codeAtlas.importTour",
         "title": "Code Atlas: Import Tour"
+      },
+      {
+        "command": "codeAtlas.saveTourToRepo",
+        "title": "Code Atlas: Save Tour to Repo (.codeatlas/)"
+      },
+      {
+        "command": "codeAtlas.tourFromHere",
+        "title": "Code Atlas: Tour From Here"
+      },
+      {
+        "command": "codeAtlas.togglePlay",
+        "title": "Code Atlas: Play / Pause Tour Narration"
+      },
+      {
+        "command": "codeAtlas.showStep",
+        "title": "Code Atlas: Show Step"
+      },
+      {
+        "command": "codeAtlas.resumeRepoTour",
+        "title": "Code Atlas: Resume Repo Tour"
       },
       {
         "command": "codeAtlas.next",
@@ -79,6 +99,74 @@
         "title": "Code Atlas: Delete Saved Tour"
       }
     ],
+    "keybindings": [
+      {
+        "command": "codeAtlas.next",
+        "key": "alt+right",
+        "when": "codeAtlas.tourActive"
+      },
+      {
+        "command": "codeAtlas.back",
+        "key": "alt+left",
+        "when": "codeAtlas.tourActive"
+      },
+      {
+        "command": "codeAtlas.togglePlay",
+        "key": "alt+p",
+        "when": "codeAtlas.tourActive"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "codeAtlas.tourFromHere",
+          "group": "navigation@99",
+          "when": "editorTextFocus"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "codeAtlas.showStep",
+          "when": "false"
+        },
+        {
+          "command": "codeAtlas.resumeRepoTour",
+          "when": "false"
+        },
+        {
+          "command": "codeAtlas.next",
+          "when": "codeAtlas.tourActive"
+        },
+        {
+          "command": "codeAtlas.back",
+          "when": "codeAtlas.tourActive"
+        },
+        {
+          "command": "codeAtlas.revealCurrent",
+          "when": "codeAtlas.tourActive"
+        },
+        {
+          "command": "codeAtlas.togglePlay",
+          "when": "codeAtlas.tourActive"
+        },
+        {
+          "command": "codeAtlas.saveTourToRepo",
+          "when": "codeAtlas.tourActive"
+        },
+        {
+          "command": "codeAtlas.exportTour",
+          "when": "codeAtlas.tourActive"
+        },
+        {
+          "command": "codeAtlas.deeper",
+          "when": "codeAtlas.tourActive"
+        },
+        {
+          "command": "codeAtlas.stop",
+          "when": "codeAtlas.tourActive"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {
@@ -110,6 +198,17 @@
           "type": "string",
           "default": "claude-opus-4-7",
           "description": "Anthropic model id used for tour generation."
+        },
+        "codeAtlas.autoResume": {
+          "type": "string",
+          "enum": ["prompt", "auto", "off"],
+          "enumDescriptions": [
+            "On startup, ask whether to resume the most recent tour for this workspace.",
+            "Silently restore the most recent tour on startup.",
+            "Never restore a tour automatically."
+          ],
+          "default": "prompt",
+          "description": "What to do with the most recent saved tour when VS Code opens this workspace. A window reload otherwise drops you to the empty state even though the tour is still saved."
         },
         "codeAtlas.mcpEnabled": {
           "type": "boolean",
