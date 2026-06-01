@@ -1,3 +1,6 @@
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import * as vscode from "vscode";
 import {
   parseTourJson,
@@ -110,10 +113,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.env.clipboard.writeText(prompt);
       await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
       const pick = await vscode.window.showInformationMessage(
-        "Tour prompt copied. Paste it into a Claude Code session with the RepoTrail harness installed.",
-        "Show MCP setup",
+        "Tour prompt copied. Paste it into any MCP-capable agent connected to RepoTrail.",
+        "Show agent setup",
       );
-      if (pick === "Show MCP setup") showMcpInfo(context);
+      if (pick === "Show agent setup") showMcpInfo(context);
     }),
     vscode.commands.registerCommand("repoTrail.exportTour", () => exportActiveTour(controller, log)),
     vscode.commands.registerCommand("repoTrail.importTour", () => importTour(controller, log)),
@@ -143,6 +146,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       (question?: string) => copyFollowUpPrompt(controller, viewProvider, question ?? "", log),
     ),
     vscode.commands.registerCommand("repoTrail.stop", () => controller.stop()),
+    vscode.commands.registerCommand("repoTrail.installClaudeSkill", () => installClaudeSkill(context)),
     vscode.commands.registerCommand("repoTrail.showMcpInfo", () => showMcpInfo(context)),
     vscode.commands.registerCommand("repoTrail.openNarration", () => {
       vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
@@ -321,7 +325,7 @@ function updateStatus(state: "listening" | "disabled" | "error", port?: number):
 }
 
 /**
- * "Go deeper" is a bridge to the user's Claude Code session: we copy a
+ * "Go deeper" is a bridge to the user's agent session: we copy a
  * ready-to-paste prompt to the clipboard rather than running an LLM in the
  * extension. The user pastes into their agent terminal; the agent calls
  * `insert_step` to splice sub-steps after the current index.
@@ -524,7 +528,7 @@ async function tourFromHere(): Promise<void> {
     `following the repotrail skill (push stops over MCP).`;
   await vscode.env.clipboard.writeText(prompt);
   await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
-  vscode.window.setStatusBarMessage("RepoTrail: 'tour from here' prompt copied for Claude Code.", 3000);
+  vscode.window.setStatusBarMessage("RepoTrail: 'tour from here' prompt copied for your agent.", 3000);
 }
 
 function showMcpInfo(context: vscode.ExtensionContext): void {
@@ -539,36 +543,75 @@ function showMcpInfo(context: vscode.ExtensionContext): void {
     vscode.window.showInformationMessage("RepoTrail MCP server is not running yet.");
     return;
   }
-  const harnessPath = vscode.Uri.joinPath(context.extensionUri, "harness", "claude", "repotrail").fsPath;
-  const installHarnessCmd =
-    `mkdir -p ~/.claude/skills && rm -rf ~/.claude/skills/repotrail && cp -R ${shellQuote(harnessPath)} ~/.claude/skills/repotrail`;
-  // User-scope registration is one-time and survives across Claude Code sessions;
-  // tools auto-load on every new session. Prefer this over per-project.
+  const parsedUrl = new URL(url);
+  const token = parsedUrl.searchParams.get("token") ?? "";
+  const bearerUrl = `${parsedUrl.origin}${parsedUrl.pathname}`;
+  const genericConfig = JSON.stringify(
+    {
+      name: "repotrail",
+      transport: "streamable-http",
+      url,
+      alternateAuth: {
+        url: bearerUrl,
+        headers: {
+          Accept: "application/json, text/event-stream",
+          Authorization: `Bearer ${token}`,
+        },
+      },
+      notes: [
+        "Use the tokenized url, or use alternateAuth if your MCP client supports headers.",
+        "Streamable HTTP requests should advertise Accept: application/json, text/event-stream.",
+        "Call get_workspace first and verify workspaceRoot before emitting a tour.",
+        "Emit the full route up front with start_tour, add_step, and show_step({ index: 0 }).",
+      ],
+    },
+    null,
+    2,
+  );
   const userScopeCmd = `claude mcp add --scope user --transport http repotrail ${shellQuote(url)}`;
-  const projectScopeCmd = `claude mcp add --transport http repotrail ${shellQuote(url)}`;
   vscode.window
     .showInformationMessage(
-      "RepoTrail MCP is ready. Install the harness, add the MCP server, then start a new Claude Code session.",
-      "Copy harness install",
-      "Copy global MCP add",
-      "Copy project-scope command",
+      "RepoTrail MCP is ready. Install the Claude Code skill, or connect any MCP-capable agent with the tokenized URL.",
+      "Install Claude skill",
+      "Copy Claude MCP add",
+      "Copy generic config",
       "Copy URL",
     )
-    .then((pick) => {
-      if (pick === "Copy harness install") {
-        vscode.env.clipboard.writeText(installHarnessCmd);
-        vscode.window.showInformationMessage("Copied harness install command for Claude Code.");
-      } else if (pick === "Copy global MCP add") {
+    .then(async (pick) => {
+      if (pick === "Install Claude skill") {
+        await installClaudeSkill(context);
+      } else if (pick === "Copy Claude MCP add") {
         vscode.env.clipboard.writeText(userScopeCmd);
         vscode.window.showInformationMessage(
-          "Copied. Run once in any terminal — new Claude Code sessions auto-load RepoTrail tools.",
+          "Copied. Run once in any terminal, then start a new Claude Code session.",
         );
-      } else if (pick === "Copy project-scope command") {
-        vscode.env.clipboard.writeText(projectScopeCmd);
+      } else if (pick === "Copy generic config") {
+        vscode.env.clipboard.writeText(genericConfig);
+        vscode.window.showInformationMessage("Copied generic MCP connection config.");
       } else if (pick === "Copy URL") {
         vscode.env.clipboard.writeText(url);
       }
     });
+}
+
+async function installClaudeSkill(context: vscode.ExtensionContext): Promise<void> {
+  const sourceDir = vscode.Uri.joinPath(context.extensionUri, "harness", "claude", "repotrail").fsPath;
+  const targetDir = path.join(os.homedir(), ".claude", "skills", "repotrail");
+  try {
+    await fs.rm(targetDir, { recursive: true, force: true });
+    await fs.mkdir(path.dirname(targetDir), { recursive: true });
+    await fs.cp(sourceDir, targetDir, { recursive: true });
+    vscode.window.showInformationMessage(
+      "RepoTrail Claude Code skill installed. Add the MCP server if needed, then start a new Claude Code session.",
+      "Show MCP setup",
+    ).then((pick) => {
+      if (pick === "Show MCP setup") showMcpInfo(context);
+    });
+  } catch (err) {
+    vscode.window.showErrorMessage(
+      `RepoTrail: failed to install Claude Code skill: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 function shellQuote(value: string): string {

@@ -2,47 +2,81 @@
 
 **Agent-guided codebase tours inside VS Code.**
 
-RepoTrail turns a repo walkthrough into an editor-native route: your Claude Code
-harness chooses the stops, RepoTrail opens the files, highlights tight ranges,
-shows narration, and lets you move through the route with Back/Next, CodeLens,
-and the sidebar.
+RepoTrail turns a repo walkthrough into an editor-native route: your
+MCP-capable agent chooses the stops, RepoTrail opens the files, highlights
+tight ranges, shows narration, and lets you move through the route with
+Back/Next, CodeLens, and the sidebar.
 
 ![RepoTrail sidebar](media/sidebar.png)
 
 ## How It Works
 
-RepoTrail has one supported generation path:
+RepoTrail has one supported generation path: an external MCP-capable agent
+drives the extension over the local RepoTrail MCP server.
 
 1. The VS Code extension runs a local MCP server on `127.0.0.1`.
-2. The bundled Claude Code harness connects to that MCP server.
-3. The harness reads your repo, emits a complete tour up front, and lands the
+2. Your agent or harness connects to that MCP server.
+3. The agent reads your repo, emits a complete tour up front, and lands the
    editor on stop 1.
 4. You navigate locally in VS Code. Follow-ups and "go deeper" prompts return
-   to the harness, which can insert or update tour steps.
+   to the agent, which can insert or update tour steps.
 
 The extension does not ship a built-in LLM provider and does not send source
 code to a hosted service by itself.
 
-## Install The Claude Code Harness
+## Install The Claude Code Skill
 
 After installing the extension, open the target workspace in VS Code and run:
+
+```text
+RepoTrail: Install Claude Code Skill
+```
+
+That installs the bundled skill to `~/.claude/skills/repotrail/`.
+
+Then run:
 
 ```text
 RepoTrail: Show MCP Setup
 ```
 
-Use the command buttons to copy:
-
-1. The harness install command.
-2. The `claude mcp add --scope user --transport http repotrail ...` command.
-
-Then start a new Claude Code session in the same repo and ask:
+Use the command buttons to copy the `claude mcp add --scope user --transport
+http repotrail ...` command. Then start a new Claude Code session in the same
+repo and ask:
 
 ```text
 Give me a RepoTrail tour of this repository.
 ```
 
 ![RepoTrail MCP setup](media/mcp-setup.png)
+
+## Use Any MCP-Capable Agent
+
+Claude Code is the bundled convenience path, not a protocol requirement.
+RepoTrail supports any local agent or harness that can call a Streamable HTTP
+MCP server with either:
+
+- the tokenized URL copied by **RepoTrail: Show MCP Setup**, or
+- the same `/mcp` URL without `?token=...` plus `Authorization: Bearer <token>`.
+
+Streamable HTTP requests should advertise `Accept: application/json,
+text/event-stream`.
+
+For non-Claude clients, copy **Generic MCP config** from **RepoTrail: Show MCP
+Setup**. The agent should:
+
+1. Call `get_workspace` and verify `workspaceRoot` matches the current repo.
+2. Call `start_tour`.
+3. Add all steps up front with `add_step`.
+4. Call `show_step({ "index": 0 })`.
+
+The full generic tool contract is documented in [harness/README.md](harness/README.md).
+
+Once connected, ask:
+
+```text
+Give me a RepoTrail tour of this repository.
+```
 
 ## Features
 
@@ -73,9 +107,11 @@ See [PRIVACY.md](PRIVACY.md) for the longer policy.
 
 ## Commands
 
-- `RepoTrail: Start Tour` - copy a prompt for the external harness.
-- `RepoTrail: Show MCP Setup` - copy the harness install command, MCP add
-  command, or tokenized MCP URL.
+- `RepoTrail: Start Tour` - copy a prompt for your connected agent.
+- `RepoTrail: Install Claude Code Skill` - install the bundled Claude Code
+  skill to `~/.claude/skills/repotrail/`.
+- `RepoTrail: Show MCP Setup` - copy a Claude MCP add command, generic MCP
+  config, or tokenized MCP URL.
 - `RepoTrail: Tour From Here` - copy a prompt scoped to the active file or
   selection.
 - `RepoTrail: Export Tour` / `RepoTrail: Import Tour`.
@@ -96,8 +132,8 @@ locally with `pnpm install-local`.
 
 ## Limitations
 
-- Claude Code must start a new session after MCP registration so it can load the
-  `mcp__repotrail__*` tools.
+- MCP clients must support Streamable HTTP. Claude Code must start a new session
+  after MCP registration so it can load the `mcp__repotrail__*` tools.
 - RepoTrail is read-only. It navigates and explains code; it does not refactor
   files.
 - Open VSX publishing is not part of the first launch.

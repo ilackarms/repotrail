@@ -1,8 +1,9 @@
 # RepoTrail
 
 VS Code extension. Agent-guided codebase tours. TypeScript + pnpm. The
-extension is the editor surface; the supported generation path is the
-repo-owned Claude Code harness over local MCP.
+extension is the editor surface; the supported generation path is any
+MCP-capable external agent over local MCP. The repo-owned Claude Code skill is
+the bundled convenience harness.
 
 ## Knowledge Pack
 
@@ -47,15 +48,16 @@ Layers stay separated:
    `~/.repotrail/tours/` and repo-shared tours under `.repotrail/`.
 6. `src/tts/` owns narration. `speechText.ts` is pure preprocessing; hosted
    audio fetches happen in the extension host.
-7. `harness/claude/repotrail/` is the repo-owned Claude Code harness. Keep it in
-   sync with MCP tool names and setup behavior.
+7. `harness/README.md` documents the generic MCP harness contract.
+8. `harness/claude/repotrail/` is the repo-owned Claude Code convenience skill.
+   Keep it in sync with MCP tool names and setup behavior.
 
 ## Product Rule
 
-RepoTrail has one supported generation path: the external harness calls MCP and
-emits a complete tour. Do not reintroduce mock tours, built-in provider
-generation, API-key-driven in-extension generation, or polling-style tour
-control.
+RepoTrail has one supported generation path: an MCP-capable external agent
+calls MCP and emits a complete tour. Do not reintroduce mock tours, built-in
+provider generation, API-key-driven in-extension generation, or polling-style
+tour control.
 
 `TourStep` is the wire format between the harness/MCP server and UX. Ranges are
 1-indexed; conversion to VS Code ranges happens in `editorActions.ts`.

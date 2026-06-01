@@ -16,8 +16,8 @@ const PORT_REGISTRY_FILE = path.join(PORT_REGISTRY_DIR, "ports.json");
 const MAX_BODY_BYTES = 1024 * 1024;
 
 /**
- * HTTP-based MCP server that lets an external agentic harness (Claude Code,
- * etc.) drive a tour. The extension itself is "dumb" — it executes whatever
+ * HTTP-based MCP server that lets any token-authenticated MCP-capable local
+ * agent drive a tour. The extension itself is "dumb" — it executes whatever
  * steps the agent emits.
  *
  * Transport: Streamable HTTP, stateless. Single endpoint at POST /mcp.

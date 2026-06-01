@@ -5,9 +5,13 @@ description: Generate an interactive RepoTrail codebase tour in VS Code. Use whe
 
 # RepoTrail Tour Harness
 
-RepoTrail is the editor surface. You are the analysis engine. The VS Code
-extension exposes a local MCP server (`mcp__repotrail__*` tools) that lets you
-push a complete tour into the user's editor.
+RepoTrail is the editor surface. You are the Claude Code convenience harness.
+The VS Code extension exposes a local MCP server (`mcp__repotrail__*` tools)
+that lets you push a complete tour into the user's editor.
+
+The same MCP workflow is intentionally compatible with other agents. This skill
+adds Claude Code-specific setup checks and tool naming, but the product
+contract is the generic MCP tool flow documented in `harness/README.md`.
 
 Generate the entire tour up front, then stop. Do not poll for clicks. The user
 navigates locally with Back/Next, CodeLens controls, and the sidebar route list.

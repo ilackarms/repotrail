@@ -48,6 +48,10 @@
         "title": "RepoTrail: Show MCP Setup"
       },
       {
+        "command": "repoTrail.installClaudeSkill",
+        "title": "RepoTrail: Install Claude Code Skill"
+      },
+      {
         "command": "repoTrail.exportTour",
         "title": "RepoTrail: Export Tour"
       },
@@ -219,7 +223,7 @@
         "repoTrail.mcpEnabled": {
           "type": "boolean",
           "default": true,
-          "description": "Run an MCP server so external agents (Claude Code, etc.) can drive RepoTrail tours."
+          "description": "Run a local MCP server so any MCP-capable agent can drive RepoTrail tours."
         },
         "repoTrail.mcpPort": {
           "type": "number",
