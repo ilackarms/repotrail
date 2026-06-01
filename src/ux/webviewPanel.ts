@@ -113,10 +113,10 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     view.webview.onDidReceiveMessage(async (msg) => {
       switch (msg?.type) {
         case "start":
-          await vscode.commands.executeCommand("repoTrail.startTour");
+          await vscode.commands.executeCommand("repoTrail.copyTourPrompt");
           break;
         case "agentBootstrap":
-          await vscode.commands.executeCommand("repoTrail.copyAgentBootstrap");
+          await vscode.commands.executeCommand("repoTrail.copyAgentSetup");
           break;
         case "importTour":
           await vscode.commands.executeCommand("repoTrail.importTour");

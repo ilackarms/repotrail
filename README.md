@@ -120,13 +120,13 @@ See [PRIVACY.md](PRIVACY.md) for the longer policy.
 
 ## Commands
 
-- `RepoTrail: Start Tour` - copy a prompt for your connected agent.
+- `RepoTrail: Copy Tour Prompt` - copy a tour request for your connected agent.
 - `RepoTrail: Copy Agent Setup` - copy a prompt that tells any agent where to
   fetch the hosted RepoTrail skill and how to connect MCP.
 - `RepoTrail: Install repo-trail Skill for Claude Code` - install the same
   `repo-trail` skill to `~/.claude/skills/repo-trail/`.
-- `RepoTrail: Tour From Here` - copy a prompt scoped to the active file or
-  selection.
+- `RepoTrail: Copy Tour From Here Prompt` - copy a prompt scoped to the active
+  file or selection.
 - `RepoTrail: Export Tour` / `RepoTrail: Import Tour`.
 - `RepoTrail: Save Tour to Repo (.repotrail/)`.
 - `RepoTrail: Resume Saved Tour` / `RepoTrail: Delete Saved Tour`.

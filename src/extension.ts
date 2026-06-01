@@ -94,14 +94,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusItem.command = "repoTrail.showMcpInfo";
+  statusItem.command = "repoTrail.copyAgentSetup";
   context.subscriptions.push(statusItem);
 
   context.subscriptions.push(
     vscode.commands.registerCommand("repoTrail.tour.focus", async () => {
       await vscode.commands.executeCommand("workbench.view.extension.repoTrail");
     }),
-    vscode.commands.registerCommand("repoTrail.startTour", async () => {
+    vscode.commands.registerCommand("repoTrail.copyTourPrompt", async () => {
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!root) {
         vscode.window.showErrorMessage("RepoTrail: open a folder/workspace first.");
@@ -144,9 +144,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       (question?: string) => copyFollowUpPrompt(controller, viewProvider, question ?? "", log),
     ),
     vscode.commands.registerCommand("repoTrail.stop", () => controller.stop()),
-    vscode.commands.registerCommand("repoTrail.copyAgentBootstrap", () => copyAgentBootstrap()),
+    vscode.commands.registerCommand("repoTrail.copyAgentSetup", () => copyAgentSetup()),
     vscode.commands.registerCommand("repoTrail.installSkillForClaude", () => installSkillForClaude(context)),
-    vscode.commands.registerCommand("repoTrail.showMcpInfo", () => showMcpInfo()),
     vscode.commands.registerCommand("repoTrail.openNarration", () => {
       vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
     }),
@@ -530,11 +529,7 @@ async function tourFromHere(): Promise<void> {
   vscode.window.setStatusBarMessage("RepoTrail: 'tour from here' prompt copied for your agent.", 3000);
 }
 
-function showMcpInfo(): void {
-  void copyAgentBootstrap();
-}
-
-async function copyAgentBootstrap(): Promise<void> {
+async function copyAgentSetup(): Promise<void> {
   const cfg = vscode.workspace.getConfiguration("repoTrail");
   const enabled = cfg.get<boolean>("mcpEnabled", true);
   if (!enabled) {
@@ -571,7 +566,7 @@ async function installSkillForClaude(context: vscode.ExtensionContext): Promise<
       "repo-trail skill installed for Claude Code. Add the MCP server if needed, then start a new Claude Code session.",
       "Copy agent setup",
     ).then((pick) => {
-      if (pick === "Copy agent setup") showMcpInfo();
+      if (pick === "Copy agent setup") void copyAgentSetup();
     });
   } catch (err) {
     vscode.window.showErrorMessage(

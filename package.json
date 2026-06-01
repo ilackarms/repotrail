@@ -40,11 +40,11 @@
   "contributes": {
     "commands": [
       {
-        "command": "repoTrail.startTour",
-        "title": "RepoTrail: Start Tour"
+        "command": "repoTrail.copyTourPrompt",
+        "title": "RepoTrail: Copy Tour Prompt"
       },
       {
-        "command": "repoTrail.showMcpInfo",
+        "command": "repoTrail.copyAgentSetup",
         "title": "RepoTrail: Copy Agent Setup"
       },
       {
@@ -65,7 +65,7 @@
       },
       {
         "command": "repoTrail.tourFromHere",
-        "title": "RepoTrail: Tour From Here"
+        "title": "RepoTrail: Copy Tour From Here Prompt"
       },
       {
         "command": "repoTrail.togglePlay",
@@ -184,6 +184,18 @@
         },
         {
           "command": "repoTrail.stop",
+          "when": "repoTrail.tourActive"
+        },
+        {
+          "command": "repoTrail.cycleTts",
+          "when": "repoTrail.tourActive"
+        },
+        {
+          "command": "repoTrail.speakCurrent",
+          "when": "repoTrail.tourActive"
+        },
+        {
+          "command": "repoTrail.stopTts",
           "when": "repoTrail.tourActive"
         }
       ]
