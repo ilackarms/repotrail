@@ -1,6 +1,6 @@
 ---
-name: repotrail
-description: Generate an interactive RepoTrail codebase tour in VS Code. Use when the user says "/repotrail", "give me a tour", "walk me through this repo", "tour this PR", or otherwise asks for a narrated walkthrough in the RepoTrail extension.
+name: repo-trail
+description: Generate an interactive RepoTrail codebase tour in VS Code. Use when the user says "/repo-trail", "/repotrail", "give me a tour", "walk me through this repo", "tour this PR", or otherwise asks for a narrated walkthrough in the RepoTrail extension.
 ---
 
 # RepoTrail Tour Harness
@@ -10,7 +10,7 @@ The VS Code extension exposes a local MCP server (`mcp__repotrail__*` tools)
 that lets you push a complete tour into the user's editor.
 
 The same MCP workflow is intentionally compatible with other agents. The
-generic skill lives at `harness/repotrail/SKILL.md` and is served by the local
+generic skill lives at `harness/repo-trail/SKILL.md` and is served by the local
 RepoTrail HTTP server at `/skill.md?token=<token>`. This Claude Code adapter
 adds Claude-specific setup checks and tool naming.
 

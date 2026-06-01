@@ -58,7 +58,7 @@ adapter locally:
 RepoTrail: Install Claude Code Adapter
 ```
 
-That installs the Claude adapter to `~/.claude/skills/repotrail/`. Then run
+That installs the Claude adapter to `~/.claude/skills/repo-trail/`. Then run
 **RepoTrail: Copy Agent Setup** and paste the setup prompt into a new Claude
 Code session.
 
@@ -124,7 +124,7 @@ See [PRIVACY.md](PRIVACY.md) for the longer policy.
 - `RepoTrail: Copy Agent Setup` - copy a prompt that tells any agent where to
   fetch the hosted RepoTrail skill and how to connect MCP.
 - `RepoTrail: Install Claude Code Adapter` - install the optional Claude Code
-  adapter to `~/.claude/skills/repotrail/`.
+  adapter to `~/.claude/skills/repo-trail/`.
 - `RepoTrail: Tour From Here` - copy a prompt scoped to the active file or
   selection.
 - `RepoTrail: Export Tour` / `RepoTrail: Import Tour`.

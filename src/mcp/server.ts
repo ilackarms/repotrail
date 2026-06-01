@@ -490,7 +490,7 @@ export class RepoTrailMcpServer {
       return;
     }
     try {
-      const skillPath = vscode.Uri.joinPath(this.extensionUri, "harness", "repotrail", "SKILL.md").fsPath;
+      const skillPath = vscode.Uri.joinPath(this.extensionUri, "harness", "repo-trail", "SKILL.md").fsPath;
       const skill = await fs.readFile(skillPath, "utf8");
       res
         .writeHead(200, {
@@ -517,12 +517,13 @@ export class RepoTrailMcpServer {
     const mcpUrl = new URL(this.connectionUrl);
     const token = mcpUrl.searchParams.get("token") ?? "";
     writeJsonResponse(res, 200, {
-      name: "repotrail",
+      name: "repo-trail",
       version: this.extensionVersion,
       skill: {
+        name: "repo-trail",
         url: this.skillUrl,
         mediaType: "text/markdown",
-        install: "Fetch this skill and install or use it as your RepoTrail harness instructions.",
+        install: "Fetch this skill and install or use it as the repo-trail harness instructions.",
       },
       mcp: {
         name: "repotrail",
@@ -537,7 +538,7 @@ export class RepoTrailMcpServer {
         },
       },
       workflow: [
-        "Fetch and install/use the skill instructions before generating a tour.",
+        "Fetch and install/use the repo-trail skill instructions before generating a tour.",
         "Connect to the MCP server.",
         "Call get_workspace and verify workspaceRoot matches the current repository.",
         "Emit the full route up front with start_tour, add_step, and show_step({ index: 0 }).",

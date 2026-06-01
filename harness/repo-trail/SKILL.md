@@ -1,5 +1,5 @@
 ---
-name: repotrail
+name: repo-trail
 description: Generate an interactive RepoTrail codebase tour in VS Code through the local RepoTrail MCP server.
 ---
 
@@ -11,7 +11,7 @@ server that lets you push a complete tour into the user's editor.
 
 Install or use this skill in your current session before creating a RepoTrail
 tour. If your agent supports persistent skills, save this document as the
-`repotrail` skill. If it does not, treat this document as the active harness
+`repo-trail` skill. If it does not, treat this document as the active harness
 instructions for the current request.
 
 ## Connection

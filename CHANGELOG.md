@@ -7,11 +7,12 @@
 - Served the generic RepoTrail skill and bootstrap metadata from the local
   token-authenticated HTTP server.
 - Added a direct **Connect agent** sidebar button and simplified setup command.
-- Added a VS Code command to install the optional Claude Code adapter.
+- Added a VS Code command to install the optional `repo-trail` Claude Code adapter.
 - Added token-authenticated local MCP URLs under `~/.repotrail/ports.json`.
 - Rejected unauthenticated MCP calls and workspace-escaping tour step files.
-- Added generic harness guidance under `harness/README.md` and Claude Code
-  convenience instructions under `harness/claude/repotrail/`.
+- Added generic harness guidance under `harness/README.md`, the served
+  `repo-trail` skill under `harness/repo-trail/`, and Claude Code convenience
+  instructions under `harness/claude/repo-trail/`.
 - Added route navigation polish: CodeLens controls, keyboard navigation,
   auto-resume, seen-state route dimming, and repo-shared `.repotrail/` tours.
 - Added public Marketplace metadata, privacy documentation, and launch assets.

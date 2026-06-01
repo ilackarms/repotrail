@@ -19,7 +19,7 @@ agent skill at `/skill.md`; both endpoints require the same local auth token.
 RepoTrail itself does not send your source code to a hosted model. Tour
 generation is performed by your external harness. What that harness reads or
 sends depends on the tools and model configuration of the agent you connect.
-The bundled Claude Code skill is optional convenience glue; other MCP-capable
+The bundled Claude Code adapter is optional convenience glue; other MCP-capable
 agents can use the same local tool surface.
 
 ## Text-To-Speech Providers

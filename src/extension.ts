@@ -145,7 +145,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
     vscode.commands.registerCommand("repoTrail.stop", () => controller.stop()),
     vscode.commands.registerCommand("repoTrail.copyAgentBootstrap", () => copyAgentBootstrap()),
-    vscode.commands.registerCommand("repoTrail.installClaudeSkill", () => installClaudeSkill(context)),
+    vscode.commands.registerCommand("repoTrail.installClaudeAdapter", () => installClaudeAdapter(context)),
     vscode.commands.registerCommand("repoTrail.showMcpInfo", () => showMcpInfo()),
     vscode.commands.registerCommand("repoTrail.openNarration", () => {
       vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
@@ -345,7 +345,7 @@ function copyDeepenPrompt(
     `Call mcp__repotrail__get_state to confirm the current index, then read the relevant code, ` +
     `then call mcp__repotrail__insert_step one or more times with \`at\` = current index + 1, +2, ... ` +
     `to splice in 2–4 sub-steps that zoom into this area at finer granularity. Keep ranges tight ` +
-    `(see the granularity rule in the repotrail skill).`;
+    `(see the granularity rule in the repo-trail skill).`;
   void vscode.env.clipboard.writeText(prompt);
   // Show the exact prompt in the sidebar so the handoff is visible, not a blind
   // clipboard write the user has to trust.
@@ -524,7 +524,7 @@ async function tourFromHere(): Promise<void> {
   const prompt =
     `Give me a RepoTrail tour starting from ${scope}. ` +
     `Walk through what it does and how it connects to the rest of the codebase, ` +
-    `following the repotrail skill (push stops over MCP).`;
+    `following the repo-trail skill (push stops over MCP).`;
   await vscode.env.clipboard.writeText(prompt);
   await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
   vscode.window.setStatusBarMessage("RepoTrail: 'tour from here' prompt copied for your agent.", 3000);
@@ -548,7 +548,7 @@ async function copyAgentBootstrap(): Promise<void> {
   const prompt =
     "Use RepoTrail for this VS Code workspace.\n\n" +
     `1. Fetch this bootstrap metadata: ${mcp.bootstrapUrl}\n` +
-    `2. Fetch and install/use this skill as your RepoTrail harness instructions: ${mcp.skillUrl}\n` +
+    `2. Fetch and install/use this as the repo-trail skill: ${mcp.skillUrl}\n` +
     `3. Connect to the RepoTrail MCP server: ${mcp.connectionUrl}\n` +
     "4. Call get_workspace and verify workspaceRoot matches this repository before emitting a tour.\n" +
     "5. Generate the complete tour up front with start_tour, add_step, and show_step({ index: 0 }).";
@@ -556,22 +556,26 @@ async function copyAgentBootstrap(): Promise<void> {
   vscode.window.showInformationMessage("Copied RepoTrail agent setup. Paste it into your agent.");
 }
 
-async function installClaudeSkill(context: vscode.ExtensionContext): Promise<void> {
-  const sourceDir = vscode.Uri.joinPath(context.extensionUri, "harness", "claude", "repotrail").fsPath;
-  const targetDir = path.join(os.homedir(), ".claude", "skills", "repotrail");
+async function installClaudeAdapter(context: vscode.ExtensionContext): Promise<void> {
+  const sourceDir = vscode.Uri.joinPath(context.extensionUri, "harness", "claude", "repo-trail").fsPath;
+  const skillsDir = path.join(os.homedir(), ".claude", "skills");
+  const targetDir = path.join(skillsDir, "repo-trail");
+  const legacyDirs = [path.join(skillsDir, "repotrail"), path.join(skillsDir, ["code", "atlas"].join("-"))];
   try {
-    await fs.rm(targetDir, { recursive: true, force: true });
-    await fs.mkdir(path.dirname(targetDir), { recursive: true });
+    for (const dir of [targetDir, ...legacyDirs]) {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+    await fs.mkdir(skillsDir, { recursive: true });
     await fs.cp(sourceDir, targetDir, { recursive: true });
     vscode.window.showInformationMessage(
-      "RepoTrail Claude Code skill installed. Add the MCP server if needed, then start a new Claude Code session.",
+      "RepoTrail Claude Code adapter installed as repo-trail. Add the MCP server if needed, then start a new Claude Code session.",
       "Copy agent setup",
     ).then((pick) => {
       if (pick === "Copy agent setup") showMcpInfo();
     });
   } catch (err) {
     vscode.window.showErrorMessage(
-      `RepoTrail: failed to install Claude Code skill: ${err instanceof Error ? err.message : String(err)}`,
+      `RepoTrail: failed to install Claude Code adapter: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }
