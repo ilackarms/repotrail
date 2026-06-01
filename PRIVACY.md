@@ -11,6 +11,8 @@ agent can connect to the correct VS Code window.
 
 The MCP tools expose the current workspace path, a bounded list of workspace
 files, and the active tour state to local clients that know the token.
+RepoTrail also serves generic setup metadata at `/bootstrap` and the generic
+agent skill at `/skill.md`; both endpoints require the same local auth token.
 
 ## Source Code Access
 

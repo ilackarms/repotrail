@@ -42,8 +42,10 @@ Layers stay separated:
    `~/.repotrail/tours/` and repo-shared tours under `.repotrail/`.
 6. `src/tts/` owns narration. `speechText.ts` is pure preprocessing; hosted
    audio fetches happen in the extension host.
-7. `harness/README.md` documents the generic MCP harness contract.
-8. `harness/claude/repotrail/` is the repo-owned Claude Code convenience skill.
+7. `harness/repotrail/SKILL.md` is the generic skill served by the local HTTP
+   server at `/skill.md?token=<token>`.
+8. `harness/README.md` documents the generic MCP harness contract.
+9. `harness/claude/repotrail/` is the repo-owned Claude Code convenience skill.
    Keep it in sync with MCP tool names and setup behavior.
 
 ## Product Rule

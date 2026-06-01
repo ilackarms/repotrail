@@ -36,6 +36,7 @@ export class RepoTrailMcpServer {
   constructor(
     private readonly controller: TourController,
     private readonly extensionVersion: string,
+    private readonly extensionUri: vscode.Uri,
   ) {
     this.output = vscode.window.createOutputChannel("RepoTrail MCP");
   }
@@ -99,7 +100,19 @@ export class RepoTrailMcpServer {
   }
 
   get connectionUrl(): string {
-    return `http://127.0.0.1:${this.actualPort}/mcp?token=${this.authToken}`;
+    return `${this.baseUrl}/mcp?token=${this.authToken}`;
+  }
+
+  get skillUrl(): string {
+    return `${this.baseUrl}/skill.md?token=${this.authToken}`;
+  }
+
+  get bootstrapUrl(): string {
+    return `${this.baseUrl}/bootstrap?token=${this.authToken}`;
+  }
+
+  private get baseUrl(): string {
+    return `http://127.0.0.1:${this.actualPort}`;
   }
 
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
@@ -113,6 +126,16 @@ export class RepoTrailMcpServer {
       res.writeHead(200, { "content-type": "application/json" }).end(
         JSON.stringify({ ok: true, port: this.actualPort, version: this.extensionVersion }),
       );
+      return;
+    }
+
+    if (url.pathname === "/skill" || url.pathname === "/skill.md") {
+      await this.handleSkillRequest(req, res, url);
+      return;
+    }
+
+    if (url.pathname === "/bootstrap") {
+      this.handleBootstrapRequest(req, res, url);
       return;
     }
 
@@ -430,6 +453,8 @@ export class RepoTrailMcpServer {
         version: this.extensionVersion,
         token: this.authToken,
         url: this.connectionUrl,
+        skillUrl: this.skillUrl,
+        bootstrapUrl: this.bootstrapUrl,
       };
       await fs.writeFile(PORT_REGISTRY_FILE, JSON.stringify(existing, null, 2), "utf8");
     } catch (err) {
@@ -449,9 +474,87 @@ export class RepoTrailMcpServer {
       /* best-effort */
     }
   }
+
+  private async handleSkillRequest(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    url: URL,
+  ): Promise<void> {
+    if (req.method !== "GET") {
+      writeJsonResponse(res, 405, { error: "RepoTrail skill endpoint expects GET." });
+      return;
+    }
+    if (!this.isAuthorized(req, url)) {
+      this.output.appendLine(`[skill] rejected unauthorized request from ${req.socket.remoteAddress ?? "unknown"}`);
+      writeJsonResponse(res, 401, { error: "Unauthorized RepoTrail skill request." });
+      return;
+    }
+    try {
+      const skillPath = vscode.Uri.joinPath(this.extensionUri, "harness", "repotrail", "SKILL.md").fsPath;
+      const skill = await fs.readFile(skillPath, "utf8");
+      res
+        .writeHead(200, {
+          "content-type": "text/markdown; charset=utf-8",
+          "cache-control": "no-store",
+        })
+        .end(skill);
+    } catch (err) {
+      this.output.appendLine(`[skill] failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+      writeJsonResponse(res, 500, { error: "RepoTrail skill is unavailable." });
+    }
+  }
+
+  private handleBootstrapRequest(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
+    if (req.method !== "GET") {
+      writeJsonResponse(res, 405, { error: "RepoTrail bootstrap endpoint expects GET." });
+      return;
+    }
+    if (!this.isAuthorized(req, url)) {
+      this.output.appendLine(`[bootstrap] rejected unauthorized request from ${req.socket.remoteAddress ?? "unknown"}`);
+      writeJsonResponse(res, 401, { error: "Unauthorized RepoTrail bootstrap request." });
+      return;
+    }
+    const mcpUrl = new URL(this.connectionUrl);
+    const token = mcpUrl.searchParams.get("token") ?? "";
+    writeJsonResponse(res, 200, {
+      name: "repotrail",
+      version: this.extensionVersion,
+      skill: {
+        url: this.skillUrl,
+        mediaType: "text/markdown",
+        install: "Fetch this skill and install or use it as your RepoTrail harness instructions.",
+      },
+      mcp: {
+        name: "repotrail",
+        transport: "streamable-http",
+        url: this.connectionUrl,
+        alternateAuth: {
+          url: `${mcpUrl.origin}${mcpUrl.pathname}`,
+          headers: {
+            Accept: "application/json, text/event-stream",
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      },
+      workflow: [
+        "Fetch and install/use the skill instructions before generating a tour.",
+        "Connect to the MCP server.",
+        "Call get_workspace and verify workspaceRoot matches the current repository.",
+        "Emit the full route up front with start_tour, add_step, and show_step({ index: 0 }).",
+      ],
+    });
+  }
 }
 
-type RegistryEntry = { port: number; pid: number; version: string; token: string; url: string };
+type RegistryEntry = {
+  port: number;
+  pid: number;
+  version: string;
+  token: string;
+  url: string;
+  skillUrl: string;
+  bootstrapUrl: string;
+};
 type Registry = Record<string, RegistryEntry>;
 
 async function readRegistry(): Promise<Registry> {
@@ -501,6 +604,15 @@ function writeJsonRpcError(
   res
     .writeHead(status, { "content-type": "application/json" })
     .end(JSON.stringify({ jsonrpc: "2.0", error: { code, message } }));
+}
+
+function writeJsonResponse(res: http.ServerResponse, status: number, body: unknown): void {
+  res
+    .writeHead(status, {
+      "content-type": "application/json",
+      "cache-control": "no-store",
+    })
+    .end(JSON.stringify(body));
 }
 
 function bearerToken(header: string | undefined): string | null {

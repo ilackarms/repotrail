@@ -9,9 +9,10 @@ RepoTrail is the editor surface. You are the Claude Code convenience harness.
 The VS Code extension exposes a local MCP server (`mcp__repotrail__*` tools)
 that lets you push a complete tour into the user's editor.
 
-The same MCP workflow is intentionally compatible with other agents. This skill
-adds Claude Code-specific setup checks and tool naming, but the product
-contract is the generic MCP tool flow documented in `harness/README.md`.
+The same MCP workflow is intentionally compatible with other agents. The
+generic skill lives at `harness/repotrail/SKILL.md` and is served by the local
+RepoTrail HTTP server at `/skill.md?token=<token>`. This Claude Code adapter
+adds Claude-specific setup checks and tool naming.
 
 Generate the entire tour up front, then stop. Do not poll for clicks. The user
 navigates locally with Back/Next, CodeLens controls, and the sidebar route list.

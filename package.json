@@ -48,6 +48,10 @@
         "title": "RepoTrail: Show MCP Setup"
       },
       {
+        "command": "repoTrail.copyAgentBootstrap",
+        "title": "RepoTrail: Copy Agent Bootstrap"
+      },
+      {
         "command": "repoTrail.installClaudeSkill",
         "title": "RepoTrail: Install Claude Code Skill"
       },

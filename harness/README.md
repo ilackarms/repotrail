@@ -1,24 +1,30 @@
 # RepoTrail Harness Contract
 
 RepoTrail is harness-agnostic. The VS Code extension exposes a local
-Streamable HTTP MCP server; any local agent that can call that server can create
-and refine tours.
+Streamable HTTP MCP server and serves a generic skill document from that same
+server; any local agent that can fetch the skill and call MCP can create and
+refine tours.
 
-Claude Code support is bundled as a convenience skill in
-`harness/claude/repotrail/`, and the extension can install that skill with
-**RepoTrail: Install Claude Code Skill**. Other agents do not need that skill;
-they only need the MCP connection details and the workflow below.
+The generic skill source lives in `harness/repotrail/SKILL.md` and is served at
+`/skill.md?token=<token>`. Claude Code support is bundled as a convenience
+adapter in `harness/claude/repotrail/`, and the extension can install that
+adapter with **RepoTrail: Install Claude Code Skill**.
 
 ## Connection
 
 Open the target workspace in VS Code and run **RepoTrail: Show MCP Setup**.
-Copy **Generic MCP config** for a tokenized URL and an equivalent Bearer-header
-form.
+Copy **Agent bootstrap** and paste it into your agent. The bootstrap prompt
+points the agent at:
+
+- `/bootstrap?token=<token>` for machine-readable setup metadata;
+- `/skill.md?token=<token>` for the generic RepoTrail skill;
+- `/mcp?token=<token>` for the Streamable HTTP MCP server.
 
 The MCP server:
 
 - listens on `127.0.0.1`;
 - uses the `/mcp` endpoint;
+- serves the skill at `/skill.md` and setup metadata at `/bootstrap`;
 - requires either `?token=<token>` in the URL or
   `Authorization: Bearer <token>`;
 - expects Streamable HTTP clients to send

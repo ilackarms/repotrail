@@ -4,6 +4,8 @@
 
 - Renamed the extension to RepoTrail for the first public Marketplace release.
 - Made external MCP agents the supported tour-generation path.
+- Served the generic RepoTrail skill and bootstrap metadata from the local
+  token-authenticated HTTP server.
 - Added a VS Code command to install the bundled Claude Code skill.
 - Added token-authenticated local MCP URLs under `~/.repotrail/ports.json`.
 - Rejected unauthenticated MCP calls and workspace-escaping tour step files.
