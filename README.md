@@ -52,21 +52,21 @@ Give me a RepoTrail tour of this repository.
 ## Optional Claude Code Install
 
 Claude Code can use the hosted skill, or you can install the same `repo-trail`
-skill locally:
+skill locally so new Claude Code sessions know the RepoTrail workflow:
 
 ```text
 RepoTrail: Install repo-trail Skill for Claude Code
 ```
 
-That installs the skill to `~/.claude/skills/repo-trail/`. Then run
-**RepoTrail: Copy Agent Setup** and paste the setup prompt into a new Claude
-Code session.
+That installs the skill to `~/.claude/skills/repo-trail/`. You still use
+**Connect agent** or **RepoTrail: Copy Agent Setup** for each VS Code workspace,
+because the setup prompt carries the live local MCP URLs for that window.
 
 ## Use Any MCP-Capable Agent
 
-Claude Code is the bundled convenience adapter, not a protocol requirement.
-RepoTrail supports any local agent or harness that can fetch the hosted skill
-and call a Streamable HTTP MCP server with either:
+Claude Code is optional, not a protocol requirement. RepoTrail supports any
+local agent or harness that can fetch the hosted skill and call a Streamable
+HTTP MCP server with either:
 
 - the tokenized URL copied by **RepoTrail: Copy Agent Setup**, or
 - the same `/mcp` URL without `?token=...` plus `Authorization: Bearer <token>`.
@@ -84,12 +84,6 @@ For non-Claude clients, click **Connect agent** in the sidebar or run
 
 The full generic tool contract is documented in [harness/README.md](harness/README.md)
 and served by the extension at `/skill.md?token=...`.
-
-Once connected, ask:
-
-```text
-Give me a RepoTrail tour of this repository.
-```
 
 ## Features
 
