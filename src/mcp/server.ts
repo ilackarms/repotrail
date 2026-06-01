@@ -523,7 +523,7 @@ export class RepoTrailMcpServer {
         name: "repo-trail",
         url: this.skillUrl,
         mediaType: "text/markdown",
-        install: "Fetch this skill and install or use it as the repo-trail harness instructions.",
+        install: "Fetch this skill and install or use it with the agent's own skill mechanism.",
       },
       mcp: {
         name: "repotrail",
@@ -538,7 +538,7 @@ export class RepoTrailMcpServer {
         },
       },
       workflow: [
-        "Fetch and install/use the repo-trail skill instructions before generating a tour.",
+        "Fetch the repo-trail skill and install or use it with the agent's own skill mechanism before generating a tour.",
         "Connect to the MCP server.",
         "Call get_workspace and verify workspaceRoot matches the current repository.",
         "Emit the full route up front with start_tour, add_step, and show_step({ index: 0 }).",

@@ -1,6 +1,3 @@
-import * as fs from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
 import * as vscode from "vscode";
 import {
   parseTourJson,
@@ -145,7 +142,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
     vscode.commands.registerCommand("repoTrail.stop", () => controller.stop()),
     vscode.commands.registerCommand("repoTrail.copyAgentSetup", () => copyAgentSetup()),
-    vscode.commands.registerCommand("repoTrail.installSkillForClaude", () => installSkillForClaude(context)),
     vscode.commands.registerCommand("repoTrail.openNarration", () => {
       vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
     }),
@@ -543,34 +539,10 @@ async function copyAgentSetup(): Promise<void> {
   const prompt =
     "Use RepoTrail for this VS Code workspace.\n\n" +
     `1. Fetch this bootstrap metadata: ${mcp.bootstrapUrl}\n` +
-    `2. Fetch and install/use this as the repo-trail skill: ${mcp.skillUrl}\n` +
+    `2. Fetch this repo-trail skill and install/use it with your own agent skill mechanism: ${mcp.skillUrl}\n` +
     `3. Connect to the RepoTrail MCP server: ${mcp.connectionUrl}\n` +
     "4. Call get_workspace and verify workspaceRoot matches this repository before emitting a tour.\n" +
     "5. Generate the complete tour up front with start_tour, add_step, and show_step({ index: 0 }).";
   await vscode.env.clipboard.writeText(prompt);
   vscode.window.showInformationMessage("Copied RepoTrail agent setup. Paste it into your agent.");
-}
-
-async function installSkillForClaude(context: vscode.ExtensionContext): Promise<void> {
-  const sourceDir = vscode.Uri.joinPath(context.extensionUri, "harness", "repo-trail").fsPath;
-  const skillsDir = path.join(os.homedir(), ".claude", "skills");
-  const targetDir = path.join(skillsDir, "repo-trail");
-  const legacyDirs = [path.join(skillsDir, "repotrail"), path.join(skillsDir, ["code", "atlas"].join("-"))];
-  try {
-    for (const dir of [targetDir, ...legacyDirs]) {
-      await fs.rm(dir, { recursive: true, force: true });
-    }
-    await fs.mkdir(skillsDir, { recursive: true });
-    await fs.cp(sourceDir, targetDir, { recursive: true });
-    vscode.window.showInformationMessage(
-      "repo-trail skill installed for Claude Code. Add the MCP server if needed, then start a new Claude Code session.",
-      "Copy agent setup",
-    ).then((pick) => {
-      if (pick === "Copy agent setup") void copyAgentSetup();
-    });
-  } catch (err) {
-    vscode.window.showErrorMessage(
-      `RepoTrail: failed to install repo-trail skill for Claude Code: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
 }

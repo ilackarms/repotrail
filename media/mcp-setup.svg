@@ -1,21 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1100" height="420" viewBox="0 0 1100 420" role="img" aria-label="RepoTrail MCP setup flow">
   <rect width="1100" height="420" fill="#0f172a"/>
   <text x="60" y="70" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="700">RepoTrail MCP setup</text>
-  <text x="60" y="106" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="18">Install the harness, register the tokenized local URL, then start a new Claude Code session.</text>
+  <text x="60" y="106" fill="#94a3b8" font-family="Inter, Arial, sans-serif" font-size="18">Copy setup, let your agent load the hosted skill, then connect the tokenized local MCP URL.</text>
   <g fill="#111827" stroke="#334155" stroke-width="2">
     <rect x="60" y="155" width="280" height="150" rx="14"/>
     <rect x="410" y="155" width="280" height="150" rx="14"/>
     <rect x="760" y="155" width="280" height="150" rx="14"/>
   </g>
   <g font-family="Inter, Arial, sans-serif">
-    <text x="90" y="205" fill="#38bdf8" font-size="20" font-weight="700">1. Install harness</text>
-    <text x="90" y="242" fill="#cbd5e1" font-size="16">Copy the bundled Claude</text>
-    <text x="90" y="266" fill="#cbd5e1" font-size="16">skill into ~/.claude/skills.</text>
-    <text x="440" y="205" fill="#38bdf8" font-size="20" font-weight="700">2. Add MCP URL</text>
-    <text x="440" y="242" fill="#cbd5e1" font-size="16">Use the tokenized URL from</text>
-    <text x="440" y="266" fill="#cbd5e1" font-size="16">~/.repotrail/ports.json.</text>
+    <text x="90" y="205" fill="#38bdf8" font-size="20" font-weight="700">1. Copy setup</text>
+    <text x="90" y="242" fill="#cbd5e1" font-size="16">The sidebar gives your agent</text>
+    <text x="90" y="266" fill="#cbd5e1" font-size="16">bootstrap and skill URLs.</text>
+    <text x="440" y="205" fill="#38bdf8" font-size="20" font-weight="700">2. Load skill</text>
+    <text x="440" y="242" fill="#cbd5e1" font-size="16">The agent installs or applies</text>
+    <text x="440" y="266" fill="#cbd5e1" font-size="16">repo-trail instructions itself.</text>
     <text x="790" y="205" fill="#38bdf8" font-size="20" font-weight="700">3. Ask for a tour</text>
-    <text x="790" y="242" fill="#cbd5e1" font-size="16">The harness emits every stop</text>
+    <text x="790" y="242" fill="#cbd5e1" font-size="16">The agent emits every stop</text>
     <text x="790" y="266" fill="#cbd5e1" font-size="16">and lands VS Code on step 1.</text>
   </g>
   <path d="M350 230 H392" stroke="#22c55e" stroke-width="6" stroke-linecap="round"/>

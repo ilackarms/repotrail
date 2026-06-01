@@ -17,7 +17,6 @@
   "keywords": [
     "ai",
     "mcp",
-    "claude",
     "code tour",
     "walkthrough",
     "onboarding"
@@ -46,10 +45,6 @@
       {
         "command": "repoTrail.copyAgentSetup",
         "title": "RepoTrail: Copy Agent Setup"
-      },
-      {
-        "command": "repoTrail.installSkillForClaude",
-        "title": "RepoTrail: Install repo-trail Skill for Claude Code"
       },
       {
         "command": "repoTrail.exportTour",

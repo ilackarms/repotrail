@@ -12,5 +12,5 @@ When reporting MCP setup issues, include:
 - Whether the agent can fetch the `/bootstrap` and `/skill.md` URLs from
   **Connect agent** / **RepoTrail: Copy Agent Setup**.
 - The agent or harness name and version.
-- For Claude Code, the output of `claude mcp list`.
+- The MCP client registration or connection status from your agent.
 - The exact error shown by your agent or the RepoTrail output channel.

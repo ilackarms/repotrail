@@ -6,8 +6,8 @@ server; any local agent that can fetch the skill and call MCP can create and
 refine tours.
 
 The single skill source lives in `harness/repo-trail/SKILL.md` and is served at
-`/skill.md?token=<token>`. The extension can also install that same skill into
-Claude Code with **RepoTrail: Install repo-trail Skill for Claude Code**.
+`/skill.md?token=<token>`. The agent or harness owns installation: fetch that
+URL and install or apply the instructions using its own skill mechanism.
 
 ## Connection
 

@@ -2,6 +2,7 @@ node_modules/
 out/
 *.vsix
 docs/knowledge-pack/
+.playwright-mcp/
 .vscode-test/
 .DS_Store
 .env

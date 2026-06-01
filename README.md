@@ -49,24 +49,11 @@ Give me a RepoTrail tour of this repository.
 
 ![RepoTrail MCP setup](media/mcp-setup.png)
 
-## Optional Claude Code Install
-
-Claude Code can use the hosted skill, or you can install the same `repo-trail`
-skill locally so new Claude Code sessions know the RepoTrail workflow:
-
-```text
-RepoTrail: Install repo-trail Skill for Claude Code
-```
-
-That installs the skill to `~/.claude/skills/repo-trail/`. You still use
-**Connect agent** or **RepoTrail: Copy Agent Setup** for each VS Code workspace,
-because the setup prompt carries the live local MCP URLs for that window.
-
 ## Use Any MCP-Capable Agent
 
-Claude Code is optional, not a protocol requirement. RepoTrail supports any
-local agent or harness that can fetch the hosted skill and call a Streamable
-HTTP MCP server with either:
+RepoTrail has no vendor-specific adapter. It supports any local agent or harness
+that can fetch the hosted `repo-trail` skill and call a Streamable HTTP MCP
+server with either:
 
 - the tokenized URL copied by **RepoTrail: Copy Agent Setup**, or
 - the same `/mcp` URL without `?token=...` plus `Authorization: Bearer <token>`.
@@ -74,8 +61,12 @@ HTTP MCP server with either:
 Streamable HTTP requests should advertise `Accept: application/json,
 text/event-stream`.
 
-For non-Claude clients, click **Connect agent** in the sidebar or run
-**RepoTrail: Copy Agent Setup**. The agent should:
+The agent owns skill installation. After reading `/bootstrap?token=...`, it
+should fetch `/skill.md?token=...` and install or apply those instructions using
+its own skill mechanism. Examples include Claude Code, Codex, custom local
+harnesses, or any other client that can load instructions and call MCP.
+
+Once it has loaded the skill, the agent should:
 
 1. Call `get_workspace` and verify `workspaceRoot` matches the current repo.
 2. Call `start_tour`.
@@ -117,8 +108,6 @@ See [PRIVACY.md](PRIVACY.md) for the longer policy.
 - `RepoTrail: Copy Tour Prompt` - copy a tour request for your connected agent.
 - `RepoTrail: Copy Agent Setup` - copy a prompt that tells any agent where to
   fetch the hosted RepoTrail skill and how to connect MCP.
-- `RepoTrail: Install repo-trail Skill for Claude Code` - install the same
-  `repo-trail` skill to `~/.claude/skills/repo-trail/`.
 - `RepoTrail: Copy Tour From Here Prompt` - copy a prompt scoped to the active
   file or selection.
 - `RepoTrail: Export Tour` / `RepoTrail: Import Tour`.
@@ -139,8 +128,8 @@ locally with `pnpm install-local`.
 
 ## Limitations
 
-- MCP clients must support Streamable HTTP. Claude Code must start a new session
-  after MCP registration so it can load the `mcp__repotrail__*` tools.
+- MCP clients must support Streamable HTTP. Some clients need a new session
+  after MCP registration so they can load the `mcp__repotrail__*` tools.
 - RepoTrail is read-only. It navigates and explains code; it does not refactor
   files.
 - Open VSX publishing is not part of the first launch.

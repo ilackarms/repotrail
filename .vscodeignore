@@ -3,6 +3,7 @@
 .idea/**
 .claude/**
 .omx/**
+.playwright-mcp/**
 docs/knowledge-pack/**
 media/sidebar.svg
 media/mcp-setup.svg

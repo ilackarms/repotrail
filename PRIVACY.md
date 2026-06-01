@@ -18,9 +18,8 @@ agent skill at `/skill.md`; both endpoints require the same local auth token.
 
 RepoTrail itself does not send your source code to a hosted model. Tour
 generation is performed by your external harness. What that harness reads or
-sends depends on the tools and model configuration of the agent you connect.
-The Claude Code install command copies the same bundled `repo-trail` skill used
-by other MCP-capable agents.
+sends depends on the tools, model configuration, and skill-install behavior of
+the agent you connect.
 
 ## Text-To-Speech Providers
 
