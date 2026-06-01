@@ -112,11 +112,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         "(Or ask for: a PR/diff walkthrough, a file walkthrough, a request-lifecycle trace, or a bug-investigation tour.)";
       await vscode.env.clipboard.writeText(prompt);
       await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
-      const pick = await vscode.window.showInformationMessage(
-        "Tour prompt copied. Paste it into any MCP-capable agent connected to RepoTrail.",
-        "Show agent setup",
+      vscode.window.showInformationMessage(
+        "Tour prompt copied. Paste it into your connected agent. Use Connect agent in the RepoTrail panel first if needed.",
       );
-      if (pick === "Show agent setup") showMcpInfo(context);
     }),
     vscode.commands.registerCommand("repoTrail.exportTour", () => exportActiveTour(controller, log)),
     vscode.commands.registerCommand("repoTrail.importTour", () => importTour(controller, log)),
@@ -148,7 +146,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("repoTrail.stop", () => controller.stop()),
     vscode.commands.registerCommand("repoTrail.copyAgentBootstrap", () => copyAgentBootstrap()),
     vscode.commands.registerCommand("repoTrail.installClaudeSkill", () => installClaudeSkill(context)),
-    vscode.commands.registerCommand("repoTrail.showMcpInfo", () => showMcpInfo(context)),
+    vscode.commands.registerCommand("repoTrail.showMcpInfo", () => showMcpInfo()),
     vscode.commands.registerCommand("repoTrail.openNarration", () => {
       vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
     }),
@@ -314,7 +312,7 @@ function updateStatus(state: "listening" | "disabled" | "error", port?: number):
   if (!statusItem) return;
   if (state === "listening" && port) {
     statusItem.text = `$(map) Trail :${port}`;
-    statusItem.tooltip = "RepoTrail MCP is listening on 127.0.0.1. Click for the tokenized connection URL.";
+    statusItem.tooltip = "RepoTrail MCP is listening on 127.0.0.1. Click to copy the agent setup prompt.";
   } else if (state === "disabled") {
     statusItem.text = "$(map) Trail off";
     statusItem.tooltip = "RepoTrail MCP server is disabled (repoTrail.mcpEnabled = false).";
@@ -532,76 +530,17 @@ async function tourFromHere(): Promise<void> {
   vscode.window.setStatusBarMessage("RepoTrail: 'tour from here' prompt copied for your agent.", 3000);
 }
 
-function showMcpInfo(context: vscode.ExtensionContext): void {
+function showMcpInfo(): void {
+  void copyAgentBootstrap();
+}
+
+async function copyAgentBootstrap(): Promise<void> {
   const cfg = vscode.workspace.getConfiguration("repoTrail");
   const enabled = cfg.get<boolean>("mcpEnabled", true);
   if (!enabled) {
     vscode.window.showInformationMessage("RepoTrail MCP server is disabled. Enable in settings.");
     return;
   }
-  const server = mcp;
-  const url = server?.connectionUrl;
-  if (!url) {
-    vscode.window.showInformationMessage("RepoTrail MCP server is not running yet.");
-    return;
-  }
-  const skillUrl = server.skillUrl;
-  const bootstrapUrl = server.bootstrapUrl;
-  const parsedUrl = new URL(url);
-  const token = parsedUrl.searchParams.get("token") ?? "";
-  const bearerUrl = `${parsedUrl.origin}${parsedUrl.pathname}`;
-  const genericConfig = JSON.stringify(
-    {
-      name: "repotrail",
-      transport: "streamable-http",
-      url,
-      skillUrl,
-      bootstrapUrl,
-      alternateAuth: {
-        url: bearerUrl,
-        headers: {
-          Accept: "application/json, text/event-stream",
-          Authorization: `Bearer ${token}`,
-        },
-      },
-      notes: [
-        "Fetch skillUrl and install or use it as your RepoTrail harness instructions.",
-        "Use the tokenized url, or use alternateAuth if your MCP client supports headers.",
-        "Streamable HTTP requests should advertise Accept: application/json, text/event-stream.",
-        "Call get_workspace first and verify workspaceRoot before emitting a tour.",
-        "Emit the full route up front with start_tour, add_step, and show_step({ index: 0 }).",
-      ],
-    },
-    null,
-    2,
-  );
-  const userScopeCmd = `claude mcp add --scope user --transport http repotrail ${shellQuote(url)}`;
-  vscode.window
-    .showInformationMessage(
-      "RepoTrail MCP is ready. Copy an agent bootstrap prompt, or install the optional Claude Code adapter.",
-      "Copy agent bootstrap",
-      "Install Claude skill",
-      "Copy generic config",
-      "Copy Claude MCP add",
-    )
-    .then(async (pick) => {
-      if (pick === "Copy agent bootstrap") {
-        await copyAgentBootstrap();
-      } else if (pick === "Install Claude skill") {
-        await installClaudeSkill(context);
-      } else if (pick === "Copy generic config") {
-        vscode.env.clipboard.writeText(genericConfig);
-        vscode.window.showInformationMessage("Copied generic MCP connection config.");
-      } else if (pick === "Copy Claude MCP add") {
-        vscode.env.clipboard.writeText(userScopeCmd);
-        vscode.window.showInformationMessage(
-          "Copied. Run once in any terminal, then start a new Claude Code session.",
-        );
-      }
-    });
-}
-
-async function copyAgentBootstrap(): Promise<void> {
   if (!mcp?.connectionUrl) {
     vscode.window.showInformationMessage("RepoTrail MCP server is not running yet.");
     return;
@@ -614,7 +553,7 @@ async function copyAgentBootstrap(): Promise<void> {
     "4. Call get_workspace and verify workspaceRoot matches this repository before emitting a tour.\n" +
     "5. Generate the complete tour up front with start_tour, add_step, and show_step({ index: 0 }).";
   await vscode.env.clipboard.writeText(prompt);
-  vscode.window.showInformationMessage("Copied RepoTrail agent bootstrap prompt.");
+  vscode.window.showInformationMessage("Copied RepoTrail agent setup. Paste it into your agent.");
 }
 
 async function installClaudeSkill(context: vscode.ExtensionContext): Promise<void> {
@@ -626,17 +565,13 @@ async function installClaudeSkill(context: vscode.ExtensionContext): Promise<voi
     await fs.cp(sourceDir, targetDir, { recursive: true });
     vscode.window.showInformationMessage(
       "RepoTrail Claude Code skill installed. Add the MCP server if needed, then start a new Claude Code session.",
-      "Show MCP setup",
+      "Copy agent setup",
     ).then((pick) => {
-      if (pick === "Show MCP setup") showMcpInfo(context);
+      if (pick === "Copy agent setup") showMcpInfo();
     });
   } catch (err) {
     vscode.window.showErrorMessage(
       `RepoTrail: failed to install Claude Code skill: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`;
 }

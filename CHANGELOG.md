@@ -6,7 +6,8 @@
 - Made external MCP agents the supported tour-generation path.
 - Served the generic RepoTrail skill and bootstrap metadata from the local
   token-authenticated HTTP server.
-- Added a VS Code command to install the bundled Claude Code skill.
+- Added a direct **Connect agent** sidebar button and simplified setup command.
+- Added a VS Code command to install the optional Claude Code adapter.
 - Added token-authenticated local MCP URLs under `~/.repotrail/ports.json`.
 - Rejected unauthenticated MCP calls and workspace-escaping tour step files.
 - Added generic harness guidance under `harness/README.md` and Claude Code

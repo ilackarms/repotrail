@@ -45,15 +45,11 @@
       },
       {
         "command": "repoTrail.showMcpInfo",
-        "title": "RepoTrail: Show MCP Setup"
-      },
-      {
-        "command": "repoTrail.copyAgentBootstrap",
-        "title": "RepoTrail: Copy Agent Bootstrap"
+        "title": "RepoTrail: Copy Agent Setup"
       },
       {
         "command": "repoTrail.installClaudeSkill",
-        "title": "RepoTrail: Install Claude Code Skill"
+        "title": "RepoTrail: Install Claude Code Adapter"
       },
       {
         "command": "repoTrail.exportTour",

@@ -10,7 +10,7 @@ When reporting MCP setup issues, include:
 - RepoTrail version.
 - Whether `~/.repotrail/ports.json` contains an entry for the active workspace.
 - Whether the agent can fetch the `/bootstrap` and `/skill.md` URLs from
-  **RepoTrail: Show MCP Setup**.
+  **Connect agent** / **RepoTrail: Copy Agent Setup**.
 - The agent or harness name and version.
 - For Claude Code, the output of `claude mcp list`.
 - The exact error shown by your agent or the RepoTrail output channel.

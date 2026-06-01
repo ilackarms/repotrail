@@ -26,14 +26,16 @@ code to a hosted service by itself.
 
 ## Bootstrap Any Agent
 
-After installing the extension, open the target workspace in VS Code and run:
+After installing the extension, open the target workspace in VS Code, open the
+RepoTrail sidebar, and click **Connect agent**.
+
+You can also run this command:
 
 ```text
-RepoTrail: Show MCP Setup
+RepoTrail: Copy Agent Setup
 ```
 
-Choose **Copy agent bootstrap** and paste it into your agent. The bootstrap
-prompt tells the agent to fetch:
+Paste the copied setup prompt into your agent. It tells the agent to fetch:
 
 - the machine-readable setup metadata from `/bootstrap?token=...`;
 - the generic RepoTrail skill from `/skill.md?token=...`;
@@ -53,12 +55,12 @@ Claude Code can use the hosted generic skill, or you can install the bundled
 adapter locally:
 
 ```text
-RepoTrail: Install Claude Code Skill
+RepoTrail: Install Claude Code Adapter
 ```
 
 That installs the Claude adapter to `~/.claude/skills/repotrail/`. Then run
-**RepoTrail: Show MCP Setup**, copy the `claude mcp add --scope user
---transport http repotrail ...` command, and start a new Claude Code session.
+**RepoTrail: Copy Agent Setup** and paste the setup prompt into a new Claude
+Code session.
 
 ## Use Any MCP-Capable Agent
 
@@ -66,14 +68,14 @@ Claude Code is the bundled convenience adapter, not a protocol requirement.
 RepoTrail supports any local agent or harness that can fetch the hosted skill
 and call a Streamable HTTP MCP server with either:
 
-- the tokenized URL copied by **RepoTrail: Show MCP Setup**, or
+- the tokenized URL copied by **RepoTrail: Copy Agent Setup**, or
 - the same `/mcp` URL without `?token=...` plus `Authorization: Bearer <token>`.
 
 Streamable HTTP requests should advertise `Accept: application/json,
 text/event-stream`.
 
-For non-Claude clients, copy **Agent bootstrap** or **Generic MCP config** from
-**RepoTrail: Show MCP Setup**. The agent should:
+For non-Claude clients, click **Connect agent** in the sidebar or run
+**RepoTrail: Copy Agent Setup**. The agent should:
 
 1. Call `get_workspace` and verify `workspaceRoot` matches the current repo.
 2. Call `start_tour`.
@@ -119,12 +121,10 @@ See [PRIVACY.md](PRIVACY.md) for the longer policy.
 ## Commands
 
 - `RepoTrail: Start Tour` - copy a prompt for your connected agent.
-- `RepoTrail: Copy Agent Bootstrap` - copy a prompt that tells any agent where
-  to fetch the hosted RepoTrail skill and how to connect MCP.
-- `RepoTrail: Install Claude Code Skill` - install the bundled Claude Code
-  skill to `~/.claude/skills/repotrail/`.
-- `RepoTrail: Show MCP Setup` - copy an agent bootstrap prompt, generic MCP
-  config, or Claude MCP add command.
+- `RepoTrail: Copy Agent Setup` - copy a prompt that tells any agent where to
+  fetch the hosted RepoTrail skill and how to connect MCP.
+- `RepoTrail: Install Claude Code Adapter` - install the optional Claude Code
+  adapter to `~/.claude/skills/repotrail/`.
 - `RepoTrail: Tour From Here` - copy a prompt scoped to the active file or
   selection.
 - `RepoTrail: Export Tour` / `RepoTrail: Import Tour`.

@@ -8,13 +8,13 @@ refine tours.
 The generic skill source lives in `harness/repotrail/SKILL.md` and is served at
 `/skill.md?token=<token>`. Claude Code support is bundled as a convenience
 adapter in `harness/claude/repotrail/`, and the extension can install that
-adapter with **RepoTrail: Install Claude Code Skill**.
+adapter with **RepoTrail: Install Claude Code Adapter**.
 
 ## Connection
 
-Open the target workspace in VS Code and run **RepoTrail: Show MCP Setup**.
-Copy **Agent bootstrap** and paste it into your agent. The bootstrap prompt
-points the agent at:
+Open the target workspace in VS Code and click **Connect agent** in the
+RepoTrail sidebar, or run **RepoTrail: Copy Agent Setup**. Paste the copied
+setup prompt into your agent. The prompt points the agent at:
 
 - `/bootstrap?token=<token>` for machine-readable setup metadata;
 - `/skill.md?token=<token>` for the generic RepoTrail skill;

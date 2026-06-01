@@ -36,7 +36,7 @@ If missing or unhealthy:
    includes the required local auth token.
 2. If the file is empty or missing, the extension is not running in that VS Code
    workspace. Ask the user to open the workspace in VS Code and run
-   **RepoTrail: Show MCP Setup**.
+   **RepoTrail: Copy Agent Setup**.
 3. Register globally:
    ```bash
    claude mcp add --scope user --transport http repotrail '<URL_FROM_PORTS_JSON>'
