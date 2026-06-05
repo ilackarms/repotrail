@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { DriftStatus, TourPlan, TourStep } from "../engine/types";
 import { newTourId, TourRecord } from "../storage/tourStore";
 import { currentWorkspaceStorageRoot } from "../workspace";
-import { checkStepDrift, clearHighlights, executeStep } from "./editorActions";
+import { checkStepDrift, clearHighlights, executeStep, resetTourEditorLayout } from "./editorActions";
 
 /**
  * What produced the most recent onDidChange. Lets the UX distinguish an agent
@@ -84,6 +84,7 @@ export class TourController {
     this.lastMutationKind = "start";
     this.driftByIndex.clear();
     this.seen = new Set();
+    resetTourEditorLayout();
     this.setActiveContext(true);
     clearHighlights();
     this.persist();
@@ -103,6 +104,7 @@ export class TourController {
     this.lastMutationKind = "start";
     this.driftByIndex.clear();
     this.seen = new Set();
+    resetTourEditorLayout();
     this.setActiveContext(true);
     await this.applyCurrent();
     this.persist();
@@ -120,6 +122,7 @@ export class TourController {
     this.lastMutationKind = "start";
     this.driftByIndex.clear();
     this.seen = new Set(record.seen ?? []);
+    resetTourEditorLayout();
     this.setActiveContext(true);
     await this.applyCurrent();
     this.persist(); // bump updatedAt so resume bubbles to top of list
@@ -259,6 +262,7 @@ export class TourController {
     this.lastMutationKind = "stop";
     this.driftByIndex.clear();
     this.seen = new Set();
+    resetTourEditorLayout();
     this.setActiveContext(false);
     clearHighlights();
     this.onChangeEmitter.fire();

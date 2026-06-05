@@ -57,6 +57,14 @@ export function setEditorLogger(channel: vscode.OutputChannel): void {
   logger = channel;
 }
 
+let tourCodeViewColumn: vscode.ViewColumn | undefined;
+let tourDiffViewColumn: vscode.ViewColumn | undefined;
+
+export function resetTourEditorLayout(): void {
+  tourCodeViewColumn = undefined;
+  tourDiffViewColumn = undefined;
+}
+
 export async function executeStep(
   step: TourStep,
   opts?: { allSteps?: TourStep[]; currentIndex?: number },
@@ -106,7 +114,11 @@ export async function executeStep(
 
   const viewMode = effectiveViewMode(step);
   if (viewMode !== "diff") {
-    const editor = await vscode.window.showTextDocument(doc, { preview: false });
+    const editor = await vscode.window.showTextDocument(doc, {
+      preview: true,
+      viewColumn: tourCodeViewColumn ?? vscode.ViewColumn.Active,
+    });
+    tourCodeViewColumn = editor.viewColumn;
     editor.setDecorations(HIGHLIGHT_DECORATION, [{ range }]);
     applyStopMarkers(editor, doc, step, opts);
     editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
@@ -187,10 +199,35 @@ async function showStepDiff(
     afterUri,
     `${formatStepPath(step)}: ${beforeLabel} -> ${afterLabel}`,
     {
-      preview: false,
-      viewColumn: viewMode === "both" ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active,
+      preview: true,
+      viewColumn: diffTargetViewColumn(viewMode),
     },
   );
+  rememberDiffViewColumn(viewMode);
+}
+
+function diffTargetViewColumn(viewMode: TourStepViewMode): vscode.ViewColumn {
+  if (viewMode !== "both") return tourDiffViewColumn ?? vscode.ViewColumn.Active;
+  if (tourDiffViewColumn && tourDiffViewColumn !== tourCodeViewColumn) return tourDiffViewColumn;
+  return vscode.ViewColumn.Beside;
+}
+
+function rememberDiffViewColumn(viewMode: TourStepViewMode): void {
+  const activeColumn = vscode.window.activeTextEditor?.viewColumn;
+  if (activeColumn && activeColumn !== tourCodeViewColumn) {
+    tourDiffViewColumn = activeColumn;
+    return;
+  }
+  if (viewMode === "both") {
+    tourDiffViewColumn = columnBeside(tourCodeViewColumn) ?? tourDiffViewColumn;
+  } else if (activeColumn) {
+    tourDiffViewColumn = activeColumn;
+  }
+}
+
+function columnBeside(column: vscode.ViewColumn | undefined): vscode.ViewColumn | undefined {
+  if (!column || column < vscode.ViewColumn.One || column >= vscode.ViewColumn.Nine) return undefined;
+  return (column + 1) as vscode.ViewColumn;
 }
 
 function ensureDiffProvider(): void {
