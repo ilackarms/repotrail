@@ -124,7 +124,7 @@ export async function executeStep(
     editor.selection = new vscode.Selection(range.start, range.start);
   }
   if (step.diff && viewMode !== "code") {
-    await showStepDiff(step, doc, range, viewMode);
+    await showStepDiff(step, doc, range);
   }
 
   logger?.appendLine(
@@ -174,14 +174,13 @@ export function clearHighlights(): void {
 
 function effectiveViewMode(step: TourStep): TourStepViewMode {
   if (!step.diff) return "code";
-  return step.viewMode ?? "both";
+  return step.viewMode === "code" ? "code" : "diff";
 }
 
 async function showStepDiff(
   step: TourStep,
   doc: vscode.TextDocument,
   range: vscode.Range,
-  viewMode: TourStepViewMode,
 ): Promise<void> {
   if (!step.diff) return;
   ensureDiffProvider();
@@ -199,16 +198,10 @@ async function showStepDiff(
     `${formatStepPath(step)}: ${beforeLabel} -> ${afterLabel}`,
     {
       preview: true,
-      viewColumn: diffTargetViewColumn(viewMode),
+      viewColumn: reusablePrimaryViewColumn() ?? vscode.ViewColumn.Active,
     },
   );
-  if (viewMode === "diff") {
-    tourPrimaryViewColumn = vscode.window.tabGroups.activeTabGroup.viewColumn;
-  }
-}
-
-function diffTargetViewColumn(viewMode: TourStepViewMode): vscode.ViewColumn {
-  return viewMode === "both" ? vscode.ViewColumn.Beside : (reusablePrimaryViewColumn() ?? vscode.ViewColumn.Active);
+  tourPrimaryViewColumn = vscode.window.tabGroups.activeTabGroup.viewColumn;
 }
 
 function reusablePrimaryViewColumn(): vscode.ViewColumn | undefined {

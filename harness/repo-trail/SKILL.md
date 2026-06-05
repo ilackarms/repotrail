@@ -74,9 +74,10 @@ sidebar.
 - Split explanations that say "first, then, then" into separate steps.
 - Keep ranges tight and 1-indexed. If you did not read the file, do not invent
   a range.
-- For PR/diff tours, prefer `viewMode: "both"` with `diff.beforeText` so the
-  user gets the code highlight plus a native VS Code diff. Use `viewMode:
-  "diff"` only when the diff is the whole point of the stop.
+- For PR/diff tours, prefer `viewMode: "diff"` with `diff.beforeText` so the
+  user gets one compact native VS Code diff instead of separate source and diff
+  panes. Use `viewMode: "code"` only when the highlighted source is clearer than
+  the diff.
 - `diff.beforeText` is the previous/base text for the left side. `diff.afterText`
   is optional; omit it when the current selected lines in `file`/`range` are the
   right side. Keep both sides to a focused hunk unless full-file context is

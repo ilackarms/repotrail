@@ -287,7 +287,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     const title = current?.title ?? "No active tour";
     const explanation = current?.explanation ?? "";
     const fileLabel = current ? formatStepPath(current) : "";
-    const currentViewLabel = current?.diff ? viewModeLabel(current.viewMode ?? "both") : "";
+    const currentViewLabel = current?.diff ? viewModeLabel(current.viewMode ?? "diff") : "";
 
     const escape = (s: string) =>
       s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -301,7 +301,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         .map((s, i) => {
           const stepPath = formatStepPath(s);
           const loc = s.range ? `${stepPath}:${s.range.startLine}` : stepPath;
-          const viewLabel = s.diff ? ` · ${viewModeLabel(s.viewMode ?? "both")}` : "";
+          const viewLabel = s.diff ? ` · ${viewModeLabel(s.viewMode ?? "diff")}` : "";
           const drift = snap.drift[i];
           const driftIcon = drift === "missing" ? "⚠" : drift === "relocated" ? "↪" : "";
           const driftTitle =
@@ -965,6 +965,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
 
 function viewModeLabel(mode: string): string {
   if (mode === "diff") return "Diff";
-  if (mode === "both") return "Code + diff";
+  if (mode === "both") return "Diff";
   return "Code";
 }

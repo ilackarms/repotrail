@@ -120,10 +120,11 @@ function normalizeDiff(value: unknown): TourStepDiff | undefined {
 }
 
 function normalizeViewMode(value: unknown, diff: TourStepDiff | undefined): TourStepViewMode | undefined {
-  if (value === "code" || value === "diff" || value === "both") {
+  if (value === "code" || value === "diff") {
     return diff || value === "code" ? value : undefined;
   }
-  return diff ? "both" : undefined;
+  if (value === "both") return diff ? "diff" : undefined;
+  return diff ? "diff" : undefined;
 }
 
 function defaultActions(
@@ -131,7 +132,7 @@ function defaultActions(
   diff: TourStepDiff | undefined,
   viewMode: TourStepViewMode | undefined,
 ): TourAction[] {
-  const mode = diff ? viewMode ?? "both" : "code";
+  const mode = diff ? viewMode ?? "diff" : "code";
   const actions: TourAction[] = [];
   if (mode !== "diff") {
     actions.push("openFile");
@@ -177,7 +178,7 @@ export function planToMarkdown(plan: TourPlan, exportedAt: string): string {
     lines.push(`\`${stepLocation(step)}\``);
     lines.push("");
     if (step.diff) {
-      lines.push(`_Diff view: ${step.viewMode ?? "both"}_`);
+      lines.push(`_Diff view: ${step.viewMode ?? "diff"}_`);
       lines.push("");
     }
     if (step.explanation.trim()) {

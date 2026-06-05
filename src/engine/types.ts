@@ -46,8 +46,9 @@ export interface TourStep {
   file: string;            // workspace-relative path inside workspaceFolder
   range?: TourRange;
   /**
-   * How to present the stop. `both` opens the file highlight and a side-by-side
-   * diff. Steps without `diff` fall back to code view.
+   * How to present the stop. Diff-backed steps default to a compact native diff.
+   * `both` is accepted for old tours but renders as `diff` to avoid crowding the
+   * editor with a separate source pane.
    */
   viewMode?: TourStepViewMode;
   diff?: TourStepDiff;

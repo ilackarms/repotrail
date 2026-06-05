@@ -273,7 +273,7 @@ export class RepoTrailMcpServer {
     const viewModeSchema = z
       .enum(["code", "diff", "both"])
       .optional()
-      .describe("Presentation mode. `both` shows the code highlight plus the diff. Defaults to `both` when diff is present.");
+      .describe("Presentation mode. Defaults to `diff` when diff is present; legacy `both` inputs are rendered compactly as diff-only.");
 
     const diffSchema = z
       .object({
@@ -362,7 +362,7 @@ export class RepoTrailMcpServer {
       diff: TourStepDiff | undefined,
       viewMode: TourStepViewMode | undefined,
     ): TourAction[] {
-      const mode = diff ? viewMode ?? "both" : "code";
+      const mode = diff ? viewMode ?? "diff" : "code";
       const actions: TourAction[] = [];
       if (mode !== "diff") {
         actions.push("openFile");
@@ -391,7 +391,13 @@ export class RepoTrailMcpServer {
             endColumn: input.range.endColumn ?? 1,
           }
         : undefined;
-      const viewMode = input.diff ? input.viewMode ?? "both" : input.viewMode === "code" ? "code" : undefined;
+      const viewMode = input.diff
+        ? input.viewMode === "code"
+          ? "code"
+          : "diff"
+        : input.viewMode === "code"
+          ? "code"
+          : undefined;
       return {
         title: input.title,
         ...target,

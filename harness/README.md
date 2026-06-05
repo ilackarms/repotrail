@@ -64,5 +64,7 @@ containing `..` are rejected.
 
 For PR/diff walkthroughs, steps may include `viewMode: "code" | "diff" |
 "both"` and `diff: { beforeText, afterText?, beforeLabel?, afterLabel?,
-languageId? }`. `afterText` can be omitted when the current selected lines are
-the right side of the diff.
+languageId? }`. Diff-backed steps default to `viewMode: "diff"`; legacy `both`
+inputs render compactly as diff-only so tours do not open separate source and
+diff panes. `afterText` can be omitted when the current selected lines are the
+right side of the diff.
