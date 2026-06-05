@@ -548,6 +548,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const HAS_TOUR = ${plan ? "true" : "false"};
+    const CAN_TTS = ${ttsProvider === "off" ? "false" : "true"};
     const IS_LAST = ${plan ? (index >= total - 1 ? "true" : "false") : "true"};
     const send = (msg) => vscode.postMessage(msg);
     const readState = () => {
@@ -895,10 +896,9 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     }
 
     // ---- Continuous "Play the tour" mode -----------------------------------
-    // Narration already auto-plays on each step change (the host speaks the new
-    // step). Play mode adds auto-advance: when a stop finishes reading, move to
-    // the next one. The flag is persisted so it survives the webview reload that
-    // every navigation triggers, keeping the chain going across stops.
+    // Ordinary navigation never starts narration. Play mode is the explicit
+    // button-driven exception: once a stop finishes reading, move to the next
+    // one and ask the host to read it after the webview rerenders.
     function updatePlayBtn() {
       if (!playBtn) return;
       playBtn.textContent = playMode ? "⏹ Stop play" : "▶ Play";
@@ -915,7 +915,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     function naturalEnd() {
       if (!playMode) return;
       if (IS_LAST) { setPlayMode(false); return; }
-      send({ type: "next" }); // host advances + auto-speaks the next stop
+      send({ type: "next" }); // rerender resumes playback because playMode is set
     }
     playBtn?.addEventListener("click", () => {
       if (!playMode) {
@@ -930,9 +930,19 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     });
     // Restore play flag across the reload; clear it once the tour ends.
     (function initPlay() {
-      if (!HAS_TOUR) { if (readState().playMode) writeState({ playMode: false }); playMode = false; }
-      else { playMode = !!readState().playMode; }
+      if (!HAS_TOUR || !CAN_TTS) {
+        if (readState().playMode) writeState({ playMode: false });
+        playMode = false;
+      } else {
+        playMode = !!readState().playMode;
+      }
       updatePlayBtn();
+      if (playMode && state === "idle") {
+        setState("preparing");
+        window.setTimeout(() => {
+          if (playMode && state === "preparing") send({ type: "speakCurrent" });
+        }, 0);
+      }
     })();
 
     window.addEventListener("message", (e) => {

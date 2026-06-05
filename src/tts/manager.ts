@@ -30,14 +30,15 @@ export type TtsWebviewMsg =
  * Narration text is run through humanizeForSpeech() first so identifiers, paths,
  * and operators are spoken naturally regardless of backend.
  *
- * Subscribes to controller.onDidChange and speaks the active step on every
- * change. Stale subscriptions are cleaned up via dispose().
+ * Subscribes to controller.onDidChange only to cancel stale work when the user
+ * moves to another step or ends the tour. Speech starts from speakCurrent().
  */
 export class TtsManager implements vscode.Disposable {
   private subscription: vscode.Disposable | null = null;
   private currentChild: childProcess.ChildProcess | null = null;
   private webviewSink: ((msg: TtsWebviewMsg) => void) | null = null;
-  private lastSpokenIndex = -1;
+  private observedTourId: string | null = null;
+  private observedIndex = -1;
   private fetchAbort: AbortController | null = null;
   private requestSeq = 0;
   private warnedMissing = new Set<string>();
@@ -93,15 +94,19 @@ export class TtsManager implements vscode.Disposable {
   private onChange(): void {
     const provider = currentProvider();
     const snap = this.controller.snapshot();
+    const tourId = this.controller.activeTourId;
+    const index = snap.current ? snap.index : -1;
     if (provider === "off" || !snap.current) {
       this.cancel();
-      this.lastSpokenIndex = -1;
+      this.observedTourId = tourId;
+      this.observedIndex = index;
       return;
     }
-    // Avoid re-speaking on no-op redraws (back/next-without-change).
-    if (snap.index === this.lastSpokenIndex) return;
-    this.lastSpokenIndex = snap.index;
-    this.dispatch(humanizeForSpeech(`${snap.current.title}. ${snap.current.explanation}`));
+    if (tourId !== this.observedTourId || index !== this.observedIndex) {
+      this.cancelHostWork();
+      this.observedTourId = tourId;
+      this.observedIndex = index;
+    }
   }
 
   private dispatch(text: string): void {
@@ -258,7 +263,7 @@ export class TtsManager implements vscode.Disposable {
   /** A hosted request failed: log it, reset the webview button out of its
    *  "Loading voice…" state, and show an actionable warning. Throttled by time
    *  (not a permanent dedup) so a deliberate Speak click always surfaces the
-   *  error, while rapid auto-narration stepping doesn't spam toasts. */
+   *  error, while repeated failures don't spam toasts. */
   private failHosted(label: string, detail: string, settingId: string): void {
     this.log.appendLine(`[tts] ${label} failed: ${detail}`);
     this.webviewSink?.({ type: "tts.cancel" });
