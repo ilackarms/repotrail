@@ -57,12 +57,10 @@ export function setEditorLogger(channel: vscode.OutputChannel): void {
   logger = channel;
 }
 
-let tourCodeViewColumn: vscode.ViewColumn | undefined;
-let tourDiffViewColumn: vscode.ViewColumn | undefined;
+let tourPrimaryViewColumn: vscode.ViewColumn | undefined;
 
 export function resetTourEditorLayout(): void {
-  tourCodeViewColumn = undefined;
-  tourDiffViewColumn = undefined;
+  tourPrimaryViewColumn = undefined;
 }
 
 export async function executeStep(
@@ -113,12 +111,13 @@ export async function executeStep(
   }
 
   const viewMode = effectiveViewMode(step);
+  await closeRepoTrailDiffTabs();
   if (viewMode !== "diff") {
     const editor = await vscode.window.showTextDocument(doc, {
       preview: true,
-      viewColumn: tourCodeViewColumn ?? vscode.ViewColumn.Active,
+      viewColumn: reusablePrimaryViewColumn() ?? vscode.ViewColumn.Active,
     });
-    tourCodeViewColumn = editor.viewColumn;
+    tourPrimaryViewColumn = editor.viewColumn;
     editor.setDecorations(HIGHLIGHT_DECORATION, [{ range }]);
     applyStopMarkers(editor, doc, step, opts);
     editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
@@ -203,31 +202,34 @@ async function showStepDiff(
       viewColumn: diffTargetViewColumn(viewMode),
     },
   );
-  rememberDiffViewColumn(viewMode);
+  if (viewMode === "diff") {
+    tourPrimaryViewColumn = vscode.window.tabGroups.activeTabGroup.viewColumn;
+  }
 }
 
 function diffTargetViewColumn(viewMode: TourStepViewMode): vscode.ViewColumn {
-  if (viewMode !== "both") return tourDiffViewColumn ?? vscode.ViewColumn.Active;
-  if (tourDiffViewColumn && tourDiffViewColumn !== tourCodeViewColumn) return tourDiffViewColumn;
-  return vscode.ViewColumn.Beside;
+  return viewMode === "both" ? vscode.ViewColumn.Beside : (reusablePrimaryViewColumn() ?? vscode.ViewColumn.Active);
 }
 
-function rememberDiffViewColumn(viewMode: TourStepViewMode): void {
-  const activeColumn = vscode.window.activeTextEditor?.viewColumn;
-  if (activeColumn && activeColumn !== tourCodeViewColumn) {
-    tourDiffViewColumn = activeColumn;
-    return;
-  }
-  if (viewMode === "both") {
-    tourDiffViewColumn = columnBeside(tourCodeViewColumn) ?? tourDiffViewColumn;
-  } else if (activeColumn) {
-    tourDiffViewColumn = activeColumn;
+function reusablePrimaryViewColumn(): vscode.ViewColumn | undefined {
+  if (!tourPrimaryViewColumn) return undefined;
+  return vscode.window.tabGroups.all.some((group) => group.viewColumn === tourPrimaryViewColumn)
+    ? tourPrimaryViewColumn
+    : undefined;
+}
+
+async function closeRepoTrailDiffTabs(): Promise<void> {
+  const tabs = vscode.window.tabGroups.all.flatMap((group) => group.tabs).filter(isRepoTrailDiffTab);
+  if (tabs.length === 0) return;
+  const closed = await vscode.window.tabGroups.close(tabs, false);
+  if (!closed) {
+    logger?.appendLine("[editor] stale RepoTrail diff tabs could not be closed before navigation");
   }
 }
 
-function columnBeside(column: vscode.ViewColumn | undefined): vscode.ViewColumn | undefined {
-  if (!column || column < vscode.ViewColumn.One || column >= vscode.ViewColumn.Nine) return undefined;
-  return (column + 1) as vscode.ViewColumn;
+function isRepoTrailDiffTab(tab: vscode.Tab): boolean {
+  if (!(tab.input instanceof vscode.TabInputTextDiff)) return false;
+  return tab.input.original.scheme === DIFF_SCHEME || tab.input.modified.scheme === DIFF_SCHEME;
 }
 
 function ensureDiffProvider(): void {
