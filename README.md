@@ -68,9 +68,11 @@ harnesses, or any other client that can load instructions and call MCP.
 
 Once it has loaded the skill, the agent should:
 
-1. Call `get_workspace` and verify `workspaceRoot` matches the current repo.
+1. Call `get_workspace` and verify the target repo appears in
+   `workspaceFolders`.
 2. Call `start_tour`.
-3. Add all steps up front with `add_step`.
+3. Add all steps up front with `add_step`, setting `workspaceFolder` when a
+   step targets a non-default workspace folder.
 4. Call `show_step({ "index": 0 })`.
 
 The full generic tool contract is documented in [harness/README.md](harness/README.md)
@@ -80,7 +82,11 @@ and served by the extension at `/skill.md?token=...`.
 
 - Full-route tours for architecture, PR/diff walkthroughs, file walkthroughs,
   request lifecycle traces, and bug investigation paths.
+- Cross-repo tours in multi-root VS Code windows via per-step
+  `workspaceFolder` addressing.
 - Tight highlighted ranges with auto-captured anchors that detect code drift.
+- Native diff steps for PR/change tours, with code-only, diff-only, or combined
+  code highlight plus diff views.
 - Sidebar route list with seen-state dimming and current-step narration.
 - CodeLens controls above highlighted stops.
 - Keyboard navigation with `Alt+Left`, `Alt+Right`, and `Alt+P`.
@@ -96,7 +102,8 @@ and served by the extension at `/skill.md?token=...`.
 - `/mcp` requires an unguessable local auth token. RepoTrail writes the live
   tokenized URL to `~/.repotrail/ports.json` and copies that URL in setup
   commands.
-- MCP step files must be workspace-relative and cannot escape the workspace.
+- MCP step files must be workspace-relative and cannot escape their selected
+  workspace folder.
 - Hosted TTS providers are opt-in and require your own API key. Audio requests
   are made by the extension host, not the webview.
 - RepoTrail itself does not collect telemetry.

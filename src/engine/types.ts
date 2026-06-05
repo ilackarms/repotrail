@@ -14,16 +14,43 @@ export interface TourRange {
   endColumn: number;
 }
 
+export type TourStepViewMode = "code" | "diff" | "both";
+
+export interface TourStepDiff {
+  /** Previous/base text for the diff editor's left side. */
+  beforeText: string;
+  /**
+   * Changed/current text for the diff editor's right side. If omitted, RepoTrail
+   * uses the step's current selected lines from `file`.
+   */
+  afterText?: string;
+  beforeLabel?: string;
+  afterLabel?: string;
+  languageId?: string;
+}
+
 export type TourAction =
   | "openFile"
   | "highlightRange"
   | "revealSymbol"
+  | "showDiff"
   | "showNarration";
 
 export interface TourStep {
   title: string;
-  file: string;            // workspace-relative path
+  /**
+   * Optional VS Code workspace folder identity from get_workspace. Omit for
+   * single-root tours or to target the first workspace folder.
+   */
+  workspaceFolder?: string;
+  file: string;            // workspace-relative path inside workspaceFolder
   range?: TourRange;
+  /**
+   * How to present the stop. `both` opens the file highlight and a side-by-side
+   * diff. Steps without `diff` fall back to code view.
+   */
+  viewMode?: TourStepViewMode;
+  diff?: TourStepDiff;
   symbol?: string;         // optional symbol name for revealSymbol
   explanation: string;     // markdown
   actions: TourAction[];
@@ -50,4 +77,8 @@ export interface TourPlan {
   title: string;
   summary: string;
   steps: TourStep[];
+}
+
+export function formatStepPath(step: Pick<TourStep, "file" | "workspaceFolder">): string {
+  return step.workspaceFolder ? `${step.workspaceFolder}/${step.file}` : step.file;
 }

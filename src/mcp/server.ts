@@ -9,7 +9,15 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import { TourController } from "../ux/tourController";
 import { gatherRepoContext } from "../analysis/repoContext";
-import { TourKind, TourPlan } from "../engine/types";
+import { TourAction, TourKind, TourPlan, TourStep, TourStepDiff, TourStepViewMode } from "../engine/types";
+import {
+  currentWorkspaceRegistryKeys,
+  currentWorkspaceStorageRoot,
+  firstWorkspaceRoot,
+  normalizeTourStepTarget,
+  workspaceFolderInfos,
+  workspaceWindowRegistryKey,
+} from "../workspace";
 
 const PORT_REGISTRY_DIR = path.join(os.homedir(), ".repotrail");
 const PORT_REGISTRY_FILE = path.join(PORT_REGISTRY_DIR, "ports.json");
@@ -201,17 +209,26 @@ export class RepoTrailMcpServer {
       {
         title: "Get workspace info",
         description:
-          "Returns the absolute path of the current VS Code workspace root and a list of workspace-relative files (first 500).",
+          "Returns the current VS Code window's workspace folders and bounded workspace-relative file lists.",
         inputSchema: {},
       },
       async () => {
-        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "";
+        const root = firstWorkspaceRoot() ?? "";
         const ctx = await gatherRepoContext();
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify({ workspaceRoot: root, files: ctx?.files ?? [] }, null, 2),
+              text: JSON.stringify(
+                ctx ?? {
+                  workspaceRoot: root,
+                  files: [],
+                  supportsMultiRoot: true,
+                  workspaceFolders: workspaceFolderInfos().map((f) => ({ ...f, files: [] })),
+                },
+                null,
+                2,
+              ),
             },
           ],
         };
@@ -223,7 +240,7 @@ export class RepoTrailMcpServer {
       {
         title: "Start a new tour",
         description:
-          "Initialize an empty tour. Subsequent add_step calls append steps that the editor opens and highlights.",
+          "Initialize an empty tour. Subsequent add_step calls append steps that the editor opens, highlights, and can show as diffs.",
         inputSchema: {
           kind: z
             .enum([
@@ -239,14 +256,13 @@ export class RepoTrailMcpServer {
         },
       },
       async ({ kind, title, summary }) => {
-        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         const plan: TourPlan = {
           kind: kind as TourKind,
           title,
           summary: summary ?? "",
           steps: [],
         };
-        this.controller.startEmpty(plan, root);
+        this.controller.startEmpty(plan, currentWorkspaceStorageRoot());
         await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
         return {
           content: [{ type: "text", text: JSON.stringify({ ok: true, kind, title }) }],
@@ -254,17 +270,42 @@ export class RepoTrailMcpServer {
       },
     );
 
+    const viewModeSchema = z
+      .enum(["code", "diff", "both"])
+      .optional()
+      .describe("Presentation mode. `both` shows the code highlight plus the diff. Defaults to `both` when diff is present.");
+
+    const diffSchema = z
+      .object({
+        beforeText: z.string().describe("Previous/base text for the left side of the diff. Can be a tight hunk."),
+        afterText: z
+          .string()
+          .optional()
+          .describe("Changed/current text for the right side. Omit to use the current selected lines from file/range."),
+        beforeLabel: z.string().optional().describe("Optional label for the left side of the diff."),
+        afterLabel: z.string().optional().describe("Optional label for the right side of the diff."),
+        languageId: z.string().optional().describe("Optional VS Code language id for virtual diff documents."),
+      })
+      .optional()
+      .describe("Optional diff payload for native VS Code diff display.");
+
     server.registerTool(
       "add_step",
       {
         title: "Append a tour step",
         description:
-          "Append a step to the active tour and immediately open the file + highlight the range in VS Code. Ranges are 1-indexed (line and column).",
+          "Append a step to the active tour and immediately open the file, highlight the range, and optionally show a VS Code diff. Ranges are 1-indexed (line and column).",
         inputSchema: {
           title: z.string().describe("Short title for the step."),
+          workspaceFolder: z
+            .string()
+            .optional()
+            .describe(
+              "Optional workspace folder identity from get_workspace.workspaceFolders[].workspaceFolder. Omit for the first workspace folder.",
+            ),
           file: z
             .string()
-            .describe("Workspace-relative path to the file the user should look at."),
+            .describe("Workspace-relative path inside workspaceFolder to the file the user should look at."),
           explanation: z.string().describe("Markdown narration shown to the user."),
           range: z
             .object({
@@ -275,25 +316,12 @@ export class RepoTrailMcpServer {
             })
             .optional()
             .describe("1-indexed code range to highlight."),
+          viewMode: viewModeSchema,
+          diff: diffSchema,
         },
       },
-      async ({ title, file, explanation, range }) => {
-        const index = await this.controller.appendStep({
-          title,
-          file: normalizeWorkspaceFile(file),
-          explanation,
-          range: range
-            ? {
-                startLine: range.startLine,
-                startColumn: range.startColumn ?? 1,
-                endLine: range.endLine,
-                endColumn: range.endColumn ?? 1,
-              }
-            : undefined,
-          actions: range
-            ? ["openFile", "highlightRange", "showNarration"]
-            : ["openFile", "showNarration"],
-        });
+      async (input) => {
+        const index = await this.controller.appendStep(buildStep(input));
         const snap = this.controller.snapshot();
         return {
           content: [
@@ -308,7 +336,13 @@ export class RepoTrailMcpServer {
 
     const stepInputSchema = {
       title: z.string().describe("Short title for the step."),
-      file: z.string().describe("Workspace-relative path to the file."),
+      workspaceFolder: z
+        .string()
+        .optional()
+        .describe(
+          "Optional workspace folder identity from get_workspace.workspaceFolders[].workspaceFolder. Omit for the first workspace folder.",
+        ),
+      file: z.string().describe("Workspace-relative path inside workspaceFolder to the file."),
       explanation: z.string().describe("Markdown narration shown to the user."),
       range: z
         .object({
@@ -319,29 +353,55 @@ export class RepoTrailMcpServer {
         })
         .optional()
         .describe("1-indexed code range to highlight."),
+      viewMode: viewModeSchema,
+      diff: diffSchema,
     };
+
+    function buildActions(
+      range: TourStep["range"],
+      diff: TourStepDiff | undefined,
+      viewMode: TourStepViewMode | undefined,
+    ): TourAction[] {
+      const mode = diff ? viewMode ?? "both" : "code";
+      const actions: TourAction[] = [];
+      if (mode !== "diff") {
+        actions.push("openFile");
+        if (range) actions.push("highlightRange");
+      }
+      if (diff && mode !== "code") actions.push("showDiff");
+      actions.push("showNarration");
+      return actions;
+    }
 
     const buildStep = (input: {
       title: string;
+      workspaceFolder?: string;
       file: string;
       explanation: string;
       range?: { startLine: number; startColumn?: number; endLine: number; endColumn?: number };
-    }) => ({
-      title: input.title,
-      file: normalizeWorkspaceFile(input.file),
-      explanation: input.explanation,
-      range: input.range
+      viewMode?: TourStepViewMode;
+      diff?: TourStepDiff;
+    }): TourStep => {
+      const target = normalizeTourStepTarget(input.file, input.workspaceFolder);
+      const range = input.range
         ? {
             startLine: input.range.startLine,
             startColumn: input.range.startColumn ?? 1,
             endLine: input.range.endLine,
             endColumn: input.range.endColumn ?? 1,
           }
-        : undefined,
-      actions: (input.range
-        ? ["openFile", "highlightRange", "showNarration"]
-        : ["openFile", "showNarration"]) as ("openFile" | "highlightRange" | "showNarration")[],
-    });
+        : undefined;
+      const viewMode = input.diff ? input.viewMode ?? "both" : input.viewMode === "code" ? "code" : undefined;
+      return {
+        title: input.title,
+        ...target,
+        explanation: input.explanation,
+        range,
+        viewMode,
+        diff: input.diff,
+        actions: buildActions(range, input.diff, viewMode),
+      };
+    };
 
     server.registerTool(
       "insert_step",
@@ -446,8 +506,8 @@ export class RepoTrailMcpServer {
     try {
       await fs.mkdir(PORT_REGISTRY_DIR, { recursive: true });
       const existing = await readRegistry();
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "_no_workspace";
-      existing[root] = {
+      const folders = workspaceFolderInfos();
+      const entry: RegistryEntry = {
         port: this.actualPort,
         pid: process.pid,
         version: this.extensionVersion,
@@ -455,7 +515,12 @@ export class RepoTrailMcpServer {
         url: this.connectionUrl,
         skillUrl: this.skillUrl,
         bootstrapUrl: this.bootstrapUrl,
+        workspaceRoot: firstWorkspaceRoot() ?? "_no_workspace",
+        workspaceFolders: folders,
       };
+      for (const key of currentWorkspaceRegistryKeys()) {
+        existing[key] = entry;
+      }
       await fs.writeFile(PORT_REGISTRY_FILE, JSON.stringify(existing, null, 2), "utf8");
     } catch (err) {
       this.output.appendLine(`[mcp] publishPort failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -465,11 +530,14 @@ export class RepoTrailMcpServer {
   private async unpublishPort(): Promise<void> {
     try {
       const existing = await readRegistry();
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "_no_workspace";
-      if (existing[root]?.pid === process.pid) {
-        delete existing[root];
-        await fs.writeFile(PORT_REGISTRY_FILE, JSON.stringify(existing, null, 2), "utf8");
+      let changed = false;
+      for (const [key, entry] of Object.entries(existing)) {
+        if (entry.pid === process.pid && entry.token === this.authToken) {
+          delete existing[key];
+          changed = true;
+        }
       }
+      if (changed) await fs.writeFile(PORT_REGISTRY_FILE, JSON.stringify(existing, null, 2), "utf8");
     } catch {
       /* best-effort */
     }
@@ -516,9 +584,16 @@ export class RepoTrailMcpServer {
     }
     const mcpUrl = new URL(this.connectionUrl);
     const token = mcpUrl.searchParams.get("token") ?? "";
+    const folders = workspaceFolderInfos();
     writeJsonResponse(res, 200, {
       name: "repo-trail",
       version: this.extensionVersion,
+      workspace: {
+        workspaceRoot: firstWorkspaceRoot() ?? "",
+        workspaceKey: currentWorkspaceStorageRoot(),
+        windowRegistryKey: folders.length > 1 ? workspaceWindowRegistryKey() : undefined,
+        workspaceFolders: folders,
+      },
       skill: {
         name: "repo-trail",
         url: this.skillUrl,
@@ -540,7 +615,8 @@ export class RepoTrailMcpServer {
       workflow: [
         "Fetch the repo-trail skill and install or use it with the agent's own skill mechanism before generating a tour.",
         "Connect to the MCP server.",
-        "Call get_workspace and verify workspaceRoot matches the current repository.",
+        "Call get_workspace and verify the target repository appears in workspaceFolders.",
+        "For multi-root tours, set workspaceFolder on each step to the matching workspaceFolders[].workspaceFolder value.",
         "Emit the full route up front with start_tour, add_step, and show_step({ index: 0 }).",
       ],
     });
@@ -555,6 +631,8 @@ type RegistryEntry = {
   url: string;
   skillUrl: string;
   bootstrapUrl: string;
+  workspaceRoot?: string;
+  workspaceFolders?: ReturnType<typeof workspaceFolderInfos>;
 };
 type Registry = Record<string, RegistryEntry>;
 
@@ -620,26 +698,4 @@ function bearerToken(header: string | undefined): string | null {
   if (!header) return null;
   const match = /^Bearer\s+(.+)$/i.exec(header.trim());
   return match?.[1] ?? null;
-}
-
-function normalizeWorkspaceFile(file: string): string {
-  if (!file || file.includes("\0")) {
-    throw new Error("Tour step file must be a non-empty workspace-relative path.");
-  }
-  const normalized = file.replace(/\\/g, "/");
-  if (normalized.startsWith("/") || /^[A-Za-z]:\//.test(normalized)) {
-    throw new Error("Tour step file must be workspace-relative, not absolute.");
-  }
-  const parts = normalized.split("/").filter(Boolean);
-  if (parts.length === 0 || parts.includes("..")) {
-    throw new Error("Tour step file cannot escape the workspace.");
-  }
-  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (!root) return parts.join("/");
-  const resolved = path.resolve(root, ...parts);
-  const rel = path.relative(root, resolved);
-  if (rel.startsWith("..") || path.isAbsolute(rel)) {
-    throw new Error("Tour step file cannot escape the workspace.");
-  }
-  return parts.join("/");
 }

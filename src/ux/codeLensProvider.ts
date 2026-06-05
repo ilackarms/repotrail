@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { resolveStepUri } from "../workspace";
 import { TourController } from "./tourController";
 
 /**
@@ -22,16 +23,18 @@ export class TourCodeLensProvider implements vscode.CodeLensProvider {
     const snap = this.controller.snapshot();
     if (!snap.plan || !snap.current) return [];
 
-    const folder = vscode.workspace.workspaceFolders?.[0];
-    if (!folder) return [];
-
     const lenses: vscode.CodeLens[] = [];
     const lineCount = Math.max(0, doc.lineCount - 1);
     const anchorLine = (step: { range?: { startLine: number } }) =>
       Math.min(Math.max(0, (step.range?.startLine ?? 1) - 1), lineCount);
 
-    const onCurrentFile =
-      doc.uri.toString() === vscode.Uri.joinPath(folder.uri, snap.current.file).toString();
+    let currentUri: vscode.Uri | null = null;
+    try {
+      currentUri = resolveStepUri(snap.current);
+    } catch {
+      currentUri = null;
+    }
+    const onCurrentFile = currentUri?.toString() === doc.uri.toString();
 
     if (onCurrentFile) {
       const lensRange = new vscode.Range(anchorLine(snap.current), 0, anchorLine(snap.current), 0);
@@ -72,7 +75,13 @@ export class TourCodeLensProvider implements vscode.CodeLensProvider {
     // Clickable jump markers for the OTHER stops that live in this file.
     snap.plan.steps.forEach((step, i) => {
       if (i === snap.index) return;
-      if (vscode.Uri.joinPath(folder.uri, step.file).toString() !== doc.uri.toString()) return;
+      let uri: vscode.Uri | null = null;
+      try {
+        uri = resolveStepUri(step);
+      } catch {
+        return;
+      }
+      if (uri?.toString() !== doc.uri.toString()) return;
       const line = anchorLine(step);
       const drift = snap.drift[i];
       const icon = drift === "missing" ? "$(error)" : drift === "relocated" ? "$(warning)" : "$(circle-small-filled)";

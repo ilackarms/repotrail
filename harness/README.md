@@ -33,7 +33,7 @@ The MCP server:
 ## Required Workflow
 
 1. Call `get_workspace`.
-2. Verify `workspaceRoot` matches the repository the agent is analyzing.
+2. Verify the repository the agent is analyzing appears in `workspaceFolders`.
 3. Read the repo before choosing stops.
 4. Call `start_tour`.
 5. Add the full route up front with `add_step`.
@@ -47,9 +47,9 @@ then use `insert_step`, `update_step`, or `remove_step`.
 
 | Tool | Use |
 | --- | --- |
-| `get_workspace` | Confirm the VS Code window and inspect a bounded file list. |
+| `get_workspace` | Confirm the VS Code window and inspect bounded file lists for each open workspace folder. |
 | `start_tour` | Initialize a tour with `kind`, `title`, and optional `summary`. |
-| `add_step` | Append a step with `title`, workspace-relative `file`, markdown `explanation`, and optional 1-indexed `range`. |
+| `add_step` | Append a step with `title`, optional `workspaceFolder`, workspace-relative `file`, markdown `explanation`, optional 1-indexed `range`, and optional diff metadata. |
 | `insert_step` | Insert a step at a 0-indexed position, usually after the current stop. |
 | `update_step` | Replace an existing step at a 0-indexed position. |
 | `remove_step` | Delete a step at a 0-indexed position. |
@@ -57,5 +57,12 @@ then use `insert_step`, `update_step`, or `remove_step`.
 | `get_state` | Inspect the active plan and current step. |
 | `end_tour` | Clear the tour only when the user asks. |
 
-Use workspace-relative forward-slash paths. Absolute paths, empty paths, and
-paths containing `..` are rejected.
+Use workspace-relative forward-slash paths. In multi-root windows, set
+`workspaceFolder` to a `get_workspace.workspaceFolders[].workspaceFolder` value
+when the step targets a specific folder. Absolute paths, empty paths, and paths
+containing `..` are rejected.
+
+For PR/diff walkthroughs, steps may include `viewMode: "code" | "diff" |
+"both"` and `diff: { beforeText, afterText?, beforeLabel?, afterLabel?,
+languageId? }`. `afterText` can be omitted when the current selected lines are
+the right side of the diff.

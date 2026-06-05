@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { DriftStatus, TourPlan, TourStep } from "../engine/types";
 import { newTourId, TourRecord } from "../storage/tourStore";
+import { currentWorkspaceStorageRoot } from "../workspace";
 import { checkStepDrift, clearHighlights, executeStep } from "./editorActions";
 
 /**
@@ -46,11 +47,7 @@ export class TourController {
   }
 
   private resolveWorkspaceRoot(workspaceRoot?: string): string {
-    return (
-      workspaceRoot ??
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
-      "_no_workspace"
-    );
+    return workspaceRoot ?? currentWorkspaceStorageRoot();
   }
 
   private persist(): void {

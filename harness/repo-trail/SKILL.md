@@ -38,9 +38,9 @@ your client, such as `mcp__repotrail__get_workspace`.
 
 | Tool | Use for |
 | --- | --- |
-| `get_workspace` | Confirm the VS Code window and list a bounded set of workspace files. Always call first. |
+| `get_workspace` | Confirm the VS Code window and list bounded files for each open workspace folder. Always call first. |
 | `start_tour` | Initialize a tour with `kind`, `title`, and optional `summary`. |
-| `add_step` | Append a step with `title`, workspace-relative `file`, markdown `explanation`, and optional 1-indexed `range`. |
+| `add_step` | Append a step with `title`, optional `workspaceFolder`, workspace-relative `file`, markdown `explanation`, optional 1-indexed `range`, and optional diff metadata. |
 | `insert_step` | Insert a step at 0-indexed `at`, usually for deepening after the current step. |
 | `update_step` | Replace an existing step at `index`. |
 | `remove_step` | Delete a step at `index`. |
@@ -54,8 +54,8 @@ sidebar.
 
 ## Workflow
 
-1. Call `get_workspace` and verify `workspaceRoot` matches the repository you
-   are analyzing. If it does not, stop and report the mismatch.
+1. Call `get_workspace` and verify the repository you are analyzing appears in
+   `workspaceFolders`. If it does not, stop and report the mismatch.
 2. Pick the tour kind. If unclear, ask the user which of: architecture, pr-diff,
    file-walkthrough, request-lifecycle, bug-investigation.
 3. Read the repo for real: README, manifests, entrypoints, routing, core domain
@@ -74,12 +74,22 @@ sidebar.
 - Split explanations that say "first, then, then" into separate steps.
 - Keep ranges tight and 1-indexed. If you did not read the file, do not invent
   a range.
+- For PR/diff tours, prefer `viewMode: "both"` with `diff.beforeText` so the
+  user gets the code highlight plus a native VS Code diff. Use `viewMode:
+  "diff"` only when the diff is the whole point of the stop.
+- `diff.beforeText` is the previous/base text for the left side. `diff.afterText`
+  is optional; omit it when the current selected lines in `file`/`range` are the
+  right side. Keep both sides to a focused hunk unless full-file context is
+  necessary.
 - Use workspace-relative forward-slash file paths only.
+- For multi-root VS Code windows, set `workspaceFolder` to the matching
+  `get_workspace.workspaceFolders[].workspaceFolder` value for every step not
+  in the first workspace folder. You may also set it on every step for clarity.
 - Do not use absolute paths, empty paths, or paths containing `..`; RepoTrail
-  rejects files that can escape the workspace.
+  rejects files that can escape the selected workspace folder.
 - Explanations should be markdown, usually 2-4 short paragraphs.
-- Do not paste code into explanations; the user is looking at the code in VS
-  Code.
+- Do not paste code into explanations; the user is looking at the code or diff
+  in VS Code. Put changed code in `diff`, not in narration.
 
 ## Deepening And Follow-Ups
 

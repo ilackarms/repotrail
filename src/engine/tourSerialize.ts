@@ -7,7 +7,15 @@
  * the re-importable one.
  */
 
-import { TourKind, TourPlan, TourStep } from "./types";
+import {
+  formatStepPath,
+  TourAction,
+  TourKind,
+  TourPlan,
+  TourStep,
+  TourStepDiff,
+  TourStepViewMode,
+} from "./types";
 
 const EXPORT_VERSION = 1;
 
@@ -68,16 +76,19 @@ function normalizeStep(value: unknown): TourStep | null {
   const s = value as Record<string, unknown>;
   if (typeof s.file !== "string" || typeof s.title !== "string") return null;
   const range = normalizeRange(s.range);
+  const diff = normalizeDiff(s.diff);
+  const viewMode = normalizeViewMode(s.viewMode, diff);
   return {
     title: s.title,
+    workspaceFolder: typeof s.workspaceFolder === "string" ? s.workspaceFolder : undefined,
     file: s.file,
     explanation: typeof s.explanation === "string" ? s.explanation : "",
     range,
+    viewMode,
+    diff,
     symbol: typeof s.symbol === "string" ? s.symbol : undefined,
     anchor: typeof s.anchor === "string" ? s.anchor : undefined,
-    actions: range
-      ? ["openFile", "highlightRange", "showNarration"]
-      : ["openFile", "showNarration"],
+    actions: defaultActions(range, diff, viewMode),
   };
 }
 
@@ -93,6 +104,42 @@ function normalizeRange(value: unknown): TourStep["range"] {
     endLine: num(r.endLine, r.startLine as number),
     endColumn: num(r.endColumn, 1),
   };
+}
+
+function normalizeDiff(value: unknown): TourStepDiff | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const d = value as Record<string, unknown>;
+  if (typeof d.beforeText !== "string") return undefined;
+  return {
+    beforeText: d.beforeText,
+    afterText: typeof d.afterText === "string" ? d.afterText : undefined,
+    beforeLabel: typeof d.beforeLabel === "string" ? d.beforeLabel : undefined,
+    afterLabel: typeof d.afterLabel === "string" ? d.afterLabel : undefined,
+    languageId: typeof d.languageId === "string" ? d.languageId : undefined,
+  };
+}
+
+function normalizeViewMode(value: unknown, diff: TourStepDiff | undefined): TourStepViewMode | undefined {
+  if (value === "code" || value === "diff" || value === "both") {
+    return diff || value === "code" ? value : undefined;
+  }
+  return diff ? "both" : undefined;
+}
+
+function defaultActions(
+  range: TourStep["range"],
+  diff: TourStepDiff | undefined,
+  viewMode: TourStepViewMode | undefined,
+): TourAction[] {
+  const mode = diff ? viewMode ?? "both" : "code";
+  const actions: TourAction[] = [];
+  if (mode !== "diff") {
+    actions.push("openFile");
+    if (range) actions.push("highlightRange");
+  }
+  if (diff && mode !== "code") actions.push("showDiff");
+  actions.push("showNarration");
+  return actions;
 }
 
 const KINDS: TourKind[] = [
@@ -129,6 +176,10 @@ export function planToMarkdown(plan: TourPlan, exportedAt: string): string {
     lines.push("");
     lines.push(`\`${stepLocation(step)}\``);
     lines.push("");
+    if (step.diff) {
+      lines.push(`_Diff view: ${step.viewMode ?? "both"}_`);
+      lines.push("");
+    }
     if (step.explanation.trim()) {
       lines.push(step.explanation.trim());
       lines.push("");
@@ -138,11 +189,12 @@ export function planToMarkdown(plan: TourPlan, exportedAt: string): string {
 }
 
 function stepLocation(step: TourStep): string {
-  if (!step.range) return step.file;
+  const target = formatStepPath(step);
+  if (!step.range) return target;
   const { startLine, endLine } = step.range;
   return startLine === endLine
-    ? `${step.file}:${startLine}`
-    : `${step.file}:${startLine}-${endLine}`;
+    ? `${target}:${startLine}`
+    : `${target}:${startLine}-${endLine}`;
 }
 
 /** Filesystem-safe slug for a default export filename. */

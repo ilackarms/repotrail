@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
-import { DriftStatus, TourStep } from "../engine/types";
+import { DriftStatus, formatStepPath, TourStep, TourStepViewMode } from "../engine/types";
+import { resolveStepUri } from "../workspace";
 
 /**
  * Executes a TourStep's declarative actions against the editor.
@@ -39,7 +40,11 @@ const STOP_MARKER_DECORATION = vscode.window.createTextEditorDecorationType({
   isWholeLine: false,
 });
 
+const DIFF_SCHEME = "repotrail-diff";
 const MAX_ANCHOR_LEN = 200;
+const diffDocuments = new Map<string, string>();
+let diffProviderRegistered = false;
+let diffDocumentSeq = 0;
 
 export interface ExecuteResult {
   drift: DriftStatus;
@@ -56,24 +61,34 @@ export async function executeStep(
   step: TourStep,
   opts?: { allSteps?: TourStep[]; currentIndex?: number },
 ): Promise<ExecuteResult> {
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  if (!folder) {
+  if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
     vscode.window.showErrorMessage("RepoTrail: open a workspace first.");
     return { drift: "ok" };
   }
   if (!step.file) return { drift: "ok" };
 
-  const uri = vscode.Uri.joinPath(folder.uri, step.file);
+  const label = formatStepPath(step);
+  let uri: vscode.Uri | null;
+  try {
+    uri = resolveStepUri(step);
+  } catch (err) {
+    logger?.appendLine(`[editor] invalid step target ${label}: ${String(err)}`);
+    vscode.window.showErrorMessage(`RepoTrail: invalid step target ${label}.`);
+    return { drift: "missing" };
+  }
+  if (!uri) {
+    logger?.appendLine(`[editor] no open workspace folder for ${label}`);
+    vscode.window.showErrorMessage(`RepoTrail: cannot find workspace folder for ${label}.`);
+    return { drift: "missing" };
+  }
   let doc: vscode.TextDocument;
   try {
     doc = await vscode.workspace.openTextDocument(uri);
   } catch (err) {
-    logger?.appendLine(`[editor] open failed for ${step.file}: ${String(err)}`);
-    vscode.window.showErrorMessage(`RepoTrail: cannot open ${step.file}.`);
+    logger?.appendLine(`[editor] open failed for ${label}: ${String(err)}`);
+    vscode.window.showErrorMessage(`RepoTrail: cannot open ${label}.`);
     return { drift: "missing" };
   }
-  const editor = await vscode.window.showTextDocument(doc, { preview: false });
-
   let range = resolveRange(step, doc);
   let drift: DriftStatus = "ok";
   let capturedAnchor: string | undefined;
@@ -89,14 +104,22 @@ export async function executeStep(
     }
   }
 
-  editor.setDecorations(HIGHLIGHT_DECORATION, [{ range }]);
-  applyStopMarkers(editor, doc, step, opts);
-  editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
-  editor.selection = new vscode.Selection(range.start, range.start);
+  const viewMode = effectiveViewMode(step);
+  if (viewMode !== "diff") {
+    const editor = await vscode.window.showTextDocument(doc, { preview: false });
+    editor.setDecorations(HIGHLIGHT_DECORATION, [{ range }]);
+    applyStopMarkers(editor, doc, step, opts);
+    editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+    editor.selection = new vscode.Selection(range.start, range.start);
+  }
+  if (step.diff && viewMode !== "code") {
+    await showStepDiff(step, doc, range, viewMode);
+  }
 
   logger?.appendLine(
     `[editor] step "${step.title}" range L${range.start.line + 1}:${range.start.character + 1}-L${range.end.line + 1}:${range.end.character + 1}` +
       (step.range ? "" : " (defaulted — agent omitted range)") +
+      (step.diff && viewMode !== "code" ? ` [diff: ${viewMode}]` : "") +
       (drift !== "ok" ? ` [drift: ${drift}]` : ""),
   );
 
@@ -118,7 +141,14 @@ function applyStopMarkers(
   const ranges: vscode.Range[] = [];
   all.forEach((s, i) => {
     if (i === opts?.currentIndex) return;
-    if (s.file !== current.file || !s.range) return;
+    if (!s.range) return;
+    let uri: vscode.Uri | null = null;
+    try {
+      uri = resolveStepUri(s);
+    } catch {
+      return;
+    }
+    if (!uri || uri.toString() !== doc.uri.toString()) return;
     ranges.push(resolveRange(s, doc));
   });
   editor.setDecorations(STOP_MARKER_DECORATION, ranges);
@@ -129,6 +159,94 @@ export function clearHighlights(): void {
     editor.setDecorations(HIGHLIGHT_DECORATION, []);
     editor.setDecorations(STOP_MARKER_DECORATION, []);
   }
+}
+
+function effectiveViewMode(step: TourStep): TourStepViewMode {
+  if (!step.diff) return "code";
+  return step.viewMode ?? "both";
+}
+
+async function showStepDiff(
+  step: TourStep,
+  doc: vscode.TextDocument,
+  range: vscode.Range,
+  viewMode: TourStepViewMode,
+): Promise<void> {
+  if (!step.diff) return;
+  ensureDiffProvider();
+  const afterText = step.diff.afterText ?? textForDiffAfter(doc, step, range);
+  const beforeLabel = step.diff.beforeLabel ?? "Before";
+  const afterLabel = step.diff.afterLabel ?? "After";
+  const beforeUri = virtualDiffUri(step, beforeLabel, step.diff.beforeText);
+  const afterUri = virtualDiffUri(step, afterLabel, afterText);
+  await setVirtualDocLanguage(beforeUri, step.diff.languageId);
+  await setVirtualDocLanguage(afterUri, step.diff.languageId);
+  await vscode.commands.executeCommand(
+    "vscode.diff",
+    beforeUri,
+    afterUri,
+    `${formatStepPath(step)}: ${beforeLabel} -> ${afterLabel}`,
+    {
+      preview: false,
+      viewColumn: viewMode === "both" ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active,
+    },
+  );
+}
+
+function ensureDiffProvider(): void {
+  if (diffProviderRegistered) return;
+  vscode.workspace.registerTextDocumentContentProvider(DIFF_SCHEME, {
+    provideTextDocumentContent(uri: vscode.Uri): string {
+      return diffDocuments.get(uri.toString()) ?? "";
+    },
+  });
+  diffProviderRegistered = true;
+}
+
+function virtualDiffUri(step: TourStep, label: string, text: string): vscode.Uri {
+  const ext = extensionForFile(step.file);
+  const slug = sanitizePathPart(`${step.title}-${label}`) || "step";
+  const uri = vscode.Uri.from({
+    scheme: DIFF_SCHEME,
+    path: `/${diffDocumentSeq++}-${slug}${ext}`,
+  });
+  diffDocuments.set(uri.toString(), text);
+  return uri;
+}
+
+async function setVirtualDocLanguage(uri: vscode.Uri, languageId?: string): Promise<void> {
+  if (!languageId) return;
+  try {
+    const doc = await vscode.workspace.openTextDocument(uri);
+    await vscode.languages.setTextDocumentLanguage(doc, languageId);
+  } catch (err) {
+    logger?.appendLine(`[editor] diff language "${languageId}" ignored: ${String(err)}`);
+  }
+}
+
+function textForDiffAfter(doc: vscode.TextDocument, step: TourStep, range: vscode.Range): string {
+  if (!step.range) return doc.getText(range);
+  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+  const startLine = clamp(step.range.startLine - 1, 0, doc.lineCount - 1);
+  const endLine = clamp(step.range.endLine - 1, startLine, doc.lineCount - 1);
+  const lines: string[] = [];
+  for (let line = startLine; line <= endLine; line++) {
+    lines.push(doc.lineAt(line).text);
+  }
+  return lines.join(eol);
+}
+
+function extensionForFile(file: string): string {
+  const match = /(\.[A-Za-z0-9]+)$/.exec(file);
+  return match?.[1] ?? ".txt";
+}
+
+function sanitizePathPart(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
 }
 
 function firstNonEmptyLine(doc: vscode.TextDocument, range: vscode.Range): string | undefined {
@@ -182,9 +300,15 @@ function checkAnchor(
 export async function checkStepDrift(
   step: TourStep,
 ): Promise<{ drift: DriftStatus; capturedAnchor?: string }> {
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  if (!folder || !step.file || !step.range) return { drift: "ok" };
-  const uri = vscode.Uri.joinPath(folder.uri, step.file);
+  if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) return { drift: "ok" };
+  if (!step.file || !step.range) return { drift: "ok" };
+  let uri: vscode.Uri | null;
+  try {
+    uri = resolveStepUri(step);
+  } catch {
+    return { drift: "missing" };
+  }
+  if (!uri) return { drift: "missing" };
   let doc: vscode.TextDocument;
   try {
     doc = await vscode.workspace.openTextDocument(uri);

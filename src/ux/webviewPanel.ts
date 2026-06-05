@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
+import { formatStepPath } from "../engine/types";
 import { RepoTourSummary } from "../storage/repoTours";
 import { TourSummary } from "../storage/tourStore";
 import { TourController } from "./tourController";
@@ -285,7 +286,8 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     const progressPct = total > 0 ? Math.round(((index + 1) / total) * 100) : 0;
     const title = current?.title ?? "No active tour";
     const explanation = current?.explanation ?? "";
-    const fileLabel = current?.file ?? "";
+    const fileLabel = current ? formatStepPath(current) : "";
+    const currentViewLabel = current?.diff ? viewModeLabel(current.viewMode ?? "both") : "";
 
     const escape = (s: string) =>
       s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -297,7 +299,9 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       if (!plan || plan.steps.length === 0) return "";
       const rows = plan.steps
         .map((s, i) => {
-          const loc = s.range ? `${s.file}:${s.range.startLine}` : s.file;
+          const stepPath = formatStepPath(s);
+          const loc = s.range ? `${stepPath}:${s.range.startLine}` : stepPath;
+          const viewLabel = s.diff ? ` · ${viewModeLabel(s.viewMode ?? "both")}` : "";
           const drift = snap.drift[i];
           const driftIcon = drift === "missing" ? "⚠" : drift === "relocated" ? "↪" : "";
           const driftTitle =
@@ -319,7 +323,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
               <span class="stop-num">${i + 1}</span>
               <span class="stop-body">
                 <span class="stop-title">${seenSet.has(i) && i !== index ? "✓ " : ""}${driftIcon ? `<span class="drift-mark" title="${escape(driftTitle)}">${driftIcon}</span> ` : ""}${escape(s.title)}</span>
-                <span class="stop-loc">${escape(loc)}</span>
+                <span class="stop-loc">${escape(loc + viewLabel)}</span>
               </span>
             </li>`;
         })
@@ -448,10 +452,11 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   .meta { color: var(--vscode-descriptionForeground); font-size: 11px; margin-bottom: 12px; }
   .tour-shell { height: 100vh; min-height: 0; display: flex; flex-direction: column; }
   .nav-dock { flex: 0 0 auto; padding: 10px 12px 8px; border-bottom: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-sideBar-background, var(--vscode-editor-background)); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08); z-index: 1; }
-  .stop-kicker { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; color: var(--vscode-descriptionForeground); font-size: 11px; }
-  .step-count { flex-shrink: 0; font-variant-numeric: tabular-nums; }
-  .file-chip { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .nav-title { margin-bottom: 8px; }
+	  .stop-kicker { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; color: var(--vscode-descriptionForeground); font-size: 11px; }
+	  .step-count { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+	  .file-chip { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	  .view-chip { flex-shrink: 0; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); border-radius: 2px; padding: 1px 5px; }
+	  .nav-title { margin-bottom: 8px; }
   .tour-main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 12px 14px; }
   .explanation { white-space: pre-wrap; line-height: 1.5; margin-bottom: 16px; }
   .controls { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -512,13 +517,14 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         <div class="stop-kicker">
           <span class="step-count">Step ${index + 1} of ${total}</span>
           <span class="file-chip" title="${escape(fileLabel)}">${escape(fileLabel)}</span>
+          ${currentViewLabel ? `<span class="view-chip">${escape(currentViewLabel)}</span>` : ""}
         </div>
         <div class="progress" title="${index + 1} of ${total}"><div class="progress-fill" style="width:${progressPct}%"></div></div>
         <h2 class="nav-title">${escape(title)}</h2>
         <div class="controls">
           <button id="back" ${index === 0 ? "disabled" : ""} title="Previous stop">← Back</button>
           <button id="next" ${index >= total - 1 ? "disabled" : ""} title="Next stop">Next →</button>
-          <button id="revealCurrent" title="Jump back to this step's selected code">↩ Code</button>
+          <button id="revealCurrent" title="Jump back to this step's editor view">↩ View</button>
           <button id="deeper" title="Copy a 'deepen this step' prompt to clipboard for your agent">📋 Deepen</button>
           <button id="agentBootstrap" class="secondary" title="Copy the setup prompt for your agent">Connect agent</button>
           <button id="stop" title="Stop this tour">Stop</button>
@@ -870,4 +876,10 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
 </body>
 </html>`;
   }
+}
+
+function viewModeLabel(mode: string): string {
+  if (mode === "diff") return "Diff";
+  if (mode === "both") return "Code + diff";
+  return "Code";
 }

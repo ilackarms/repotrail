@@ -1,5 +1,8 @@
 import * as vscode from "vscode";
 import {
+  formatStepPath,
+} from "./engine/types";
+import {
   parseTourJson,
   planToJson,
   planToMarkdown,
@@ -13,6 +16,12 @@ import { TourCodeLensProvider } from "./ux/codeLensProvider";
 import { setEditorLogger } from "./ux/editorActions";
 import { TourController } from "./ux/tourController";
 import { TourViewProvider } from "./ux/webviewPanel";
+import {
+  currentWorkspaceStorageRoot,
+  firstWorkspaceRoot,
+  hasWorkspaceFolders,
+  relativePathInWorkspace,
+} from "./workspace";
 
 let mcp: RepoTrailMcpServer | null = null;
 let statusItem: vscode.StatusBarItem | null = null;
@@ -45,16 +54,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const viewProvider = new TourViewProvider(context.extensionUri, controller, log);
   viewProvider.setTourListLoader(async () => {
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!root) return [];
-    return listTours(root);
+    if (!hasWorkspaceFolders()) return [];
+    return listTours(currentWorkspaceStorageRoot());
   });
   viewProvider.setMcpStatusLoader(() => ({
     enabled: vscode.workspace.getConfiguration("repoTrail").get<boolean>("mcpEnabled", true),
     port: mcp?.port ?? null,
   }));
   viewProvider.setRepoTourLoader(async () => {
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const root = firstWorkspaceRoot();
     if (!root) return [];
     return listRepoTours(root);
   });
@@ -99,8 +107,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.commands.executeCommand("workbench.view.extension.repoTrail");
     }),
     vscode.commands.registerCommand("repoTrail.copyTourPrompt", async () => {
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      if (!root) {
+      if (!hasWorkspaceFolders()) {
         vscode.window.showErrorMessage("RepoTrail: open a folder/workspace first.");
         return;
       }
@@ -125,7 +132,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("repoTrail.togglePlay", () => viewProvider.togglePlay()),
     vscode.commands.registerCommand("repoTrail.revealCurrent", () => controller.revealCurrent()),
     vscode.commands.registerCommand("repoTrail.resumeRepoTour", async (file?: string) => {
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const root = firstWorkspaceRoot();
       if (!root || !file) return;
       const plan = await readRepoTour(root, file);
       if (!plan) {
@@ -160,11 +167,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("repoTrail.speakCurrent", () => tts.speakCurrent()),
     vscode.commands.registerCommand("repoTrail.stopTts", () => tts.cancel()),
     vscode.commands.registerCommand("repoTrail.resumeTour", async (id?: string) => {
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      if (!root) {
+      if (!hasWorkspaceFolders()) {
         vscode.window.showErrorMessage("RepoTrail: open a workspace first.");
         return;
       }
+      const root = currentWorkspaceStorageRoot();
       let chosen = id;
       if (!chosen) {
         const all = await listTours(root);
@@ -193,8 +200,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
     }),
     vscode.commands.registerCommand("repoTrail.deleteTour", async (id?: string) => {
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      if (!root) return;
+      if (!hasWorkspaceFolders()) return;
+      const root = currentWorkspaceStorageRoot();
       let chosen = id;
       if (!chosen) {
         const all = await listTours(root);
@@ -237,8 +244,8 @@ async function maybeAutoResume(controller: TourController, log: vscode.OutputCha
   if (controller.activeTourId) return; // an agent/import already loaded one
   const mode = vscode.workspace.getConfiguration("repoTrail").get<string>("autoResume", "prompt");
   if (mode === "off") return;
-  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (!root) return;
+  if (!hasWorkspaceFolders()) return;
+  const root = currentWorkspaceStorageRoot();
   let summaries;
   try {
     summaries = await listTours(root);
@@ -335,8 +342,9 @@ function copyDeepenPrompt(
     return;
   }
   const idx = snap.index + 1;
+  const target = formatStepPath(snap.current);
   const prompt =
-    `Deepen step ${idx} of the active RepoTrail tour: "${snap.current.title}" (${snap.current.file}).\n\n` +
+    `Deepen step ${idx} of the active RepoTrail tour: "${snap.current.title}" (${target}).\n\n` +
     `Call mcp__repotrail__get_state to confirm the current index, then read the relevant code, ` +
     `then call mcp__repotrail__insert_step one or more times with \`at\` = current index + 1, +2, ... ` +
     `to splice in 2–4 sub-steps that zoom into this area at finer granularity. Keep ranges tight ` +
@@ -366,8 +374,9 @@ function copyFollowUpPrompt(
     return;
   }
   const idx = snap.index + 1;
+  const target = formatStepPath(snap.current);
   const prompt =
-    `Follow-up about step ${idx} of the active RepoTrail tour: "${snap.current.title}" (${snap.current.file}).\n\n` +
+    `Follow-up about step ${idx} of the active RepoTrail tour: "${snap.current.title}" (${target}).\n\n` +
     `Question: ${trimmed}\n\n` +
     `Read the relevant code, answer in chat. If the answer is pin-worthy, also call ` +
     `mcp__repotrail__insert_step to add a clarifying stop after the current index.`;
@@ -412,7 +421,8 @@ async function exportActiveTour(controller: TourController, log: vscode.OutputCh
     ? planToJson(snap.plan, exportedAt)
     : planToMarkdown(snap.plan, exportedAt);
   const base = slugForFilename(snap.plan.title);
-  const root = vscode.workspace.workspaceFolders?.[0]?.uri;
+  const rootPath = firstWorkspaceRoot();
+  const root = rootPath ? vscode.Uri.file(rootPath) : undefined;
   const defaultUri = root
     ? vscode.Uri.joinPath(root, `${base}.${fmt.value}`)
     : vscode.Uri.file(`${base}.${fmt.value}`);
@@ -440,7 +450,8 @@ async function exportActiveTour(controller: TourController, log: vscode.OutputCh
 
 /** Import a previously-exported JSON tour and load it as a fresh tour. */
 async function importTour(controller: TourController, log: vscode.OutputChannel): Promise<void> {
-  const root = vscode.workspace.workspaceFolders?.[0]?.uri;
+  const rootPath = firstWorkspaceRoot();
+  const root = rootPath ? vscode.Uri.file(rootPath) : undefined;
   const picks = await vscode.window.showOpenDialog({
     canSelectMany: false,
     defaultUri: root,
@@ -475,7 +486,7 @@ async function saveTourToRepo(controller: TourController, log: vscode.OutputChan
     vscode.window.showInformationMessage("RepoTrail: no active tour to save.");
     return;
   }
-  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const root = firstWorkspaceRoot();
   if (!root) {
     vscode.window.showErrorMessage("RepoTrail: open a workspace first.");
     return;
@@ -505,21 +516,27 @@ async function saveTourToRepo(controller: TourController, log: vscode.OutputChan
  */
 async function tourFromHere(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
-  const root = vscode.workspace.workspaceFolders?.[0];
-  if (!editor || !root) {
+  if (!editor || !hasWorkspaceFolders()) {
     vscode.window.showInformationMessage("RepoTrail: open a file to tour from here.");
     return;
   }
-  const rel = vscode.workspace.asRelativePath(editor.document.uri, false);
+  const target = relativePathInWorkspace(editor.document.uri);
+  if (!target) {
+    vscode.window.showInformationMessage("RepoTrail: open a workspace file to tour from here.");
+    return;
+  }
+  const targetLabel = target.workspaceFolder
+    ? `workspace folder \`${target.workspaceFolder}\`, file \`${target.file}\``
+    : `\`${target.file}\``;
   const sel = editor.selection;
   const hasSel = !sel.isEmpty;
   const scope = hasSel
-    ? `the selected code in \`${rel}\` (lines ${sel.start.line + 1}–${sel.end.line + 1})`
-    : `\`${rel}\``;
+    ? `the selected code in ${targetLabel} (lines ${sel.start.line + 1}–${sel.end.line + 1})`
+    : targetLabel;
   const prompt =
     `Give me a RepoTrail tour starting from ${scope}. ` +
     `Walk through what it does and how it connects to the rest of the codebase, ` +
-    `following the repo-trail skill (push stops over MCP).`;
+    `following the repo-trail skill (push stops over MCP; use workspaceFolder for non-default roots).`;
   await vscode.env.clipboard.writeText(prompt);
   await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
   vscode.window.setStatusBarMessage("RepoTrail: 'tour from here' prompt copied for your agent.", 3000);
@@ -541,8 +558,9 @@ async function copyAgentSetup(): Promise<void> {
     `1. Fetch this bootstrap metadata: ${mcp.bootstrapUrl}\n` +
     `2. Fetch this repo-trail skill and install/use it with your own agent skill mechanism: ${mcp.skillUrl}\n` +
     `3. Connect to the RepoTrail MCP server: ${mcp.connectionUrl}\n` +
-    "4. Call get_workspace and verify workspaceRoot matches this repository before emitting a tour.\n" +
-    "5. Generate the complete tour up front with start_tour, add_step, and show_step({ index: 0 }).";
+    "4. Call get_workspace and verify the target repo appears in workspaceFolders before emitting a tour.\n" +
+    "5. For multi-root tours, set workspaceFolder on each step to the matching workspaceFolders[].workspaceFolder value.\n" +
+    "6. Generate the complete tour up front with start_tour, add_step, and show_step({ index: 0 }).";
   await vscode.env.clipboard.writeText(prompt);
   vscode.window.showInformationMessage("Copied RepoTrail agent setup. Paste it into your agent.");
 }
