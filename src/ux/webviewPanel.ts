@@ -362,7 +362,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         <div class="bridge">
           <div class="bridge-head">
             <span>📋 ${escape(extra.bridge.label)} — paste into your agent</span>
-            <button id="dismissBridge" class="link">dismiss</button>
+            <button id="dismissBridge" class="link" title="Hide this copied prompt preview">dismiss</button>
           </div>
           <pre class="bridge-prompt">${escape(extra.bridge.prompt)}</pre>
           <div class="meta">Copied to your clipboard. Paste it into any MCP-capable agent connected to RepoTrail; you'll see a banner here when steps land.</div>
@@ -383,8 +383,8 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         <div class="explanation">Connect your agent, paste the copied setup prompt, then ask it for <em>"a RepoTrail tour of this repo"</em>.</div>
         <div class="controls">
           <button id="agentBootstrap" title="Copy the setup prompt that tells your agent how to fetch the RepoTrail skill and connect MCP">Connect agent</button>
-          <button id="start" class="secondary">Copy tour prompt</button>
-          <button id="importTour" class="secondary">Import tour…</button>
+          <button id="start" class="secondary" title="Copy a prompt for your connected agent to create a RepoTrail tour">Copy tour prompt</button>
+          <button id="importTour" class="secondary" title="Import a RepoTrail tour from a saved file">Import tour…</button>
         </div>
         <div class="meta">${mcpLine}</div>`;
 
@@ -405,7 +405,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
                 <div class="tour-meta">${escape(t.kind)} · ${t.stepCount} stops · step ${t.lastIndex + 1} · ${escape(updated)}</div>
               </div>
               <div class="tour-actions">
-                <button class="resume" data-id="${escape(t.id)}">Resume</button>
+                <button class="resume" data-id="${escape(t.id)}" title="Resume this saved tour from its last step">Resume</button>
                 <button class="del secondary" data-id="${escape(t.id)}" title="Delete this saved tour">🗑</button>
               </div>
             </li>`;
@@ -428,7 +428,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
                 <div class="tour-meta">${escape(t.kind)} · ${t.stepCount} stops · ${escape(t.file)}</div>
               </div>
               <div class="tour-actions">
-                <button class="repo-resume" data-file="${escape(t.file)}">Open</button>
+                <button class="repo-resume" data-file="${escape(t.file)}" title="Open this repo-shared tour">Open</button>
               </div>
             </li>`,
         )
@@ -468,6 +468,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   button:disabled { opacity: 0.5; cursor: default; }
   button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
   button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
+  .button-tooltip { position: fixed; z-index: 20; box-sizing: border-box; max-width: min(260px, calc(100vw - 16px)); padding: 6px 8px; border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-panel-border, transparent)); border-radius: 3px; background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background)); color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground)); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.24); font-size: 11px; line-height: 1.35; pointer-events: none; overflow-wrap: break-word; }
   input { width: 100%; box-sizing: border-box; padding: 5px 7px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent); border-radius: 2px; }
   .answer { margin-top: 8px; padding: 8px; background: var(--vscode-textCodeBlock-background); border-radius: 2px; white-space: pre-wrap; }
   .section-h { margin: 20px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--vscode-descriptionForeground); }
@@ -605,6 +606,80 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         }
       });
     });
+    const tooltip = document.createElement("div");
+    tooltip.id = "buttonTooltip";
+    tooltip.className = "button-tooltip";
+    tooltip.setAttribute("role", "tooltip");
+    tooltip.hidden = true;
+    document.body.appendChild(tooltip);
+    let tooltipTarget = null;
+    let tooltipTimer = 0;
+
+    function setButtonTooltip(el, text) {
+      if (!el) return;
+      if (text) {
+        el.dataset.tooltip = text;
+        el.removeAttribute("title");
+        if (tooltipTarget === el && !tooltip.hidden) {
+          tooltip.textContent = text;
+          placeTooltip(el);
+        }
+      } else {
+        delete el.dataset.tooltip;
+        if (tooltipTarget === el) hideTooltip();
+      }
+    }
+
+    function placeTooltip(el) {
+      if (!el || tooltip.hidden) return;
+      tooltip.style.visibility = "hidden";
+      tooltip.style.left = "0px";
+      tooltip.style.top = "0px";
+      const rect = el.getBoundingClientRect();
+      const tip = tooltip.getBoundingClientRect();
+      const margin = 8;
+      let left = rect.left + rect.width / 2 - tip.width / 2;
+      let top = rect.top - tip.height - margin;
+      if (top < margin) top = rect.bottom + margin;
+      left = Math.min(window.innerWidth - tip.width - margin, Math.max(margin, left));
+      top = Math.min(window.innerHeight - tip.height - margin, Math.max(margin, top));
+      tooltip.style.left = left + "px";
+      tooltip.style.top = top + "px";
+      tooltip.style.visibility = "visible";
+    }
+
+    function showTooltip(el, immediate) {
+      const text = el?.dataset?.tooltip;
+      if (!text) return;
+      window.clearTimeout(tooltipTimer);
+      tooltipTarget = el;
+      tooltipTimer = window.setTimeout(() => {
+        if (tooltipTarget !== el) return;
+        tooltip.textContent = text;
+        tooltip.hidden = false;
+        el.setAttribute("aria-describedby", tooltip.id);
+        placeTooltip(el);
+      }, immediate ? 0 : 120);
+    }
+
+    function hideTooltip() {
+      window.clearTimeout(tooltipTimer);
+      if (tooltipTarget) tooltipTarget.removeAttribute("aria-describedby");
+      tooltipTarget = null;
+      tooltip.hidden = true;
+    }
+
+    document.querySelectorAll("button[title]").forEach((el) => {
+      setButtonTooltip(el, el.getAttribute("title"));
+      el.addEventListener("mouseenter", () => showTooltip(el, false));
+      el.addEventListener("mouseleave", hideTooltip);
+      el.addEventListener("focus", () => showTooltip(el, true));
+      el.addEventListener("blur", hideTooltip);
+    });
+    window.addEventListener("resize", hideTooltip);
+    document.addEventListener("scroll", () => {
+      if (tooltipTarget && !tooltip.hidden) placeTooltip(tooltipTarget);
+    }, true);
     // ---- TTS playback surface ----------------------------------------------
     // The host picks the provider; this page plays what it receives and owns the
     // Play/Pause button:
@@ -629,6 +704,12 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         s === "preparing" ? "⏳ Loading voice…" :
         s === "playing" ? "⏸️ Pause" :
         s === "paused" ? "▶️ Resume" : "🔊 Speak";
+      setButtonTooltip(btn,
+        s === "preparing" ? "Stop loading this stop's narration" :
+        s === "playing" ? "Pause this stop's narration" :
+        s === "paused" ? "Resume this stop's narration" :
+        "Read this stop aloud",
+      );
     }
 
     function stopAll() {
@@ -821,6 +902,10 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     function updatePlayBtn() {
       if (!playBtn) return;
       playBtn.textContent = playMode ? "⏹ Stop play" : "▶ Play";
+      setButtonTooltip(
+        playBtn,
+        playMode ? "Stop tour playback and keep the current stop selected" : "Play the whole tour: read each stop aloud and auto-advance",
+      );
     }
     function setPlayMode(on) {
       playMode = on;
