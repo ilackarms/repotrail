@@ -7,6 +7,7 @@ import {
 import {
   AnimatedTourCodeFrame,
   AnimatedTourFrame,
+  AnimatedTourTtsDefaults,
   buildAnimatedDiffFrame,
   planToAnimatedHtml,
 } from "./engine/animatedHtml";
@@ -440,6 +441,7 @@ async function exportActiveTour(controller: TourController, log: vscode.OutputCh
         plan: snap.plan,
         exportedAt,
         frames: await buildAnimatedTourFrames(snap.plan, log),
+        tts: buildAnimatedTtsDefaults(),
       })
     : isJson
       ? planToJson(snap.plan, exportedAt)
@@ -597,6 +599,22 @@ function stepLocationLabel(step: TourStep): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function buildAnimatedTtsDefaults(): AnimatedTourTtsDefaults {
+  const cfg = vscode.workspace.getConfiguration("repoTrail");
+  return {
+    provider: cfg.get<AnimatedTourTtsDefaults["provider"]>("tts.provider", "system"),
+    kokoroVoice: cfg.get<string>("tts.kokoroVoice", "af_heart"),
+    elevenLabsVoiceId: cfg.get<string>("tts.elevenLabsVoiceId", "21m00Tcm4TlvDq8ikWAM"),
+    elevenLabsModel: cfg.get<string>("tts.elevenLabsModel", "eleven_flash_v2_5"),
+    openAiModel: cfg.get<string>("tts.openAiModel", "gpt-4o-mini-tts"),
+    openAiVoice: cfg.get<string>("tts.openAiVoice", "ash"),
+    openAiInstructions: cfg.get<string>(
+      "tts.openAiInstructions",
+      "Read this code walkthrough aloud like a friendly senior engineer pair-programming: clear, calm, with natural pacing.",
+    ),
+  };
 }
 
 /** Import a previously-exported JSON tour and load it as a fresh tour. */

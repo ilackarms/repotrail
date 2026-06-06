@@ -40,6 +40,17 @@ export interface AnimatedTourHtmlInput {
   plan: TourPlan;
   exportedAt: string;
   frames: AnimatedTourFrame[];
+  tts?: AnimatedTourTtsDefaults;
+}
+
+export interface AnimatedTourTtsDefaults {
+  provider?: "off" | "kokoro" | "system" | "say" | "elevenlabs" | "openai";
+  kokoroVoice?: string;
+  elevenLabsVoiceId?: string;
+  elevenLabsModel?: string;
+  openAiModel?: string;
+  openAiVoice?: string;
+  openAiInstructions?: string;
 }
 
 const MAX_DIFF_LINES = 140;
@@ -74,6 +85,7 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
     summary: input.plan.summary,
     exportedAt: input.exportedAt,
     frames: input.frames,
+    tts: input.tts ?? {},
   }).replace(/</g, "\\u003c");
 
   return `<!doctype html>
@@ -126,6 +138,7 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
   button:hover { border-color: var(--accent); }
   button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #071412; font-weight: 700; }
+  button.secondary { background: #1d1d1c; }
 
   .app {
     min-height: 100vh;
@@ -349,32 +362,50 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
 
   .diff {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     min-height: 0;
+    min-width: 0;
+    overflow: auto;
   }
 
-  .diff-col:first-child { border-right: 1px solid var(--line); }
+  .diff-head,
+  .diff-row-pair {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    min-width: 0;
+  }
 
-  .diff-label {
+  .diff-head {
     position: sticky;
     top: 0;
     z-index: 1;
-    padding: 8px 12px;
     background: #151515;
     border-bottom: 1px solid var(--line);
+  }
+
+  .diff-label {
+    min-width: 0;
+    padding: 8px 12px;
     color: var(--muted);
     font-size: 12px;
     font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+
+  .diff-label:first-child,
+  .diff-cell:first-child {
+    border-right: 1px solid var(--line);
   }
 
   .diff-cell {
+    min-width: 0;
     display: grid;
     grid-template-columns: 28px minmax(0, 1fr);
-    min-height: 22px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.03);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     font-size: 12px;
     line-height: 1.45;
+    tab-size: 2;
   }
 
   .diff-mark {
@@ -387,8 +418,11 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
 
   .diff-code {
     padding: 2px 10px;
-    white-space: pre;
+    min-width: 0;
     min-height: 22px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .diff-cell.delete .diff-code { background: var(--delete-bg); }
@@ -439,6 +473,71 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
     font-size: 12px;
   }
 
+  .tts-panel {
+    position: absolute;
+    right: 22px;
+    top: 80px;
+    z-index: 5;
+    width: min(420px, calc(100vw - 44px));
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
+    padding: 12px;
+  }
+
+  .tts-panel[hidden] { display: none; }
+
+  .tts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .tts-field {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .tts-field.full { grid-column: 1 / -1; }
+
+  .tts-field input,
+  .tts-field select,
+  .tts-field textarea {
+    min-width: 0;
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: #171717;
+    color: var(--text);
+    padding: 7px 8px;
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .tts-field textarea {
+    resize: vertical;
+    min-height: 62px;
+  }
+
+  .tts-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+
+  .tts-note,
+  .tts-status {
+    margin: 8px 0 0;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
   .empty {
     padding: 28px;
     color: var(--muted);
@@ -447,6 +546,7 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
   @media (max-width: 900px) {
     .topbar { grid-template-columns: 1fr; }
     .controls { justify-content: flex-start; }
+    .tts-panel { position: static; width: auto; margin: 0 22px 14px; }
     .layout { grid-template-columns: 1fr; }
     .rail { border-right: none; border-bottom: 1px solid var(--line); }
     .stop-list { grid-auto-flow: column; grid-auto-columns: minmax(220px, 1fr); overflow-x: auto; }
@@ -471,8 +571,65 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
       <button id="prevBtn" title="Previous stop">Back</button>
       <button id="playBtn" class="primary" title="Play or pause the animated tour">Play</button>
       <button id="nextBtn" title="Next stop">Next</button>
+      <button id="speakBtn" title="Read the current stop aloud">Speak</button>
+      <button id="ttsSettingsBtn" class="secondary" title="Configure speech for this exported tour">TTS</button>
     </div>
   </header>
+  <section id="ttsPanel" class="tts-panel" aria-label="Text to speech settings" hidden>
+    <form id="ttsForm" autocomplete="off">
+    <div class="tts-grid">
+      <label class="tts-field">
+        Provider
+        <select id="ttsProvider">
+          <option value="off">Off</option>
+          <option value="system">System browser voice</option>
+          <option value="kokoro">Kokoro local neural voice</option>
+          <option value="elevenlabs">ElevenLabs hosted voice</option>
+          <option value="openai">OpenAI hosted voice</option>
+          <option value="say" disabled>Command voice unavailable in browser</option>
+        </select>
+      </label>
+      <label class="tts-field">
+        Kokoro voice
+        <input id="kokoroVoice" autocomplete="off" placeholder="af_heart">
+      </label>
+      <label class="tts-field">
+        ElevenLabs voice id
+        <input id="elevenLabsVoiceId" autocomplete="off" placeholder="21m00Tcm4TlvDq8ikWAM">
+      </label>
+      <label class="tts-field">
+        ElevenLabs model
+        <input id="elevenLabsModel" autocomplete="off" placeholder="eleven_flash_v2_5">
+      </label>
+      <label class="tts-field">
+        OpenAI model
+        <input id="openAiModel" autocomplete="off" placeholder="gpt-4o-mini-tts">
+      </label>
+      <label class="tts-field">
+        OpenAI voice
+        <input id="openAiVoice" autocomplete="off" placeholder="ash">
+      </label>
+      <label class="tts-field full">
+        OpenAI instructions
+        <textarea id="openAiInstructions" placeholder="Read this like a friendly senior engineer."></textarea>
+      </label>
+      <label class="tts-field full">
+        OpenAI API key for this browser
+        <input id="openAiApiKey" type="password" autocomplete="off" placeholder="Not exported; stored locally in this browser only">
+      </label>
+      <label class="tts-field full">
+        ElevenLabs API key for this browser
+        <input id="elevenLabsApiKey" type="password" autocomplete="off" placeholder="Not exported; stored locally in this browser only">
+      </label>
+    </div>
+    <div class="tts-actions">
+      <button id="saveTtsBtn" class="primary" type="button">Save TTS settings</button>
+      <button id="clearTtsKeysBtn" class="secondary" type="button">Clear keys</button>
+    </div>
+    <p id="ttsStatus" class="tts-status"></p>
+    </form>
+    <p class="tts-note">System and Kokoro run in the browser. Hosted voices need your API key here because exported HTML cannot safely carry VS Code secrets. Command-based voices such as macOS say cannot run from a browser page.</p>
+  </section>
   <div class="layout">
     <aside class="rail">
       <p id="railMeta" class="rail-meta"></p>
@@ -519,6 +676,20 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
   const codeBody = byId("codeBody");
   const frameEl = byId("frame");
   const playBtn = byId("playBtn");
+  const speakBtn = byId("speakBtn");
+  const ttsPanel = byId("ttsPanel");
+  const ttsSettingsBtn = byId("ttsSettingsBtn");
+  const ttsStatus = byId("ttsStatus");
+  const ttsStorageKey = "repotrail:animated:tts:v1";
+  let ttsSettings = loadTtsSettings();
+  let speechState = "idle"; // idle | loading | speaking | paused
+  let speakToken = 0;
+  let audioEl = null;
+  let activeUtterance = null;
+  let advanceAfterSpeech = false;
+  let kokoroWorker = null;
+  let kokoroReqId = 0;
+  const kokoroPending = new Map();
 
   setText("tourTitle", data.title || "RepoTrail tour");
   setText("tourSummary", data.summary || "");
@@ -527,10 +698,434 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
   function schedule() {
     window.clearTimeout(timer);
     if (!playing || frames.length < 2) return;
+    if (canSpeak()) {
+      startSpeech(true);
+      return;
+    }
     const text = frames[index]?.explanation || "";
     const words = text.trim() ? text.trim().split(/\\s+/).length : 0;
     const duration = Math.max(4500, Math.min(14000, 3200 + words * 95));
     timer = window.setTimeout(() => go(index >= frames.length - 1 ? 0 : index + 1), duration);
+  }
+
+  function loadTtsSettings() {
+    const defaults = {
+      provider: normalizeProvider(data.tts?.provider || "system"),
+      kokoroVoice: data.tts?.kokoroVoice || "af_heart",
+      elevenLabsVoiceId: data.tts?.elevenLabsVoiceId || "21m00Tcm4TlvDq8ikWAM",
+      elevenLabsModel: data.tts?.elevenLabsModel || "eleven_flash_v2_5",
+      openAiModel: data.tts?.openAiModel || "gpt-4o-mini-tts",
+      openAiVoice: data.tts?.openAiVoice || "ash",
+      openAiInstructions: data.tts?.openAiInstructions || "Read this code walkthrough aloud like a friendly senior engineer pair-programming: clear, calm, with natural pacing.",
+      openAiApiKey: "",
+      elevenLabsApiKey: "",
+    };
+    try {
+      const saved = JSON.parse(localStorage.getItem(ttsStorageKey) || "{}");
+      return { ...defaults, ...saved, provider: normalizeProvider(saved.provider || defaults.provider) };
+    } catch {
+      return defaults;
+    }
+  }
+
+  function normalizeProvider(provider) {
+    return ["off", "system", "kokoro", "elevenlabs", "openai"].includes(provider) ? provider : "system";
+  }
+
+  function saveTtsSettings(next) {
+    ttsSettings = { ...ttsSettings, ...next, provider: normalizeProvider(next.provider || ttsSettings.provider) };
+    try { localStorage.setItem(ttsStorageKey, JSON.stringify(ttsSettings)); } catch (e) {}
+    syncTtsForm();
+  }
+
+  function syncTtsForm() {
+    const ids = [
+      "ttsProvider",
+      "kokoroVoice",
+      "elevenLabsVoiceId",
+      "elevenLabsModel",
+      "openAiModel",
+      "openAiVoice",
+      "openAiInstructions",
+      "openAiApiKey",
+      "elevenLabsApiKey",
+    ];
+    ids.forEach((id) => {
+      const el = byId(id);
+      if (!el) return;
+      const key = id === "ttsProvider" ? "provider" : id;
+      el.value = ttsSettings[key] || "";
+    });
+    updateSpeechButtons();
+  }
+
+  function readTtsForm() {
+    const value = (id) => byId(id)?.value?.trim?.() || "";
+    return {
+      provider: value("ttsProvider"),
+      kokoroVoice: value("kokoroVoice") || "af_heart",
+      elevenLabsVoiceId: value("elevenLabsVoiceId") || "21m00Tcm4TlvDq8ikWAM",
+      elevenLabsModel: value("elevenLabsModel") || "eleven_flash_v2_5",
+      openAiModel: value("openAiModel") || "gpt-4o-mini-tts",
+      openAiVoice: value("openAiVoice") || "ash",
+      openAiInstructions: value("openAiInstructions"),
+      openAiApiKey: value("openAiApiKey"),
+      elevenLabsApiKey: value("elevenLabsApiKey"),
+    };
+  }
+
+  function setTtsStatus(message) {
+    if (ttsStatus) ttsStatus.textContent = message || "";
+  }
+
+  function canSpeak() {
+    return ttsSettings.provider !== "off";
+  }
+
+  function setSpeechState(next) {
+    speechState = next;
+    updateSpeechButtons();
+  }
+
+  function updateSpeechButtons() {
+    if (speakBtn) {
+      speakBtn.textContent =
+        speechState === "loading" ? "Loading voice..." :
+        speechState === "speaking" ? "Pause speech" :
+        speechState === "paused" ? "Resume speech" :
+        "Speak";
+    }
+    if (playBtn) playBtn.textContent = playing ? "Pause" : "Play";
+  }
+
+  function stopSpeech(clearStatus = false) {
+    speakToken++;
+    advanceAfterSpeech = false;
+    activeUtterance = null;
+    try { window.speechSynthesis?.cancel(); } catch (e) {}
+    if (audioEl) {
+      try { audioEl.pause(); } catch (e) {}
+      audioEl = null;
+    }
+    setSpeechState("idle");
+    if (clearStatus) setTtsStatus("");
+  }
+
+  function pauseSpeech() {
+    if (speechState !== "speaking") return;
+    try { window.speechSynthesis?.pause(); } catch (e) {}
+    if (audioEl) {
+      try { audioEl.pause(); } catch (e) {}
+    }
+    setSpeechState("paused");
+  }
+
+  function resumeSpeech() {
+    if (speechState !== "paused") return;
+    if (audioEl) {
+      audioEl.play().then(() => setSpeechState("speaking")).catch((err) => {
+        setTtsStatus("Audio resume failed: " + ((err && err.message) || err));
+        setSpeechState("idle");
+      });
+      return;
+    }
+    try { window.speechSynthesis?.resume(); setSpeechState("speaking"); } catch (e) { setSpeechState("idle"); }
+  }
+
+  function currentSpeechText() {
+    const frame = frames[index];
+    if (!frame) return "";
+    return humanizeForSpeech((frame.title || "") + ". " + (frame.explanation || ""));
+  }
+
+  function startSpeech(advanceOnEnd) {
+    const text = currentSpeechText();
+    if (!text.trim()) return;
+    if (speechState === "loading" || speechState === "speaking") stopSpeech(false);
+    const token = ++speakToken;
+    advanceAfterSpeech = !!advanceOnEnd;
+    setSpeechState("loading");
+    setTtsStatus("");
+    const provider = ttsSettings.provider;
+    if (provider === "off") {
+      setSpeechState("idle");
+      setTtsStatus("Speech is off. Open TTS settings to choose a provider.");
+    } else if (provider === "kokoro") {
+      speakKokoro(text, token);
+    } else if (provider === "openai") {
+      speakOpenAi(text, token);
+    } else if (provider === "elevenlabs") {
+      speakElevenLabs(text, token);
+    } else {
+      speakSystem(text, token);
+    }
+  }
+
+  function speechEnded(token) {
+    if (token !== speakToken) return;
+    setSpeechState("idle");
+    if (!advanceAfterSpeech) return;
+    advanceAfterSpeech = false;
+    if (!playing) return;
+    if (index >= frames.length - 1) {
+      playing = false;
+      updateSpeechButtons();
+      return;
+    }
+    go(index + 1);
+  }
+
+  function speakSystem(text, token) {
+    try {
+      if (!window.speechSynthesis || typeof SpeechSynthesisUtterance === "undefined") {
+        setTtsStatus("System speech is not available in this browser.");
+        setSpeechState("idle");
+        return;
+      }
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.04;
+      activeUtterance = utterance;
+      utterance.onstart = () => { if (token === speakToken) setSpeechState("speaking"); };
+      utterance.onend = () => speechEnded(token);
+      utterance.onerror = (event) => {
+        if (token !== speakToken) return;
+        setTtsStatus("System speech failed: " + (event.error || "unknown error"));
+        setSpeechState("idle");
+      };
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      setTtsStatus("System speech failed: " + ((err && err.message) || err));
+      setSpeechState("idle");
+    }
+  }
+
+  function getKokoroWorker() {
+    if (kokoroWorker) return kokoroWorker;
+    const workerSrc = [
+      'import { KokoroTTS } from "https://esm.sh/kokoro-js@1";',
+      'let modelP = null;',
+      'self.onmessage = async (e) => {',
+      '  const m = e.data;',
+      '  if (!m || m.type !== "generate") return;',
+      '  try {',
+      '    if (!modelP) modelP = KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", { dtype: "q8", device: "wasm" });',
+      '    const tts = await modelP;',
+      '    const audio = await tts.generate(m.text, { voice: m.voice || "af_heart" });',
+      '    const wav = audio.toWav();',
+      '    self.postMessage({ type: "audio", id: m.id, wav: wav }, [wav]);',
+      '  } catch (err) {',
+      '    self.postMessage({ type: "error", id: m.id, message: String((err && err.message) || err) });',
+      '  }',
+      '};',
+    ].join("\\n");
+    const url = URL.createObjectURL(new Blob([workerSrc], { type: "text/javascript" }));
+    kokoroWorker = new Worker(url, { type: "module" });
+    kokoroWorker.onmessage = (event) => {
+      const msg = event.data;
+      const pending = msg && kokoroPending.get(msg.id);
+      if (!pending) return;
+      kokoroPending.delete(msg.id);
+      if (msg.type === "audio") pending.resolve(msg.wav);
+      else pending.reject(new Error(msg.message || "kokoro error"));
+    };
+    kokoroWorker.onerror = (err) => {
+      setTtsStatus("Kokoro failed to load; using system speech for this stop.");
+      for (const pending of kokoroPending.values()) pending.reject(new Error("kokoro worker error"));
+      kokoroPending.clear();
+      try { kokoroWorker.terminate(); } catch (e) {}
+      kokoroWorker = null;
+    };
+    return kokoroWorker;
+  }
+
+  function kokoroGenerate(text) {
+    return new Promise((resolve, reject) => {
+      const id = ++kokoroReqId;
+      const timer = window.setTimeout(() => {
+        if (!kokoroPending.has(id)) return;
+        kokoroPending.delete(id);
+        reject(new Error("kokoro timed out"));
+      }, 90000);
+      kokoroPending.set(id, {
+        resolve: (wav) => { window.clearTimeout(timer); resolve(wav); },
+        reject: (err) => { window.clearTimeout(timer); reject(err); },
+      });
+      getKokoroWorker().postMessage({ type: "generate", id, text, voice: ttsSettings.kokoroVoice || "af_heart" });
+    });
+  }
+
+  async function speakKokoro(text, token) {
+    const chunks = splitSentences(text);
+    for (let i = 0; i < chunks.length; i++) {
+      if (token !== speakToken) return;
+      try {
+        const wav = await kokoroGenerate(chunks[i]);
+        if (token !== speakToken) return;
+        await playBlob(new Blob([wav], { type: "audio/wav" }), token, false);
+      } catch (err) {
+        if (token !== speakToken) return;
+        setTtsStatus("Kokoro unavailable; falling back to system speech.");
+        speakSystem(chunks.slice(i).join(" "), token);
+        return;
+      }
+    }
+    speechEnded(token);
+  }
+
+  async function speakOpenAi(text, token) {
+    const key = ttsSettings.openAiApiKey || "";
+    if (!key) {
+      setTtsStatus("OpenAI needs an API key in TTS settings. Keys are stored only in this browser.");
+      setSpeechState("idle");
+      return;
+    }
+    const model = ttsSettings.openAiModel || "gpt-4o-mini-tts";
+    const steerable = model.startsWith("gpt-4o");
+    await fetchSpeech(
+      "https://api.openai.com/v1/audio/speech",
+      {
+        method: "POST",
+        headers: { authorization: "Bearer " + key, "content-type": "application/json" },
+        body: JSON.stringify({
+          model,
+          voice: ttsSettings.openAiVoice || "ash",
+          input: text,
+          response_format: "mp3",
+          ...(steerable && ttsSettings.openAiInstructions ? { instructions: ttsSettings.openAiInstructions } : {}),
+        }),
+      },
+      token,
+      "OpenAI",
+    );
+  }
+
+  async function speakElevenLabs(text, token) {
+    const key = ttsSettings.elevenLabsApiKey || "";
+    if (!key) {
+      setTtsStatus("ElevenLabs needs an API key in TTS settings. Keys are stored only in this browser.");
+      setSpeechState("idle");
+      return;
+    }
+    const voiceId = encodeURIComponent(ttsSettings.elevenLabsVoiceId || "21m00Tcm4TlvDq8ikWAM");
+    await fetchSpeech(
+      "https://api.elevenlabs.io/v1/text-to-speech/" + voiceId + "?output_format=mp3_44100_128",
+      {
+        method: "POST",
+        headers: { "xi-api-key": key, "content-type": "application/json", accept: "audio/mpeg" },
+        body: JSON.stringify({ text, model_id: ttsSettings.elevenLabsModel || "eleven_flash_v2_5" }),
+      },
+      token,
+      "ElevenLabs",
+    );
+  }
+
+  async function fetchSpeech(url, init, token, label) {
+    try {
+      const res = await fetch(url, init);
+      if (token !== speakToken) return;
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error("HTTP " + res.status + (body ? ": " + body.slice(0, 180) : ""));
+      }
+      await playBlob(await res.blob(), token, true);
+    } catch (err) {
+      if (token !== speakToken) return;
+      setTtsStatus(label + " speech failed. Browser CORS or API key permissions may block direct hosted TTS: " + ((err && err.message) || err));
+      setSpeechState("idle");
+    }
+  }
+
+  function playBlob(blob, token, finishOnEnd) {
+    return new Promise((resolve) => {
+      if (token !== speakToken) { resolve(); return; }
+      const url = URL.createObjectURL(blob);
+      if (audioEl) {
+        try { audioEl.pause(); } catch (e) {}
+      }
+      audioEl = new Audio(url);
+      audioEl.onplaying = () => { if (token === speakToken) setSpeechState("speaking"); };
+      audioEl.onended = () => {
+        try { URL.revokeObjectURL(url); } catch (e) {}
+        if (finishOnEnd) speechEnded(token);
+        resolve();
+      };
+      audioEl.onerror = () => {
+        try { URL.revokeObjectURL(url); } catch (e) {}
+        if (token === speakToken) {
+          setTtsStatus("Audio playback failed.");
+          setSpeechState("idle");
+        }
+        resolve();
+      };
+      audioEl.play().catch((err) => {
+        try { URL.revokeObjectURL(url); } catch (e) {}
+        if (token === speakToken) {
+          setTtsStatus("Audio playback failed: " + ((err && err.message) || err));
+          setSpeechState("idle");
+        }
+        resolve();
+      });
+    });
+  }
+
+  function splitSentences(text) {
+    const parts = text.match(/[^.!?]+[.!?]*\\s*/g);
+    return (parts ? parts.map((s) => s.trim()).filter(Boolean) : [text]);
+  }
+
+  function humanizeForSpeech(text) {
+    let out = stripMarkdown(text);
+    const operators = [
+      [/===/g, " strictly equals "],
+      [/!==/g, " strictly not equals "],
+      [/=>/g, " arrow "],
+      [/->/g, " arrow "],
+      [/==/g, " equals "],
+      [/!=/g, " not equals "],
+      [/>=/g, " greater than or equal to "],
+      [/<=/g, " less than or equal to "],
+      [/&&/g, " and "],
+      [/\\|\\|/g, " or "],
+      [/::/g, " "],
+      [/\\+\\+/g, " plus plus "],
+      [/--/g, " minus minus "],
+    ];
+    operators.forEach(([re, word]) => { out = out.replace(re, word); });
+    out = out.replace(/([A-Za-z0-9_$]+)\\.([A-Za-z0-9_$]+)(?=\\.[A-Za-z0-9_$]+|\\b)/g, "$1 dot $2");
+    out = out.replace(/[A-Za-z][A-Za-z0-9_$-]*[A-Za-z0-9]/g, (tok) => {
+      const looksLikeCode = /[_-]/.test(tok) || /[a-z][A-Z]/.test(tok) || /[A-Za-z][0-9]|[0-9][A-Za-z]/.test(tok);
+      return looksLikeCode ? splitIdentifier(tok) : tok;
+    });
+    return out.replace(/\\s+/g, " ").trim();
+  }
+
+  function stripMarkdown(md) {
+    return String(md || "")
+      .replace(new RegExp("\\\\x60\\\\x60\\\\x60[\\\\s\\\\S]*?\\\\x60\\\\x60\\\\x60", "g"), "")
+      .replace(new RegExp("\\\\x60([^\\\\x60]+)\\\\x60", "g"), "$1")
+      .replace(/!\\[[^\\]]*\\]\\([^)]*\\)/g, "")
+      .replace(/\\[([^\\]]+)\\]\\([^)]*\\)/g, "$1")
+      .replace(/^\\s{0,3}#{1,6}\\s+/gm, "")
+      .replace(/^\\s*[-*+]\\s+/gm, "")
+      .replace(/^\\s*>\\s+/gm, "")
+      .replace(/\\*\\*([^*]+)\\*\\*/g, "$1")
+      .replace(/__([^_]+)__/g, "$1")
+      .replace(/\\*([^*]+)\\*/g, "$1")
+      .replace(/_([^_]+)_/g, "$1")
+      .replace(/\\s+/g, " ")
+      .trim();
+  }
+
+  function splitIdentifier(tok) {
+    return tok
+      .replace(/[_-]+/g, " ")
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+      .replace(/([A-Za-z])([0-9])/g, "$1 $2")
+      .replace(/([0-9])([A-Za-z])/g, "$1 $2")
+      .toLowerCase()
+      .trim();
   }
 
   function renderRoute() {
@@ -594,18 +1189,20 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
   function renderDiff(diff) {
     const wrap = document.createElement("div");
     wrap.className = "diff";
-    const left = document.createElement("div");
-    left.className = "diff-col";
-    const right = document.createElement("div");
-    right.className = "diff-col";
-    left.appendChild(label(diff.beforeLabel || "Before"));
-    right.appendChild(label(diff.afterLabel || "After"));
+    const head = document.createElement("div");
+    head.className = "diff-head";
+    head.append(label(diff.beforeLabel || "Before"), label(diff.afterLabel || "After"));
+    wrap.appendChild(head);
 
     (diff.rows || []).forEach((row) => {
-      left.appendChild(diffCell(row.before, row.type === "delete" ? "delete" : "equal", row.type === "delete" ? "-" : ""));
-      right.appendChild(diffCell(row.after, row.type === "insert" ? "insert" : "equal", row.type === "insert" ? "+" : ""));
+      const pair = document.createElement("div");
+      pair.className = "diff-row-pair";
+      pair.append(
+        diffCell(row.before, row.type === "delete" ? "delete" : "equal", row.type === "delete" ? "-" : ""),
+        diffCell(row.after, row.type === "insert" ? "insert" : "equal", row.type === "insert" ? "+" : ""),
+      );
+      wrap.appendChild(pair);
     });
-    wrap.append(left, right);
     codeBody.appendChild(wrap);
   }
 
@@ -653,7 +1250,7 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
     const progress = frames.length ? ((index + 1) / frames.length) * 100 : 0;
     const fill = byId("progressFill");
     if (fill) fill.style.width = progress + "%";
-    if (playBtn) playBtn.textContent = playing ? "Pause" : "Play";
+    updateSpeechButtons();
     renderRoute();
     renderCode(frame);
     renderWarnings(frame);
@@ -667,6 +1264,7 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
 
   function go(next) {
     if (!frames.length) return;
+    stopSpeech(true);
     index = Math.max(0, Math.min(frames.length - 1, next));
     render();
   }
@@ -675,7 +1273,28 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
   byId("nextBtn")?.addEventListener("click", () => go(index + 1));
   playBtn?.addEventListener("click", () => {
     playing = !playing;
+    if (!playing) stopSpeech(true);
     render();
+  });
+  speakBtn?.addEventListener("click", () => {
+    if (speechState === "speaking") pauseSpeech();
+    else if (speechState === "paused") resumeSpeech();
+    else if (speechState === "loading") stopSpeech(true);
+    else startSpeech(false);
+  });
+  ttsSettingsBtn?.addEventListener("click", () => {
+    if (!ttsPanel) return;
+    ttsPanel.hidden = !ttsPanel.hidden;
+  });
+  byId("saveTtsBtn")?.addEventListener("click", () => {
+    saveTtsSettings(readTtsForm());
+    setTtsStatus("TTS settings saved for this browser.");
+    stopSpeech(false);
+    if (playing) render();
+  });
+  byId("clearTtsKeysBtn")?.addEventListener("click", () => {
+    saveTtsSettings({ ...readTtsForm(), openAiApiKey: "", elevenLabsApiKey: "" });
+    setTtsStatus("Hosted API keys cleared from this browser.");
   });
   window.addEventListener("keydown", (event) => {
     if (event.key === "ArrowLeft") go(index - 1);
@@ -683,9 +1302,11 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
     if (event.key === " ") {
       event.preventDefault();
       playing = !playing;
+      if (!playing) stopSpeech(true);
       render();
     }
   });
+  syncTtsForm();
   render();
 })();
 </script>

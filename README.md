@@ -92,7 +92,8 @@ and served by the extension at `/skill.md?token=...`.
 - Keyboard navigation with `Alt+Left`, `Alt+Right`, and `Alt+P`.
 - Optional narration via system speech, local Kokoro, macOS/Linux command TTS,
   ElevenLabs, or OpenAI TTS.
-- Export to Markdown, JSON, or standalone animated HTML; import JSON tours; and
+- Export to Markdown, JSON, or standalone animated HTML with browser playback,
+  embedded code/diff frames, and standalone TTS controls; import JSON tours; and
   save team-shared tours in `.repotrail/`.
 - Per-workspace resume from `~/.repotrail/tours/`.
 
@@ -134,6 +135,19 @@ pnpm install-local
 
 The primary validation gate is `pnpm build`. The packaged VSIX is installed
 locally with `pnpm install-local`.
+
+## Animated HTML Export
+
+`RepoTrail: Export Tour` -> `Animated HTML (.html)` writes a standalone browser
+player for the active tour. The file embeds the tour route, narration, bounded
+code snapshots, and diff frames, so it can be opened outside VS Code or shared as
+a single artifact.
+
+The exported player includes Back/Next, Play, Speak, and TTS settings. It carries
+non-secret VS Code TTS defaults such as provider, model, and voice. API keys are
+not embedded; hosted OpenAI or ElevenLabs speech requires entering a key in the
+browser, where it is stored only in that browser's local storage. Command-based
+voices such as macOS `say` cannot run from a browser page.
 
 ## Limitations
 
