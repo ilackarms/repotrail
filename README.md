@@ -92,8 +92,8 @@ and served by the extension at `/skill.md?token=...`.
 - Keyboard navigation with `Alt+Left`, `Alt+Right`, and `Alt+P`.
 - Optional narration via system speech, local Kokoro, macOS/Linux command TTS,
   ElevenLabs, or OpenAI TTS.
-- Export to Markdown or JSON, import JSON tours, and save team-shared tours in
-  `.repotrail/`.
+- Export to Markdown, JSON, or standalone animated HTML; import JSON tours; and
+  save team-shared tours in `.repotrail/`.
 - Per-workspace resume from `~/.repotrail/tours/`.
 
 ## Security And Privacy
@@ -117,7 +117,9 @@ See [PRIVACY.md](PRIVACY.md) for the longer policy.
   fetch the hosted RepoTrail skill and how to connect MCP.
 - `RepoTrail: Copy Tour From Here Prompt` - copy a prompt scoped to the active
   file or selection.
-- `RepoTrail: Export Tour` / `RepoTrail: Import Tour`.
+- `RepoTrail: Export Tour` - export Markdown, re-importable JSON, or a
+  browser-playable animated HTML walkthrough.
+- `RepoTrail: Import Tour`.
 - `RepoTrail: Save Tour to Repo (.repotrail/)`.
 - `RepoTrail: Resume Saved Tour` / `RepoTrail: Delete Saved Tour`.
 

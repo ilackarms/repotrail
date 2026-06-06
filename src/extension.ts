@@ -1,7 +1,15 @@
 import * as vscode from "vscode";
 import {
   formatStepPath,
+  TourPlan,
+  TourStep,
 } from "./engine/types";
+import {
+  AnimatedTourCodeFrame,
+  AnimatedTourFrame,
+  buildAnimatedDiffFrame,
+  planToAnimatedHtml,
+} from "./engine/animatedHtml";
 import {
   parseTourJson,
   planToJson,
@@ -21,11 +29,15 @@ import {
   firstWorkspaceRoot,
   hasWorkspaceFolders,
   relativePathInWorkspace,
+  resolveStepUri,
 } from "./workspace";
 
 let mcp: RepoTrailMcpServer | null = null;
 let statusItem: vscode.StatusBarItem | null = null;
 let tourStatusItem: vscode.StatusBarItem | null = null;
+
+const ANIMATED_EXPORT_CONTEXT_LINES = 2;
+const ANIMATED_EXPORT_MAX_CODE_LINES = 80;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const log = vscode.window.createOutputChannel("RepoTrail");
@@ -401,6 +413,11 @@ async function exportActiveTour(controller: TourController, log: vscode.OutputCh
       { label: "Markdown (.md)", description: "Readable walkthrough to share or commit", value: "md" },
       { label: "JSON (.json)", description: "Re-importable — replay this tour later or elsewhere", value: "json" },
       {
+        label: "Animated HTML (.html)",
+        description: "Standalone browser player with embedded code/diff snapshots",
+        value: "html",
+      },
+      {
         label: `Save to repo (${REPO_TOURS_DIR}/)`,
         description: "Commit it so teammates see it in their Start tab",
         value: "repo",
@@ -417,9 +434,16 @@ async function exportActiveTour(controller: TourController, log: vscode.OutputCh
 
   const exportedAt = new Date().toISOString();
   const isJson = fmt.value === "json";
-  const content = isJson
-    ? planToJson(snap.plan, exportedAt)
-    : planToMarkdown(snap.plan, exportedAt);
+  const isHtml = fmt.value === "html";
+  const content = isHtml
+    ? planToAnimatedHtml({
+        plan: snap.plan,
+        exportedAt,
+        frames: await buildAnimatedTourFrames(snap.plan, log),
+      })
+    : isJson
+      ? planToJson(snap.plan, exportedAt)
+      : planToMarkdown(snap.plan, exportedAt);
   const base = slugForFilename(snap.plan.title);
   const rootPath = firstWorkspaceRoot();
   const root = rootPath ? vscode.Uri.file(rootPath) : undefined;
@@ -429,7 +453,7 @@ async function exportActiveTour(controller: TourController, log: vscode.OutputCh
 
   const target = await vscode.window.showSaveDialog({
     defaultUri,
-    filters: isJson ? { "RepoTrail tour": ["json"] } : { Markdown: ["md"] },
+    filters: isHtml ? { HTML: ["html"] } : isJson ? { "RepoTrail tour": ["json"] } : { Markdown: ["md"] },
   });
   if (!target) return;
   try {
@@ -439,13 +463,140 @@ async function exportActiveTour(controller: TourController, log: vscode.OutputCh
       "Open",
     );
     if (open === "Open") {
-      const doc = await vscode.workspace.openTextDocument(target);
-      await vscode.window.showTextDocument(doc, { preview: false });
+      if (isHtml) {
+        await vscode.env.openExternal(target);
+      } else {
+        const doc = await vscode.workspace.openTextDocument(target);
+        await vscode.window.showTextDocument(doc, { preview: false });
+      }
     }
   } catch (err) {
     log.appendLine(`[export] failed: ${err instanceof Error ? err.message : String(err)}`);
     vscode.window.showErrorMessage("RepoTrail: export failed (see Output ▸ RepoTrail).");
   }
+}
+
+async function buildAnimatedTourFrames(
+  plan: TourPlan,
+  log: vscode.OutputChannel,
+): Promise<AnimatedTourFrame[]> {
+  const frames: AnimatedTourFrame[] = [];
+  for (let i = 0; i < plan.steps.length; i++) {
+    frames.push(await buildAnimatedTourFrame(plan.steps[i], i, log));
+  }
+  return frames;
+}
+
+async function buildAnimatedTourFrame(
+  step: TourStep,
+  index: number,
+  log: vscode.OutputChannel,
+): Promise<AnimatedTourFrame> {
+  const warnings: string[] = [];
+  const code = await snapshotStepCode(step, warnings, log);
+  const shouldRenderDiff = Boolean(step.diff && step.viewMode !== "code");
+  const diff =
+    step.diff && shouldRenderDiff
+      ? buildAnimatedDiffFrame({
+          beforeText: step.diff.beforeText,
+          afterText: step.diff.afterText ?? code?.text ?? "",
+          beforeLabel: step.diff.beforeLabel,
+          afterLabel: step.diff.afterLabel,
+          languageId: step.diff.languageId ?? code?.languageId,
+        })
+      : undefined;
+  if (diff?.truncated) {
+    warnings.push("Diff snapshot was trimmed for a compact shareable export.");
+  }
+
+  return {
+    index,
+    title: step.title,
+    location: stepLocationLabel(step),
+    explanation: step.explanation,
+    viewLabel: diff ? "Diff" : "Code",
+    code,
+    diff,
+    warnings,
+  };
+}
+
+async function snapshotStepCode(
+  step: TourStep,
+  warnings: string[],
+  log: vscode.OutputChannel,
+): Promise<AnimatedTourCodeFrame | undefined> {
+  let uri: vscode.Uri | null;
+  try {
+    uri = resolveStepUri(step);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    warnings.push(`Could not resolve workspace target: ${detail}`);
+    return undefined;
+  }
+  if (!uri) {
+    warnings.push("The workspace file for this stop is not open in this VS Code window.");
+    return undefined;
+  }
+
+  let doc: vscode.TextDocument;
+  try {
+    doc = await vscode.workspace.openTextDocument(uri);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    log.appendLine(`[export:animated] open failed for ${formatStepPath(step)}: ${detail}`);
+    warnings.push("Could not read the workspace file for this stop.");
+    return undefined;
+  }
+
+  if (doc.lineCount === 0) {
+    return {
+      text: "",
+      startLine: 1,
+      languageId: doc.languageId,
+    };
+  }
+
+  const focusStart = step.range ? clamp(step.range.startLine - 1, 0, doc.lineCount - 1) : 0;
+  const focusEnd = step.range ? clamp(step.range.endLine - 1, focusStart, doc.lineCount - 1) : 0;
+  let start = step.range
+    ? Math.max(0, focusStart - ANIMATED_EXPORT_CONTEXT_LINES)
+    : 0;
+  let end = step.range
+    ? Math.min(doc.lineCount - 1, focusEnd + ANIMATED_EXPORT_CONTEXT_LINES)
+    : Math.min(doc.lineCount - 1, ANIMATED_EXPORT_MAX_CODE_LINES - 1);
+
+  if (end - start + 1 > ANIMATED_EXPORT_MAX_CODE_LINES) {
+    end = start + ANIMATED_EXPORT_MAX_CODE_LINES - 1;
+  }
+  const truncated = start > 0 || end < doc.lineCount - 1;
+  const lines: string[] = [];
+  for (let line = start; line <= end; line++) {
+    lines.push(doc.lineAt(line).text);
+  }
+  if (truncated) {
+    warnings.push("Code snapshot was trimmed around the tour range.");
+  }
+
+  return {
+    text: lines.join(doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n"),
+    startLine: start + 1,
+    highlightStartLine: step.range ? focusStart + 1 : undefined,
+    highlightEndLine: step.range ? focusEnd + 1 : undefined,
+    languageId: doc.languageId,
+    truncated,
+  };
+}
+
+function stepLocationLabel(step: TourStep): string {
+  const target = formatStepPath(step);
+  if (!step.range) return target;
+  const { startLine, endLine } = step.range;
+  return startLine === endLine ? `${target}:${startLine}` : `${target}:${startLine}-${endLine}`;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 /** Import a previously-exported JSON tour and load it as a fresh tour. */
