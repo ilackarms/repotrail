@@ -45,6 +45,7 @@ let tourStatusItem: vscode.StatusBarItem | null = null;
 
 const ANIMATED_EXPORT_CONTEXT_LINES = 2;
 const ANIMATED_EXPORT_MAX_CODE_LINES = 80;
+const WORKSPACE_REGISTRY_DIR_DISPLAY = "~/.repotrail/workspaces";
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const log = vscode.window.createOutputChannel("RepoTrail");
@@ -330,9 +331,13 @@ function buildTourAuthoringPrompt(): string {
   );
 
   return [
-    "Create a RepoTrail tour for this VS Code workspace.",
+    "Use the repo-trail skill. Create a RepoTrail tour for this VS Code workspace.",
+    "",
+    "Mode: existing VS Code workspace. The target roots are already open below.",
     "",
     "RepoTrail is file-first: write one complete JSON tour file into the owning project's .repotrail/ directory. Do not build the tour by making sequential start_tour/add_step MCP calls.",
+    "",
+    `If the user instead asks you to create a new RepoTrail workspace, save the .code-workspace under ${WORKSPACE_REGISTRY_DIR_DISPLAY}/, open it in VS Code if possible, and still write tours into repo-local .repotrail/ directories.`,
     "",
     "Open workspace roots:",
     rootLines || "- No workspace roots detected. Ask the user to open the target project in VS Code.",
@@ -955,7 +960,7 @@ async function tourFromHere(): Promise<void> {
     ? `the selected code in ${targetLabel} (lines ${sel.start.line + 1}–${sel.end.line + 1})`
     : targetLabel;
   const prompt =
-    `Give me a RepoTrail tour starting from ${scope}. ` +
+    `Use the repo-trail skill. Give me a RepoTrail tour starting from ${scope}. ` +
     `Walk through what it does and how it connects to the rest of the codebase, ` +
     `then write the complete tour as JSON under the owning project's ${REPO_TOURS_DIR}/ directory. ` +
     `Use root aliases for multi-root tours and do not build the tour through step-by-step MCP calls.`;
@@ -975,10 +980,11 @@ async function copyAgentSetup(): Promise<void> {
           `- bootstrap metadata: ${mcp.bootstrapUrl}`,
           `- current skill text: ${mcp.skillUrl}`,
           `- MCP helper URL for get_workspace/open-state only: ${mcp.connectionUrl}`,
+          `- new workspace registry: ${WORKSPACE_REGISTRY_DIR_DISPLAY}/`,
           "",
           "Use MCP only for workspace discovery or live playback helpers. Do not build the tour by calling start_tour/add_step repeatedly.",
         ].join("\n")
-      : "\nMCP helpers are not available in this window. Use the workspace roots listed above and write the JSON file directly.";
+      : `\nMCP helpers are not available in this window. Use the workspace roots listed above and write the JSON file directly. For new workspaces, save .code-workspace files under ${WORKSPACE_REGISTRY_DIR_DISPLAY}/.`;
   const prompt = `${buildTourAuthoringPrompt()}\n${helperLines}`;
   await vscode.env.clipboard.writeText(prompt);
   vscode.window.showInformationMessage("Copied RepoTrail file-authoring setup. Paste it into your agent.");

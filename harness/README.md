@@ -10,6 +10,38 @@ The single skill source lives in `harness/repo-trail/SKILL.md` and is served at
 `/skill.md?token=<token>`. The agent or harness owns installation: fetch that
 URL and install or apply the instructions using its own skill mechanism.
 
+## Supported Modes
+
+RepoTrail has two supported harness modes.
+
+### Existing VS Code Workspace
+
+Use this when the user already has the target roots open in VS Code.
+
+1. Open the target workspace in VS Code.
+2. Click **Agent setup** in the RepoTrail sidebar, or run
+   **RepoTrail: Copy Agent Setup**.
+3. Paste the copied setup into the agent.
+4. The agent reads the open roots and writes
+   `<owning-project>/.repotrail/<slug>.json`.
+
+### Agent-Created Workspace
+
+Use this when the user wants an agent to prepare the review or tour workspace.
+
+1. The agent checks out or reuses the needed repo roots/worktrees.
+2. The agent writes
+   `~/.repotrail/workspaces/<workspace-slug>.code-workspace`.
+3. The agent optionally writes
+   `~/.repotrail/workspaces/<workspace-slug>.manifest.json` with roots and tour
+   file paths.
+4. The agent opens the workspace with `code <workspace-file>` when available.
+5. The agent writes the tour JSON to the owning repo's `.repotrail/`
+   directory.
+
+The global workspace directory stores launch files and manifests only. Tours
+remain repo-local so they are easy to inspect, refresh, copy, commit, or delete.
+
 ## Optional Connection
 
 Open the target workspace in VS Code and click **Agent setup** in the
@@ -32,10 +64,9 @@ The MCP server:
   `Accept: application/json, text/event-stream`;
 - writes live connection metadata to `~/.repotrail/ports.json`.
 
-## Required Workflow
+## Required Tour Workflow
 
-1. Verify the repository the agent is analyzing is open in VS Code. Use
-   `get_workspace` only when the optional MCP helper is available and useful.
+1. Pick existing-workspace mode or agent-created-workspace mode.
 2. Read the repo before choosing stops.
 3. Write one complete tour file to `<owning-project>/.repotrail/<slug>.json`.
 4. Stop and let the user open the tour from the RepoTrail sidebar.
@@ -43,6 +74,42 @@ The MCP server:
 For deepening or follow-up requests, edit the owning `.repotrail/*.json` file or
 write a revised copy. The legacy MCP mutation tools remain available for live
 experiments, but committed tours should be JSON files.
+
+## Workspace Files
+
+Workspace files are ordinary VS Code workspaces:
+
+```json
+{
+  "folders": [
+    { "name": "project-pr-123", "path": "/absolute/path/to/project-pr-123" },
+    { "name": "dependency-pr-456", "path": "/absolute/path/to/dependency-pr-456" }
+  ],
+  "settings": {
+    "repoTrail.mcpEnabled": true
+  }
+}
+```
+
+Manifests are optional convenience records for agents and users:
+
+```json
+{
+  "repoTrailWorkspace": 1,
+  "createdAt": "2026-06-09T00:00:00.000Z",
+  "title": "Project PR review",
+  "workspaceFile": "project-pr-review.code-workspace",
+  "roots": [
+    { "name": "project-pr-123", "path": "/absolute/path/to/project-pr-123" }
+  ],
+  "tours": [
+    {
+      "root": "project-pr-123",
+      "path": "/absolute/path/to/project-pr-123/.repotrail/pr-walkthrough.json"
+    }
+  ]
+}
+```
 
 ## Tools
 

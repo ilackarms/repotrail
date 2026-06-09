@@ -14,16 +14,21 @@ CodeLens, and the sidebar.
 RepoTrail has one supported generation path: an external agent writes a complete
 tour JSON file.
 
-1. Open one or more project roots in VS Code.
-2. Ask your agent to read the repo and write `.repotrail/<tour>.json` in the
-   owning project.
-3. RepoTrail refreshes its sidebar library from the filesystem.
-4. Open the tour and navigate locally in VS Code.
+You can use it two ways:
+
+1. Existing workspace: open one or more project roots in VS Code, then ask your
+   agent to write `.repotrail/<tour>.json` in the owning project.
+2. Agent-created workspace: ask your agent to check out the needed repos or
+   worktrees, save a `.code-workspace` under `~/.repotrail/workspaces/`, open it
+   in VS Code, and write the tour JSON into the owning project.
+
+RepoTrail refreshes its sidebar library from the filesystem. Open the tour and
+navigate locally in VS Code.
 
 The extension does not ship a built-in LLM provider and does not send source
 code to a hosted service by itself.
 
-## Author A Tour
+## Author A Tour In The Current Workspace
 
 After installing the extension, open the target workspace in VS Code, open the
 RepoTrail sidebar, and click **Copy authoring prompt**. Paste that prompt into
@@ -47,10 +52,32 @@ fetch:
 Then ask:
 
 ```text
-Give me a RepoTrail tour of this repository.
+Use the repo-trail skill. Create a RepoTrail tour for the current VS Code workspace. Read the repo, then write one complete JSON tour into the owning project's .repotrail/ directory. Do not build it through sequential MCP calls.
 ```
 
 ![RepoTrail MCP setup](media/mcp-setup.png)
+
+## Create A New RepoTrail Workspace
+
+If you want the agent to set up the workspace too, install or paste the
+`repo-trail` skill and ask:
+
+```text
+Use the repo-trail skill. Create a RepoTrail workspace for <repo or PR>. Check out any needed non-destructive worktrees, save the .code-workspace under ~/.repotrail/workspaces, open it in VS Code if possible, then write a RepoTrail JSON tour into the owning repo's .repotrail/ directory.
+```
+
+The global workspace directory is only a launch registry:
+
+```text
+~/.repotrail/workspaces/<workspace-slug>.code-workspace
+~/.repotrail/workspaces/<workspace-slug>.manifest.json
+```
+
+Tours still live in the project that owns them:
+
+```text
+<project>/.repotrail/<tour>.json
+```
 
 ## Tour JSON Files
 
@@ -82,6 +109,8 @@ work.
   ElevenLabs, or OpenAI TTS.
 - Repository tour library backed by `.repotrail/*.json` across every open
   workspace root.
+- Agent-created VS Code workspace flow backed by
+  `~/.repotrail/workspaces/*.code-workspace`.
 - Non-destructive migration from compatible old saved tours in
   `~/.repotrail/tours/` into repo-local `.repotrail/*.json` files.
 - Export to Markdown, JSON, or standalone animated HTML with browser playback,

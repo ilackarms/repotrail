@@ -21,6 +21,7 @@ import {
 
 const PORT_REGISTRY_DIR = path.join(os.homedir(), ".repotrail");
 const PORT_REGISTRY_FILE = path.join(PORT_REGISTRY_DIR, "ports.json");
+const WORKSPACE_REGISTRY_DIR = path.join(PORT_REGISTRY_DIR, "workspaces");
 const MAX_BODY_BYTES = 1024 * 1024;
 
 /**
@@ -618,23 +619,31 @@ export class RepoTrailMcpServer {
           },
         },
       },
-	      tourFiles: {
-	        directory: ".repotrail",
-	        schemaVersion: 2,
-	        preferredWorkflow:
-	          "Write one complete JSON tour file into the owning project's .repotrail/ directory. RepoTrail refreshes the library from the filesystem.",
-	        rootAddressing:
-	          "For multi-root tours, define plan.roots aliases and set step.root instead of repeating workspaceFolder on every step.",
-	      },
-	      workflow: [
-	        "Fetch the repo-trail skill and install or use it with the agent's own skill mechanism before generating a tour.",
-	        "Call get_workspace only if you need to verify open roots or file lists.",
-	        "Read the repo before choosing stops.",
-	        "Write the complete JSON tour to <owning-project>/.repotrail/<slug>.json.",
-	        "Tell the user the path. Do not build normal tours through sequential start_tour/add_step calls.",
-	      ],
-	    });
-	  }
+      workspaceRegistry: {
+        directory: WORKSPACE_REGISTRY_DIR,
+        workspaceFilePattern: "<workspace-slug>.code-workspace",
+        manifestFilePattern: "<workspace-slug>.manifest.json",
+        purpose:
+          "Agents may save VS Code workspace launch files here when creating a new RepoTrail workspace. Tours still belong in repo-local .repotrail/ directories.",
+      },
+      tourFiles: {
+        directory: ".repotrail",
+        schemaVersion: 2,
+        preferredWorkflow:
+          "Write one complete JSON tour file into the owning project's .repotrail/ directory. RepoTrail refreshes the library from the filesystem.",
+        rootAddressing:
+          "For multi-root tours, define plan.roots aliases and set step.root instead of repeating workspaceFolder on every step.",
+      },
+      workflow: [
+        "Fetch the repo-trail skill and install or use it with the agent's own skill mechanism before generating a tour.",
+        "For an existing VS Code workspace, call get_workspace only if you need to verify open roots or file lists.",
+        "For a new RepoTrail workspace, create or reuse non-destructive worktrees, save a .code-workspace under the workspaceRegistry directory, and open it in VS Code if possible.",
+        "Read the repo before choosing stops.",
+        "Write the complete JSON tour to <owning-project>/.repotrail/<slug>.json.",
+        "Tell the user the workspace file path when one was created and the tour file path. Do not build normal tours through sequential start_tour/add_step calls.",
+      ],
+    });
+  }
 }
 
 type RegistryEntry = {
