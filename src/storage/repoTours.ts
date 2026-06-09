@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { parseTourJson } from "../engine/tourSerialize";
@@ -41,6 +42,10 @@ export interface RepoTourSummary {
 
 function dir(workspaceRoot: string): string {
   return path.join(workspaceRoot, REPO_TOURS_DIR);
+}
+
+function tmpPathFor(file: string): string {
+  return `${file}.tmp-${process.pid}-${Date.now()}-${randomBytes(6).toString("hex")}`;
 }
 
 export async function listRepoTours(roots: RepoTourRoot[]): Promise<RepoTourSummary[]> {
@@ -106,7 +111,7 @@ export async function saveRepoTour(
   await fs.mkdir(d, { recursive: true });
   const safe = path.basename(slug).replace(/\.json$/i, "") || "tour";
   const file = path.join(d, `${safe}.json`);
-  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+  const tmp = tmpPathFor(file);
   await fs.writeFile(tmp, content, "utf8");
   await fs.rename(tmp, file);
   return file;
@@ -124,7 +129,7 @@ export async function saveRepoTourUnique(
     const suffix = i === 0 ? "" : `-${i + 1}`;
     const file = path.join(d, `${base}${suffix}.json`);
     if (await exists(file)) continue;
-    const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+    const tmp = tmpPathFor(file);
     await fs.writeFile(tmp, content, "utf8");
     await fs.rename(tmp, file);
     return file;

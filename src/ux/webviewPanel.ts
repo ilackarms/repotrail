@@ -178,7 +178,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
             }
             if (msg.audioFailed) {
               const detail = msg.autoplayBlocked
-                ? "the sidebar blocked audio autoplay. Tell me and I'll route playback through an unlocked AudioContext."
+                ? "the sidebar could not unlock audio playback from the Speak click. See the RepoTrail output log."
                 : "the audio could not be played in the sidebar. See the RepoTrail output log.";
               void vscode.window
                 .showWarningMessage(`RepoTrail: ${detail}`, "Show Log")
@@ -706,10 +706,17 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     //   tts.speak engine=kokoro  -> local Kokoro-82M neural voice (WASM)
     //   tts.audio                -> MP3 bytes from a hosted provider (ElevenLabs/OpenAI)
     // speakToken invalidates stale audio when a new request or cancel arrives, so
-    // we never play an old utterance over a newer step. Pause/resume act on the
-    // live SpeechSynthesis queue or <audio> element without a host round-trip.
+    // we never play an old utterance over a newer step. Hosted MP3/WAV playback
+    // uses an AudioContext unlocked by the Speak click, because the network
+    // round-trip means the final bytes arrive after browser user activation ends.
     const btn = document.getElementById("playPause");
-    let audioEl = null;
+    let audioEl = null; // Fallback for webviews without AudioContext.
+    let audioCtx = null;
+    let audioSource = null;
+    let audioBuffer = null;
+    let audioStartedAt = 0;
+    let audioOffset = 0;
+    let audioResolve = null;
     let speakToken = 0;
     let mode = null;     // 'synth' | 'audio'
     let state = "idle";  // idle | preparing | playing | paused
@@ -729,25 +736,118 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       );
     }
 
+    function getAudioContext() {
+      const Ctor = window.AudioContext || window.webkitAudioContext;
+      if (!Ctor) return null;
+      if (!audioCtx) audioCtx = new Ctor();
+      return audioCtx;
+    }
+
+    function unlockAudioContext() {
+      try {
+        const ctx = getAudioContext();
+        if (ctx && ctx.state === "suspended") {
+          ctx.resume().catch(() => {});
+        }
+      } catch (e) {}
+    }
+
+    function stopAudioSource() {
+      if (!audioSource) return;
+      const source = audioSource;
+      audioSource = null;
+      source.onended = null;
+      try { source.stop(0); } catch (e) {}
+      try { source.disconnect(); } catch (e) {}
+    }
+
+    function stopAudioPlayback(resolvePending) {
+      stopAudioSource();
+      if (audioEl) { try { audioEl.pause(); } catch (e) {} audioEl = null; }
+      audioBuffer = null;
+      audioStartedAt = 0;
+      audioOffset = 0;
+      const resolve = audioResolve;
+      audioResolve = null;
+      if (resolvePending && resolve) resolve();
+    }
+
+    function pauseAudioPlayback() {
+      if (audioCtx && audioSource) {
+        audioOffset = Math.min(
+          audioBuffer ? audioBuffer.duration : 0,
+          audioOffset + Math.max(0, audioCtx.currentTime - audioStartedAt),
+        );
+        stopAudioSource();
+      }
+      if (audioEl) { try { audioEl.pause(); } catch (e) {} }
+    }
+
+    async function resumeAudioPlayback() {
+      if (audioBuffer) {
+        await startAudioBuffer(speakToken);
+      } else if (audioEl) {
+        await audioEl.play();
+        setState("playing");
+      } else {
+        setState("idle");
+      }
+    }
+
+    async function startAudioBuffer(token) {
+      const ctx = getAudioContext();
+      if (!ctx || !audioBuffer) throw new Error("AudioContext unavailable");
+      if (ctx.state === "suspended") await ctx.resume();
+      if (token !== speakToken || !audioBuffer) return;
+
+      stopAudioSource();
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      audioSource = source;
+      mode = "audio";
+      audioStartedAt = ctx.currentTime;
+      const maxOffset = Math.max(0, audioBuffer.duration - 0.01);
+      const offset = Math.max(0, Math.min(audioOffset, maxOffset));
+      source.onended = () => {
+        if (audioSource === source) audioSource = null;
+        if (token !== speakToken) return;
+        audioStartedAt = 0;
+        audioOffset = 0;
+        const resolve = audioResolve;
+        audioResolve = null;
+        audioBuffer = null;
+        if (resolve) resolve();
+      };
+      source.start(0, offset);
+      setState("playing");
+    }
+
     function stopAll() {
       speakToken++;
       try { window.speechSynthesis?.cancel(); } catch (e) {}
-      if (audioEl) { try { audioEl.pause(); } catch (e) {} audioEl = null; }
+      stopAudioPlayback(true);
       mode = null;
     }
 
     btn?.addEventListener("click", () => {
       if (state === "idle") {
+        unlockAudioContext();
         setState("preparing");
         send({ type: "speakCurrent" });
       } else if (state === "playing") {
         if (mode === "synth") { try { window.speechSynthesis?.pause(); } catch (e) {} }
-        else if (audioEl) { try { audioEl.pause(); } catch (e) {} }
+        else pauseAudioPlayback();
         setState("paused");
       } else if (state === "paused") {
         if (mode === "synth") { try { window.speechSynthesis?.resume(); } catch (e) {} setState("playing"); }
-        else if (audioEl) { audioEl.play().then(() => setState("playing")).catch(() => { stopAll(); setState("idle"); }); }
-        else setState("idle");
+        else {
+          resumeAudioPlayback().catch((e) => {
+            reportAudioFailure("resume failed: " + ((e && e.message) || e), false);
+            stopAll();
+            setState("idle");
+          });
+        }
       } else if (state === "preparing") {
         stopAll();
         setState("idle");
@@ -796,6 +896,32 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     // button to 'playing' only once sound actually starts, so the label reflects
     // reality rather than intent.
     function playBlob(blob, token) {
+      const ctx = getAudioContext();
+      if (!ctx) return playBlobWithElement(blob, token);
+
+      return new Promise((resolve) => {
+        if (token !== speakToken) { resolve(); return; }
+        blob.arrayBuffer()
+          .then((bytes) => ctx.decodeAudioData(bytes))
+          .then((decoded) => {
+            if (token !== speakToken) { resolve(); return; }
+            stopAudioPlayback(true);
+            audioBuffer = decoded;
+            audioOffset = 0;
+            audioResolve = resolve;
+            return startAudioBuffer(token);
+          })
+          .catch((e) => {
+            const detail = (e && (e.message || String(e))) || "unknown audio error";
+            console.error("[repotrail tts] audio context playback failed", e);
+            reportAudioFailure("audio context failed: " + detail, /gesture|activation|suspended|notallowed/i.test(detail));
+            stopAudioPlayback(true);
+            resolve();
+          });
+      });
+    }
+
+    function playBlobWithElement(blob, token) {
       return new Promise((resolve) => {
         if (token !== speakToken) { resolve(); return; }
         const url = URL.createObjectURL(blob);

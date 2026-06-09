@@ -54,7 +54,7 @@ export async function saveTour(record: TourRecord): Promise<void> {
   // Atomic write: tmp file + rename. fs.writeFile uses O_TRUNC which exposes
   // a half-written file mid-flight; if listTours reads during that window
   // JSON.parse fails and the record vanishes from the resume list.
-  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+  const tmp = `${file}.tmp-${process.pid}-${Date.now()}-${crypto.randomBytes(6).toString("hex")}`;
   await fs.writeFile(tmp, JSON.stringify(record, null, 2), "utf8");
   await fs.rename(tmp, file);
 }
