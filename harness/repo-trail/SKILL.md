@@ -159,6 +159,27 @@ If a request spans multiple repos, write the tour into the repo that owns the
 story. Reference the other open roots with `plan.roots` aliases and each step's
 `root` field.
 
+## Presentation Mode Decision
+
+Most RepoTrail requests are reviews of a PR, multiple PRs, a commit, multiple
+commits, a branch comparison, or another explicit window of changes. Treat those
+as change-review tours:
+
+- Use `kind: "pr-diff"` unless the user clearly requested a different kind.
+- Every changed-code stop must be diff-backed with `viewMode: "diff"` and
+  `diff.beforeText`.
+- Omit `diff.afterText` when the current `file` plus `range` is the right side
+  of the diff.
+- Do not fall back to highlight-only changed-code stops because the base text
+  takes effort to find. Inspect the base branch, PR diff, commit, or `git show`
+  output and build a focused hunk.
+
+Use highlight-only `viewMode: "code"` only when the user asks for a tour of the
+codebase itself, a file, a subsystem, a request path, or architecture unrelated
+to any window of changes. A change-review tour may include a small number of
+highlight-only orientation/context stops, but stops that review changed code
+must be diffs.
+
 ## Workspace Orchestration Rules
 
 - Keep workspace creation simple: a `.code-workspace` file with named absolute
@@ -182,7 +203,7 @@ story. Reference the other open roots with `plan.roots` aliases and each step's
 Current workspace:
 
 ```text
-Use the repo-trail skill. Create a RepoTrail tour for the current VS Code workspace. Read the repo, then write one complete JSON tour into the owning project's .repotrail/ directory. Do not build it through sequential MCP calls.
+Use the repo-trail skill. Create a RepoTrail tour for the current VS Code workspace. Read the repo, then write one complete JSON tour into the owning project's .repotrail/ directory. If this is about a PR, commit, branch comparison, diff, or changes, use diff-backed changed-code stops. Use highlight-only stops only for codebase/subsystem tours unrelated to a change window. Do not build it through sequential MCP calls.
 ```
 
 New workspace:
@@ -194,7 +215,7 @@ Use the repo-trail skill. Create a RepoTrail workspace for <repo or PR>. Check o
 PR walkthrough:
 
 ```text
-Use the repo-trail skill. Create a PR walkthrough tour for <PR URL>. Prepare a VS Code workspace if needed, use diff steps for the meaningful changes, and save the tour as .repotrail/pr-walkthrough.json in the repo that owns the PR.
+Use the repo-trail skill. Create a PR walkthrough tour for <PR URL>. Prepare a VS Code workspace if needed, use diff-backed stops for the meaningful changed hunks, and save the tour as .repotrail/pr-walkthrough.json in the repo that owns the PR.
 ```
 
 ## JSON Format
@@ -233,10 +254,12 @@ the envelope keeps schema version and export time explicit.
 - Split explanations that say "first, then, then" into separate steps.
 - Keep ranges tight and 1-indexed. If you did not read the file, do not invent
   a range.
-- For PR/diff tours, prefer `viewMode: "diff"` with `diff.beforeText` so the
-  user gets one compact native VS Code diff instead of separate source and diff
-  panes. Use `viewMode: "code"` only when the highlighted source is clearer than
-  the diff.
+- For PRs, commits, branch comparisons, and other change-review tours, use
+  `viewMode: "diff"` with `diff.beforeText` for changed-code stops so the user
+  gets one compact native VS Code diff instead of a highlight-only code view.
+- Use highlight-only `viewMode: "code"` only for codebase/subsystem tours
+  unrelated to a change window, or for optional orientation/context stops that
+  are not reviewing a changed hunk.
 - `diff.beforeText` is the previous/base text for the left side. `diff.afterText`
   is optional; omit it when the current selected lines in `file`/`range` are the
   right side. Keep both sides to a focused hunk unless full-file context is

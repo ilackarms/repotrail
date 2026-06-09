@@ -127,9 +127,15 @@ Use workspace-relative forward-slash paths. In multi-root windows, set
 for older tours. Absolute paths, empty paths, and paths containing `..` are
 rejected.
 
-For PR/diff walkthroughs, steps may include `viewMode: "code" | "diff" |
-"both"` and `diff: { beforeText, afterText?, beforeLabel?, afterLabel?,
-languageId? }`. Diff-backed steps default to `viewMode: "diff"`; legacy `both`
-inputs render compactly as diff-only so tours do not open separate source and
-diff panes. `afterText` can be omitted when the current selected lines are the
-right side of the diff.
+For PRs, commits, branch comparisons, and other explicit windows of changes,
+changed-code stops should be diff-backed with `viewMode: "diff"` and
+`diff: { beforeText, afterText?, beforeLabel?, afterLabel?, languageId? }`.
+Diff-backed steps default to `viewMode: "diff"`; legacy `both` inputs render
+compactly as diff-only so tours do not open separate source and diff panes.
+`afterText` can be omitted when the current selected lines are the right side of
+the diff.
+
+Highlight-only `viewMode: "code"` stops are for codebase, file, subsystem,
+request-path, or architecture tours unrelated to a window of changes. A
+change-review tour may include highlight-only orientation/context stops, but
+stops that review changed code should be diffs.

@@ -633,12 +633,19 @@ export class RepoTrailMcpServer {
           "Write one complete JSON tour file into the owning project's .repotrail/ directory. RepoTrail refreshes the library from the filesystem.",
         rootAddressing:
           "For multi-root tours, define plan.roots aliases and set step.root instead of repeating workspaceFolder on every step.",
+        presentationPolicy: {
+          changeReview:
+            "If the user mentions a PR, PRs, commit, commits, branch comparison, diff, changes, review, or another explicit change window, use kind pr-diff and make every changed-code stop diff-backed with viewMode diff plus diff.beforeText.",
+          highlightOnly:
+            "Use highlight-only viewMode code only for codebase, file, subsystem, request-path, or architecture tours unrelated to a window of changes, plus optional orientation/context stops that do not review changed code.",
+        },
       },
       workflow: [
         "Fetch the repo-trail skill and install or use it with the agent's own skill mechanism before generating a tour.",
         "For an existing VS Code workspace, call get_workspace only if you need to verify open roots or file lists.",
         "For a new RepoTrail workspace, create or reuse non-destructive worktrees, save a .code-workspace under the workspaceRegistry directory, and open it in VS Code if possible.",
         "Read the repo before choosing stops.",
+        "Choose presentation mode from the request: PRs, commits, branch comparisons, diffs, reviews, and explicit change windows use diff-backed changed-code stops; codebase/subsystem tours unrelated to changes may be highlight-only.",
         "Write the complete JSON tour to <owning-project>/.repotrail/<slug>.json.",
         "Tell the user the workspace file path when one was created and the tour file path. Do not build normal tours through sequential start_tour/add_step calls.",
       ],

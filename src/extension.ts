@@ -347,6 +347,12 @@ function buildTourAuthoringPrompt(): string {
     `- For a cross-project tour, write the JSON into the project that owns the story and reference the other open roots through plan.roots plus per-step root aliases.`,
     "- After writing the file, tell the user the path and stop. RepoTrail will refresh its library from the filesystem.",
     "",
+    "Presentation mode decision:",
+    "- If the user mentions a PR, PRs, commit, commits, branch comparison, diff, changes, review, or another explicit change window, create a change-review tour: use kind \"pr-diff\" and make every changed-code stop diff-backed.",
+    "- Changed-code stops in change-review tours use viewMode \"diff\" with diff.beforeText. Omit diff.afterText when the current selected lines in file/range are the right side.",
+    "- Do not fall back to highlight-only changed-code stops because the base text takes effort to find; inspect the base branch, PR diff, commit, or git show output and build a focused hunk.",
+    "- Use highlight-only viewMode \"code\" only for codebase, file, subsystem, request-path, or architecture tours unrelated to a window of changes, plus optional orientation/context stops that do not review changed code.",
+    "",
     "JSON format:",
     "```json",
     example,
@@ -356,7 +362,6 @@ function buildTourAuthoringPrompt(): string {
     "- Read the repo before choosing stops.",
     "- Use workspace-relative forward-slash file paths only.",
     "- Keep ranges tight and 1-indexed.",
-    "- For PR/change tours, use viewMode \"diff\" with diff.beforeText; omit diff.afterText when the current selected lines are the right side.",
     "- Do not use absolute file paths in steps, empty file paths, or paths containing \"..\".",
   ].join("\n");
 }
