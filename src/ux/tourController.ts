@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { DriftStatus, TourPlan, TourStep } from "../engine/types";
 import { newTourId, TourRecord } from "../storage/tourStore";
-import { currentWorkspaceStorageRoot } from "../workspace";
+import { currentWorkspaceStorageRoot, resolveTourPlanRoots } from "../workspace";
 import { checkStepDrift, clearHighlights, executeStep, resetTourEditorLayout } from "./editorActions";
 
 /**
@@ -96,7 +96,7 @@ export class TourController {
    * a fresh id so it persists as its own entry, and lands the user on step 1.
    */
   async loadPlan(plan: TourPlan, workspaceRoot?: string): Promise<void> {
-    this.plan = plan;
+    this.plan = resolveTourPlanRoots(plan);
     this.index = plan.steps.length > 0 ? 0 : -1;
     this.tourId = newTourId();
     this.workspaceRoot = this.resolveWorkspaceRoot(workspaceRoot);
@@ -114,7 +114,7 @@ export class TourController {
 
   /** Load a previously-saved tour back into the controller. */
   async resume(record: TourRecord): Promise<void> {
-    this.plan = record.plan;
+    this.plan = resolveTourPlanRoots(record.plan);
     this.tourId = record.id;
     this.workspaceRoot = record.workspaceRoot;
     this.createdAt = record.createdAt;

@@ -1,19 +1,21 @@
 # RepoTrail Harness Contract
 
-RepoTrail is harness-agnostic. The VS Code extension exposes a local
-Streamable HTTP MCP server and serves a generic skill document from that same
-server; any local agent that can fetch the skill and call MCP can create and
-refine tours.
+RepoTrail is harness-agnostic. The primary artifact is a complete JSON tour
+file under `.repotrail/`. The VS Code extension lists those files, watches them
+for changes, and plays them back. A small local MCP server can still expose
+workspace discovery and legacy live-edit helpers, but normal authoring does not
+require step-by-step MCP calls.
 
 The single skill source lives in `harness/repo-trail/SKILL.md` and is served at
 `/skill.md?token=<token>`. The agent or harness owns installation: fetch that
 URL and install or apply the instructions using its own skill mechanism.
 
-## Connection
+## Optional Connection
 
-Open the target workspace in VS Code and click **Connect agent** in the
+Open the target workspace in VS Code and click **Agent setup** in the
 RepoTrail sidebar, or run **RepoTrail: Copy Agent Setup**. Paste the copied
-setup prompt into your agent. The prompt points the agent at:
+setup prompt into your agent. The prompt includes the open workspace roots, JSON
+schema, and, when enabled, optional helper endpoints:
 
 - `/bootstrap?token=<token>` for machine-readable setup metadata;
 - `/skill.md?token=<token>` for the generic RepoTrail skill;
@@ -32,35 +34,31 @@ The MCP server:
 
 ## Required Workflow
 
-1. Call `get_workspace`.
-2. Verify the repository the agent is analyzing appears in `workspaceFolders`.
-3. Read the repo before choosing stops.
-4. Call `start_tour`.
-5. Add the full route up front with `add_step`.
-6. Call `show_step({ "index": 0 })`.
-7. Stop and let the user navigate locally in VS Code.
+1. Verify the repository the agent is analyzing is open in VS Code. Use
+   `get_workspace` only when the optional MCP helper is available and useful.
+2. Read the repo before choosing stops.
+3. Write one complete tour file to `<owning-project>/.repotrail/<slug>.json`.
+4. Stop and let the user open the tour from the RepoTrail sidebar.
 
-For deepening or follow-up requests, call `get_state`, read the relevant code,
-then use `insert_step`, `update_step`, or `remove_step`.
+For deepening or follow-up requests, edit the owning `.repotrail/*.json` file or
+write a revised copy. The legacy MCP mutation tools remain available for live
+experiments, but committed tours should be JSON files.
 
 ## Tools
 
 | Tool | Use |
 | --- | --- |
-| `get_workspace` | Confirm the VS Code window and inspect bounded file lists for each open workspace folder. |
-| `start_tour` | Initialize a tour with `kind`, `title`, and optional `summary`. |
-| `add_step` | Append a step with `title`, optional `workspaceFolder`, workspace-relative `file`, markdown `explanation`, optional 1-indexed `range`, and optional diff metadata. |
-| `insert_step` | Insert a step at a 0-indexed position, usually after the current stop. |
-| `update_step` | Replace an existing step at a 0-indexed position. |
-| `remove_step` | Delete a step at a 0-indexed position. |
-| `show_step` | Jump the editor to a step. Call once at the end with index 0. |
+| `get_workspace` | Optional helper: confirm the VS Code window and inspect bounded file lists for each open workspace folder. |
+| `start_tour` / `add_step` | Legacy/live helpers only. Prefer `.repotrail/*.json` for normal authoring. |
+| `insert_step` / `update_step` / `remove_step` | Legacy/live helpers for an already-active in-memory tour. Prefer editing the JSON artifact. |
+| `show_step` | Legacy/live helper to jump the editor to a step. |
 | `get_state` | Inspect the active plan and current step. |
 | `end_tour` | Clear the tour only when the user asks. |
 
 Use workspace-relative forward-slash paths. In multi-root windows, set
-`workspaceFolder` to a `get_workspace.workspaceFolders[].workspaceFolder` value
-when the step targets a specific folder. Absolute paths, empty paths, and paths
-containing `..` are rejected.
+`plan.roots` aliases and per-step `root` values. `workspaceFolder` is accepted
+for older tours. Absolute paths, empty paths, and paths containing `..` are
+rejected.
 
 For PR/diff walkthroughs, steps may include `viewMode: "code" | "diff" |
 "both"` and `diff: { beforeText, afterText?, beforeLabel?, afterLabel?,

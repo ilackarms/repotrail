@@ -1,7 +1,7 @@
 {
   "name": "repotrail",
   "displayName": "RepoTrail",
-  "description": "Agent-guided codebase tours in VS Code, driven by a local MCP harness.",
+  "description": "Agent-authored JSON codebase tours in VS Code.",
   "version": "0.10.0",
   "publisher": "repotrail",
   "license": "MIT",
@@ -230,7 +230,7 @@
         "repoTrail.mcpEnabled": {
           "type": "boolean",
           "default": true,
-          "description": "Run a local MCP server so any MCP-capable agent can drive RepoTrail tours."
+          "description": "Run optional local MCP helpers so agents can inspect the open workspace or update live tours. Normal tour authoring uses .repotrail/*.json files."
         },
         "repoTrail.mcpPort": {
           "type": "number",

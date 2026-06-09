@@ -1,7 +1,7 @@
 import * as crypto from "node:crypto";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { TourStep } from "./engine/types";
+import { TourPlan, TourRootRef, TourStep } from "./engine/types";
 
 export interface WorkspaceFolderInfo {
   /** Stable value agents can copy into TourStep.workspaceFolder. */
@@ -116,8 +116,48 @@ export function resolveWorkspaceFolderRef(workspaceFolder?: string): vscode.Work
   return byName.length === 1 ? byName[0] : null;
 }
 
+export function resolveTourRootRef(ref?: TourRootRef): vscode.WorkspaceFolder | null {
+  if (!ref) return null;
+  const directRefs = [ref.workspaceFolder, ref.name, ref.path].filter(
+    (value): value is string => typeof value === "string" && value.trim().length > 0,
+  );
+  for (const value of directRefs) {
+    const folder = resolveWorkspaceFolderRef(value);
+    if (folder) return folder;
+  }
+  return ref.pathHint ? resolveWorkspaceFolderPathHint(ref.pathHint) : null;
+}
+
+export function resolveStepWorkspaceFolder(step: Pick<TourStep, "workspaceFolder" | "root">, plan?: TourPlan): vscode.WorkspaceFolder | null {
+  if (step.workspaceFolder) return resolveWorkspaceFolderRef(step.workspaceFolder);
+  if (step.root && plan?.roots) return resolveTourRootRef(plan.roots[step.root]);
+  if (step.root) return null;
+  return resolveWorkspaceFolderRef();
+}
+
+export function resolveTourPlanRoots(plan: TourPlan): TourPlan {
+  if (!plan.roots) return plan;
+  const folders = currentWorkspaceFolders();
+  if (folders.length === 0) return plan;
+
+  let changed = false;
+  const steps = plan.steps.map((step) => {
+    if (!step.root || step.workspaceFolder) return step;
+    const folder = resolveTourRootRef(plan.roots?.[step.root]);
+    if (!folder) return step;
+    changed = true;
+    return {
+      ...step,
+      workspaceFolder: folders.length > 1 ? workspaceFolderIdentity(folder, folders) : undefined,
+    };
+  });
+
+  return changed ? { ...plan, steps } : plan;
+}
+
 export function resolveStepUri(step: Pick<TourStep, "file" | "workspaceFolder">): vscode.Uri | null {
-  const folder = resolveWorkspaceFolderRef(step.workspaceFolder);
+  const keyedStep = step as Pick<TourStep, "file" | "workspaceFolder" | "root">;
+  const folder = resolveStepWorkspaceFolder(keyedStep);
   if (!folder) return null;
   const file = normalizeWorkspaceFile(step.file);
   return vscode.Uri.joinPath(folder.uri, ...file.split("/"));
@@ -139,6 +179,22 @@ export function relativePathInWorkspace(
 function workspaceFoldersHash(folders: readonly vscode.WorkspaceFolder[]): string {
   const paths = folders.map((f) => f.uri.fsPath).sort().join("\n");
   return crypto.createHash("sha1").update(paths).digest("hex").slice(0, 16);
+}
+
+function resolveWorkspaceFolderPathHint(pathHint: string): vscode.WorkspaceFolder | null {
+  const hint = pathHint.trim().replace(/\\/g, "/").replace(/\/+$/g, "");
+  if (!hint) return null;
+  const folders = currentWorkspaceFolders();
+  const byExactPath = folders.find((f) => sameFsPath(f.uri.fsPath, hint));
+  if (byExactPath) return byExactPath;
+
+  const hintBase = path.basename(hint);
+  const byName = folders.filter((f) => f.name === hint || f.name === hintBase);
+  if (byName.length === 1) return byName[0];
+
+  const suffix = `/${hint}`;
+  const bySuffix = folders.filter((f) => f.uri.fsPath.replace(/\\/g, "/").endsWith(suffix));
+  return bySuffix.length === 1 ? bySuffix[0] : null;
 }
 
 function sameFsPath(a: string, b: string): boolean {

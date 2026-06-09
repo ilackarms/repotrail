@@ -1,4 +1,4 @@
-/** Data contracts shared by the external harness, MCP server, and editor UX. */
+/** Data contracts shared by JSON tour files, optional MCP helpers, and editor UX. */
 
 export type TourKind =
   | "architecture"
@@ -29,6 +29,24 @@ export interface TourStepDiff {
   languageId?: string;
 }
 
+export interface TourRootRef {
+  /**
+   * Stable VS Code workspace folder identity. Agents may copy this from
+   * get_workspace, but shared tour files should prefer name/pathHint when they
+   * can stay stable across machines.
+   */
+  workspaceFolder?: string;
+  /** Human-readable workspace name, usually the folder name shown by VS Code. */
+  name?: string;
+  /**
+   * Portable hint used to match an open root, such as "agentregistry-enterprise"
+   * or "repos/agentregistry-enterprise". Not required to be an absolute path.
+   */
+  pathHint?: string;
+  /** Absolute path is accepted for local-only tours but is less portable. */
+  path?: string;
+}
+
 export type TourAction =
   | "openFile"
   | "highlightRange"
@@ -38,6 +56,11 @@ export type TourAction =
 
 export interface TourStep {
   title: string;
+  /**
+   * Optional key into TourPlan.roots. This is the preferred compact form for
+   * committed multi-root JSON tours.
+   */
+  root?: string;
   /**
    * Optional VS Code workspace folder identity from get_workspace. Omit for
    * single-root tours or to target the first workspace folder.
@@ -77,9 +100,13 @@ export interface TourPlan {
   kind: TourKind;
   title: string;
   summary: string;
+  /** Optional root aliases used by step.root. */
+  roots?: Record<string, TourRootRef>;
   steps: TourStep[];
 }
 
 export function formatStepPath(step: Pick<TourStep, "file" | "workspaceFolder">): string {
-  return step.workspaceFolder ? `${step.workspaceFolder}/${step.file}` : step.file;
+  const keyedStep = step as Pick<TourStep, "file" | "workspaceFolder" | "root">;
+  const prefix = keyedStep.root ?? keyedStep.workspaceFolder;
+  return prefix ? `${prefix}/${step.file}` : step.file;
 }

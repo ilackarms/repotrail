@@ -17,9 +17,23 @@ import { TourPlan } from "../engine/types";
 
 export const REPO_TOURS_DIR = ".repotrail";
 
+export interface RepoTourRoot {
+  rootPath: string;
+  workspaceFolder?: string;
+  workspaceName?: string;
+}
+
 export interface RepoTourSummary {
+  /** Stable UI key: absolute root path + filename. */
+  key: string;
   /** Filename within .repotrail/ (e.g. "architecture.json"). */
   file: string;
+  /** Absolute path of the workspace root that owns this .repotrail/ file. */
+  rootPath: string;
+  /** VS Code workspace folder identity, when available. */
+  workspaceFolder?: string;
+  /** VS Code display name, when available. */
+  workspaceName?: string;
   title: string;
   kind: string;
   stepCount: number;
@@ -29,10 +43,21 @@ function dir(workspaceRoot: string): string {
   return path.join(workspaceRoot, REPO_TOURS_DIR);
 }
 
-export async function listRepoTours(workspaceRoot: string): Promise<RepoTourSummary[]> {
+export async function listRepoTours(roots: RepoTourRoot[]): Promise<RepoTourSummary[]> {
+  const nested = await Promise.all(roots.map((root) => listRepoToursInRoot(root)));
+  const out = nested.flat();
+  out.sort((a, b) => {
+    const aRoot = a.workspaceName ?? a.workspaceFolder ?? a.rootPath;
+    const bRoot = b.workspaceName ?? b.workspaceFolder ?? b.rootPath;
+    return aRoot.localeCompare(bRoot) || a.title.localeCompare(b.title) || a.file.localeCompare(b.file);
+  });
+  return out;
+}
+
+async function listRepoToursInRoot(root: RepoTourRoot): Promise<RepoTourSummary[]> {
   let entries: string[];
   try {
-    entries = await fs.readdir(dir(workspaceRoot));
+    entries = await fs.readdir(dir(root.rootPath));
   } catch {
     return [];
   }
@@ -40,11 +65,15 @@ export async function listRepoTours(workspaceRoot: string): Promise<RepoTourSumm
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
     try {
-      const raw = await fs.readFile(path.join(dir(workspaceRoot), entry), "utf8");
+      const raw = await fs.readFile(path.join(dir(root.rootPath), entry), "utf8");
       const plan = parseTourJson(raw);
       if (!plan) continue;
       out.push({
+        key: `${root.rootPath}\0${entry}`,
         file: entry,
+        rootPath: root.rootPath,
+        workspaceFolder: root.workspaceFolder,
+        workspaceName: root.workspaceName,
         title: plan.title,
         kind: plan.kind,
         stepCount: plan.steps.length,
@@ -53,7 +82,6 @@ export async function listRepoTours(workspaceRoot: string): Promise<RepoTourSumm
       /* skip unreadable */
     }
   }
-  out.sort((a, b) => a.title.localeCompare(b.title));
   return out;
 }
 

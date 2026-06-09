@@ -12,12 +12,13 @@ import {
   TourAction,
   TourKind,
   TourPlan,
+  TourRootRef,
   TourStep,
   TourStepDiff,
   TourStepViewMode,
 } from "./types";
 
-const EXPORT_VERSION = 1;
+const EXPORT_VERSION = 2;
 
 interface TourExportEnvelope {
   repoTrailTour: number; // schema version marker
@@ -63,12 +64,15 @@ function normalizePlan(value: unknown): TourPlan | null {
     .map(normalizeStep)
     .filter((s): s is TourStep => s !== null);
   if (steps.length === 0) return null;
-  return {
+  const roots = normalizeRoots(p.roots);
+  const plan: TourPlan = {
     kind: normalizeKind(p.kind),
     title: typeof p.title === "string" && p.title.trim() ? p.title : "Imported tour",
     summary: typeof p.summary === "string" ? p.summary : "",
     steps,
   };
+  if (roots) plan.roots = roots;
+  return plan;
 }
 
 function normalizeStep(value: unknown): TourStep | null {
@@ -80,6 +84,7 @@ function normalizeStep(value: unknown): TourStep | null {
   const viewMode = normalizeViewMode(s.viewMode, diff);
   return {
     title: s.title,
+    root: typeof s.root === "string" && s.root.trim() ? s.root.trim() : undefined,
     workspaceFolder: typeof s.workspaceFolder === "string" ? s.workspaceFolder : undefined,
     file: s.file,
     explanation: typeof s.explanation === "string" ? s.explanation : "",
@@ -90,6 +95,31 @@ function normalizeStep(value: unknown): TourStep | null {
     anchor: typeof s.anchor === "string" ? s.anchor : undefined,
     actions: defaultActions(range, diff, viewMode),
   };
+}
+
+function normalizeRoots(value: unknown): Record<string, TourRootRef> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const roots: Record<string, TourRootRef> = {};
+  for (const [rawKey, rawRef] of Object.entries(value as Record<string, unknown>)) {
+    const key = rawKey.trim();
+    if (!key || !rawRef || typeof rawRef !== "object" || Array.isArray(rawRef)) continue;
+    const ref = rawRef as Record<string, unknown>;
+    const normalized: TourRootRef = {};
+    if (typeof ref.workspaceFolder === "string" && ref.workspaceFolder.trim()) {
+      normalized.workspaceFolder = ref.workspaceFolder.trim();
+    }
+    if (typeof ref.name === "string" && ref.name.trim()) {
+      normalized.name = ref.name.trim();
+    }
+    if (typeof ref.pathHint === "string" && ref.pathHint.trim()) {
+      normalized.pathHint = ref.pathHint.trim();
+    }
+    if (typeof ref.path === "string" && ref.path.trim()) {
+      normalized.path = ref.path.trim();
+    }
+    if (Object.keys(normalized).length > 0) roots[key] = normalized;
+  }
+  return Object.keys(roots).length > 0 ? roots : undefined;
 }
 
 function normalizeRange(value: unknown): TourStep["range"] {

@@ -24,9 +24,9 @@ const PORT_REGISTRY_FILE = path.join(PORT_REGISTRY_DIR, "ports.json");
 const MAX_BODY_BYTES = 1024 * 1024;
 
 /**
- * HTTP-based MCP server that lets any token-authenticated MCP-capable local
- * agent drive a tour. The extension itself is "dumb" — it executes whatever
- * steps the agent emits.
+ * HTTP-based MCP helper server for local agents. The primary tour artifact is
+ * now `.repotrail/*.json`; MCP remains useful for workspace discovery and
+ * backward-compatible live tour manipulation.
  *
  * Transport: Streamable HTTP, stateless. Single endpoint at POST /mcp.
  * Bound to 127.0.0.1 only. Default port 7777, overridable via setting.
@@ -235,12 +235,12 @@ export class RepoTrailMcpServer {
       },
     );
 
-    server.registerTool(
-      "start_tour",
-      {
-        title: "Start a new tour",
-        description:
-          "Initialize an empty tour. Subsequent add_step calls append steps that the editor opens, highlights, and can show as diffs.",
+	    server.registerTool(
+	      "start_tour",
+	      {
+	        title: "Start a new tour",
+	        description:
+	          "Legacy/live helper: initialize an empty in-memory tour. Prefer writing a complete .repotrail/*.json file for normal authoring.",
         inputSchema: {
           kind: z
             .enum([
@@ -289,12 +289,12 @@ export class RepoTrailMcpServer {
       .optional()
       .describe("Optional diff payload for native VS Code diff display.");
 
-    server.registerTool(
-      "add_step",
-      {
-        title: "Append a tour step",
-        description:
-          "Append a step to the active tour and immediately open the file, highlight the range, and optionally show a VS Code diff. Ranges are 1-indexed (line and column).",
+	    server.registerTool(
+	      "add_step",
+	      {
+	        title: "Append a tour step",
+	        description:
+	          "Legacy/live helper: append a step to the active in-memory tour. Prefer complete .repotrail JSON files for normal authoring. Ranges are 1-indexed.",
         inputSchema: {
           title: z.string().describe("Short title for the step."),
           workspaceFolder: z
@@ -409,12 +409,12 @@ export class RepoTrailMcpServer {
       };
     };
 
-    server.registerTool(
-      "insert_step",
-      {
-        title: "Insert a step at a specific position",
-        description:
-          "Insert a step into the active tour at the given 0-indexed position. Use to deepen — call get_state, then insert one or more sub-steps after the user's current step. The user's current view is preserved.",
+	    server.registerTool(
+	      "insert_step",
+	      {
+	        title: "Insert a step at a specific position",
+	        description:
+	          "Legacy/live helper: insert a step into the active in-memory tour at the given 0-indexed position. Prefer editing the .repotrail JSON artifact for durable deepening.",
         inputSchema: {
           ...stepInputSchema,
           at: z.number().int().min(0).describe("0-indexed position to insert at (existing step at this index shifts right)."),
@@ -618,15 +618,23 @@ export class RepoTrailMcpServer {
           },
         },
       },
-      workflow: [
-        "Fetch the repo-trail skill and install or use it with the agent's own skill mechanism before generating a tour.",
-        "Connect to the MCP server.",
-        "Call get_workspace and verify the target repository appears in workspaceFolders.",
-        "For multi-root tours, set workspaceFolder on each step to the matching workspaceFolders[].workspaceFolder value.",
-        "Emit the full route up front with start_tour, add_step, and show_step({ index: 0 }).",
-      ],
-    });
-  }
+	      tourFiles: {
+	        directory: ".repotrail",
+	        schemaVersion: 2,
+	        preferredWorkflow:
+	          "Write one complete JSON tour file into the owning project's .repotrail/ directory. RepoTrail refreshes the library from the filesystem.",
+	        rootAddressing:
+	          "For multi-root tours, define plan.roots aliases and set step.root instead of repeating workspaceFolder on every step.",
+	      },
+	      workflow: [
+	        "Fetch the repo-trail skill and install or use it with the agent's own skill mechanism before generating a tour.",
+	        "Call get_workspace only if you need to verify open roots or file lists.",
+	        "Read the repo before choosing stops.",
+	        "Write the complete JSON tour to <owning-project>/.repotrail/<slug>.json.",
+	        "Tell the user the path. Do not build normal tours through sequential start_tour/add_step calls.",
+	      ],
+	    });
+	  }
 }
 
 type RegistryEntry = {

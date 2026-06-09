@@ -26,11 +26,15 @@ import { setEditorLogger } from "./ux/editorActions";
 import { TourController } from "./ux/tourController";
 import { TourViewProvider } from "./ux/webviewPanel";
 import {
+  currentWorkspaceFolders,
   currentWorkspaceStorageRoot,
   firstWorkspaceRoot,
   hasWorkspaceFolders,
   relativePathInWorkspace,
+  resolveStepWorkspaceFolder,
   resolveStepUri,
+  resolveTourPlanRoots,
+  workspaceFolderInfos,
 } from "./workspace";
 
 let mcp: RepoTrailMcpServer | null = null;
@@ -75,12 +79,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     port: mcp?.port ?? null,
   }));
   viewProvider.setRepoTourLoader(async () => {
-    const root = firstWorkspaceRoot();
-    if (!root) return [];
-    return listRepoTours(root);
+    return listRepoTours(repoTourRoots());
   });
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(TourViewProvider.viewType, viewProvider),
+  );
+  const repoTourWatcher = vscode.workspace.createFileSystemWatcher(`**/${REPO_TOURS_DIR}/*.json`);
+  const refreshRepoTours = () => viewProvider.refresh();
+  context.subscriptions.push(
+    repoTourWatcher,
+    repoTourWatcher.onDidCreate(refreshRepoTours),
+    repoTourWatcher.onDidChange(refreshRepoTours),
+    repoTourWatcher.onDidDelete(refreshRepoTours),
+    vscode.workspace.onDidChangeWorkspaceFolders(refreshRepoTours),
   );
 
   // Status-bar tour indicator: "Trail k/N" while a tour is active, click to focus.
@@ -124,13 +135,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.window.showErrorMessage("RepoTrail: open a folder/workspace first.");
         return;
       }
-      const prompt =
-        "Give me a RepoTrail tour of this repository — an architecture overview. " +
-        "(Or ask for: a PR/diff walkthrough, a file walkthrough, a request-lifecycle trace, or a bug-investigation tour.)";
+      const prompt = buildTourAuthoringPrompt();
       await vscode.env.clipboard.writeText(prompt);
       await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
       vscode.window.showInformationMessage(
-        "Tour prompt copied. Paste it into your connected agent. Use Connect agent in the RepoTrail panel first if needed.",
+        "RepoTrail tour authoring prompt copied. Paste it into your agent; it should write a .repotrail/*.json file.",
       );
     }),
     vscode.commands.registerCommand("repoTrail.exportTour", () => exportActiveTour(controller, log)),
@@ -144,15 +153,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("repoTrail.togglePlay", () => viewProvider.togglePlay()),
     vscode.commands.registerCommand("repoTrail.revealCurrent", () => controller.revealCurrent()),
-    vscode.commands.registerCommand("repoTrail.resumeRepoTour", async (file?: string) => {
-      const root = firstWorkspaceRoot();
+    vscode.commands.registerCommand("repoTrail.resumeRepoTour", async (arg?: string | { rootPath?: string; file?: string }) => {
+      const file = typeof arg === "string" ? arg : arg?.file;
+      const requestedRoot = typeof arg === "string" ? undefined : arg?.rootPath;
+      const root = resolveOpenRepoTourRoot(requestedRoot);
       if (!root || !file) return;
       const plan = await readRepoTour(root, file);
       if (!plan) {
         vscode.window.showErrorMessage(`RepoTrail: ${REPO_TOURS_DIR}/${file} isn't a valid tour.`);
         return;
       }
-      await controller.loadPlan(plan);
+      await controller.loadPlan(plan, root);
       await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
     }),
     vscode.commands.registerCommand("repoTrail.deeper", () => copyDeepenPrompt(controller, viewProvider, log)),
@@ -247,6 +258,111 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void maybeAutoResume(controller, log);
 }
 
+function repoTourRoots() {
+  return workspaceFolderInfos().map((info) => ({
+    rootPath: info.path,
+    workspaceFolder: info.workspaceFolder,
+    workspaceName: info.name,
+  }));
+}
+
+function resolveOpenRepoTourRoot(rootPath?: string): string | undefined {
+  if (!rootPath) return firstWorkspaceRoot();
+  return currentWorkspaceFolders().find((folder) => folder.uri.fsPath === rootPath)?.uri.fsPath;
+}
+
+function preferredRepoRootForPlan(plan: TourPlan): string | undefined {
+  const counts = new Map<string, number>();
+  for (const step of plan.steps) {
+    const folder = resolveStepWorkspaceFolder(step, plan);
+    if (!folder) continue;
+    counts.set(folder.uri.fsPath, (counts.get(folder.uri.fsPath) ?? 0) + 1);
+  }
+  let best: { root: string; count: number } | null = null;
+  for (const [root, count] of counts) {
+    if (!best || count > best.count) best = { root, count };
+  }
+  return best?.root;
+}
+
+function buildTourAuthoringPrompt(): string {
+  const infos = workspaceFolderInfos();
+  const aliases = buildRootAliases(infos.map((info) => info.name));
+  const rootLines = infos
+    .map((info, index) => {
+      const alias = aliases[index] ?? `root${index + 1}`;
+      return `- ${alias}: name=${info.name}; workspaceFolder=${info.workspaceFolder}; path=${info.path}; shared tours go in ${info.path}/${REPO_TOURS_DIR}/`;
+    })
+    .join("\n");
+  const rootJson = Object.fromEntries(
+    infos.map((info, index) => {
+      const alias = aliases[index] ?? `root${index + 1}`;
+      return [alias, { name: info.name, pathHint: info.name }];
+    }),
+  );
+  const firstAlias = aliases[0] ?? "project";
+  const example = JSON.stringify(
+    {
+      repoTrailTour: 2,
+      exportedAt: "ISO_TIMESTAMP",
+      plan: {
+        kind: "architecture",
+        title: "Short useful tour title",
+        summary: "One paragraph describing what this tour teaches.",
+        roots: Object.keys(rootJson).length > 0 ? rootJson : { [firstAlias]: { name: firstAlias, pathHint: firstAlias } },
+        steps: [
+          {
+            root: firstAlias,
+            file: "src/example.ts",
+            range: { startLine: 1, startColumn: 1, endLine: 20, endColumn: 1 },
+            title: "Explain one logical chunk",
+            explanation: "Markdown narration. Keep it focused; do not paste code here.",
+            viewMode: "code",
+          },
+        ],
+      },
+    },
+    null,
+    2,
+  );
+
+  return [
+    "Create a RepoTrail tour for this VS Code workspace.",
+    "",
+    "RepoTrail is file-first: write one complete JSON tour file into the owning project's .repotrail/ directory. Do not build the tour by making sequential start_tour/add_step MCP calls.",
+    "",
+    "Open workspace roots:",
+    rootLines || "- No workspace roots detected. Ask the user to open the target project in VS Code.",
+    "",
+    "Choose the output path:",
+    `- If the tour primarily explains one project, write ${REPO_TOURS_DIR}/<descriptive-slug>.json inside that project.`,
+    `- For a cross-project tour, write the JSON into the project that owns the story and reference the other open roots through plan.roots plus per-step root aliases.`,
+    "- After writing the file, tell the user the path and stop. RepoTrail will refresh its library from the filesystem.",
+    "",
+    "JSON format:",
+    "```json",
+    example,
+    "```",
+    "",
+    "Rules:",
+    "- Read the repo before choosing stops.",
+    "- Use workspace-relative forward-slash file paths only.",
+    "- Keep ranges tight and 1-indexed.",
+    "- For PR/change tours, use viewMode \"diff\" with diff.beforeText; omit diff.afterText when the current selected lines are the right side.",
+    "- Do not use absolute file paths in steps, empty file paths, or paths containing \"..\".",
+  ].join("\n");
+}
+
+function buildRootAliases(names: string[]): string[] {
+  const seen = new Map<string, number>();
+  return names.map((name, index) => {
+    const base = slugForFilename(name).replace(/-/g, "_") || `root${index + 1}`;
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    return count === 0 ? base : `${base}_${count + 1}`;
+  });
+}
+
 /**
  * On startup, offer to bring back the most recent tour for this workspace so a
  * window reload doesn't feel like losing your place. Controlled by
@@ -327,10 +443,10 @@ function updateStatus(state: "listening" | "disabled" | "error", port?: number):
   if (!statusItem) return;
   if (state === "listening" && port) {
     statusItem.text = `$(map) Trail :${port}`;
-    statusItem.tooltip = "RepoTrail MCP is listening on 127.0.0.1. Click to copy the agent setup prompt.";
+    statusItem.tooltip = "RepoTrail optional MCP helpers are listening on 127.0.0.1. Click to copy file-authoring setup.";
   } else if (state === "disabled") {
     statusItem.text = "$(map) Trail off";
-    statusItem.tooltip = "RepoTrail MCP server is disabled (repoTrail.mcpEnabled = false).";
+    statusItem.tooltip = "RepoTrail MCP helpers are disabled; JSON tour files still work.";
   } else {
     statusItem.text = "$(warning) Trail error";
     statusItem.tooltip = "RepoTrail MCP server failed to start. Click for details.";
@@ -358,10 +474,9 @@ function copyDeepenPrompt(
   const target = formatStepPath(snap.current);
   const prompt =
     `Deepen step ${idx} of the active RepoTrail tour: "${snap.current.title}" (${target}).\n\n` +
-    `Call mcp__repotrail__get_state to confirm the current index, then read the relevant code, ` +
-    `then call mcp__repotrail__insert_step one or more times with \`at\` = current index + 1, +2, ... ` +
-    `to splice in 2–4 sub-steps that zoom into this area at finer granularity. Keep ranges tight ` +
-    `(see the granularity rule in the repo-trail skill).`;
+    `Read the relevant code, then update the owning ${REPO_TOURS_DIR}/*.json tour file or write a new revised tour JSON with ` +
+    `2-4 extra sub-steps after this stop. Keep ranges tight and preserve the file-first RepoTrail schema. ` +
+    `Use MCP only for workspace discovery if you need it; do not rebuild the tour through sequential add_step calls.`;
   void vscode.env.clipboard.writeText(prompt);
   // Show the exact prompt in the sidebar so the handoff is visible, not a blind
   // clipboard write the user has to trust.
@@ -391,8 +506,8 @@ function copyFollowUpPrompt(
   const prompt =
     `Follow-up about step ${idx} of the active RepoTrail tour: "${snap.current.title}" (${target}).\n\n` +
     `Question: ${trimmed}\n\n` +
-    `Read the relevant code, answer in chat. If the answer is pin-worthy, also call ` +
-    `mcp__repotrail__insert_step to add a clarifying stop after the current index.`;
+    `Read the relevant code and answer in chat. If the answer is pin-worthy, update the owning ` +
+    `${REPO_TOURS_DIR}/*.json tour file or write a revised copy with a clarifying stop after the current index.`;
   void vscode.env.clipboard.writeText(prompt);
   viewProvider.showBridgePrompt(`Follow-up on step ${idx}`, prompt);
   vscode.window.setStatusBarMessage("RepoTrail: follow-up prompt copied.", 2500);
@@ -655,13 +770,14 @@ async function saveTourToRepo(controller: TourController, log: vscode.OutputChan
     vscode.window.showInformationMessage("RepoTrail: no active tour to save.");
     return;
   }
-  const root = firstWorkspaceRoot();
+  const plan = resolveTourPlanRoots(snap.plan);
+  const root = preferredRepoRootForPlan(plan) ?? firstWorkspaceRoot();
   if (!root) {
     vscode.window.showErrorMessage("RepoTrail: open a workspace first.");
     return;
   }
-  const slug = slugForFilename(snap.plan.title);
-  const content = planToJson(snap.plan, new Date().toISOString());
+  const slug = slugForFilename(plan.title);
+  const content = planToJson(plan, new Date().toISOString());
   try {
     const file = await saveRepoTour(root, slug, content);
     const rel = `${REPO_TOURS_DIR}/${file.split("/").pop()}`;
@@ -705,7 +821,8 @@ async function tourFromHere(): Promise<void> {
   const prompt =
     `Give me a RepoTrail tour starting from ${scope}. ` +
     `Walk through what it does and how it connects to the rest of the codebase, ` +
-    `following the repo-trail skill (push stops over MCP; use workspaceFolder for non-default roots).`;
+    `then write the complete tour as JSON under the owning project's ${REPO_TOURS_DIR}/ directory. ` +
+    `Use root aliases for multi-root tours and do not build the tour through step-by-step MCP calls.`;
   await vscode.env.clipboard.writeText(prompt);
   await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
   vscode.window.setStatusBarMessage("RepoTrail: 'tour from here' prompt copied for your agent.", 3000);
@@ -714,22 +831,19 @@ async function tourFromHere(): Promise<void> {
 async function copyAgentSetup(): Promise<void> {
   const cfg = vscode.workspace.getConfiguration("repoTrail");
   const enabled = cfg.get<boolean>("mcpEnabled", true);
-  if (!enabled) {
-    vscode.window.showInformationMessage("RepoTrail MCP server is disabled. Enable in settings.");
-    return;
-  }
-  if (!mcp?.connectionUrl) {
-    vscode.window.showInformationMessage("RepoTrail MCP server is not running yet.");
-    return;
-  }
-  const prompt =
-    "Use RepoTrail for this VS Code workspace.\n\n" +
-    `1. Fetch this bootstrap metadata: ${mcp.bootstrapUrl}\n` +
-    `2. Fetch this repo-trail skill and install/use it with your own agent skill mechanism: ${mcp.skillUrl}\n` +
-    `3. Connect to the RepoTrail MCP server: ${mcp.connectionUrl}\n` +
-    "4. Call get_workspace and verify the target repo appears in workspaceFolders before emitting a tour.\n" +
-    "5. For multi-root tours, set workspaceFolder on each step to the matching workspaceFolders[].workspaceFolder value.\n" +
-    "6. Generate the complete tour up front with start_tour, add_step, and show_step({ index: 0 }).";
+  const helperLines =
+    enabled && mcp?.connectionUrl
+      ? [
+          "",
+          "Optional RepoTrail helper endpoints:",
+          `- bootstrap metadata: ${mcp.bootstrapUrl}`,
+          `- current skill text: ${mcp.skillUrl}`,
+          `- MCP helper URL for get_workspace/open-state only: ${mcp.connectionUrl}`,
+          "",
+          "Use MCP only for workspace discovery or live playback helpers. Do not build the tour by calling start_tour/add_step repeatedly.",
+        ].join("\n")
+      : "\nMCP helpers are not available in this window. Use the workspace roots listed above and write the JSON file directly.";
+  const prompt = `${buildTourAuthoringPrompt()}\n${helperLines}`;
   await vscode.env.clipboard.writeText(prompt);
-  vscode.window.showInformationMessage("Copied RepoTrail agent setup. Paste it into your agent.");
+  vscode.window.showInformationMessage("Copied RepoTrail file-authoring setup. Paste it into your agent.");
 }
