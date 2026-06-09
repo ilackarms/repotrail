@@ -135,6 +135,9 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         case "revealCurrent":
           await this.controller.revealCurrent();
           break;
+        case "openCurrentSource":
+          await this.controller.openCurrentSource();
+          break;
         case "dismissBridge":
           this.bridge = null;
           await this.render();
@@ -537,6 +540,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           <button id="back" ${index === 0 ? "disabled" : ""} title="Previous stop">← Back</button>
           <button id="next" ${index >= total - 1 ? "disabled" : ""} title="Next stop">Next →</button>
           <button id="revealCurrent" title="Jump back to this step's editor view">↩ View</button>
+          <button id="openCurrentSource" title="Open this stop in the real editable source file">↗ Source</button>
           <button id="deeper" title="Copy a 'deepen this step' prompt to clipboard for your agent">📋 Deepen</button>
           <button id="agentBootstrap" class="secondary" title="Copy workspace details, schema, and optional helper endpoints for your agent">Agent setup</button>
           <button id="stop" title="Stop this tour">Stop</button>
@@ -573,6 +577,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     on("next", "next");
     on("back", "back");
     on("revealCurrent", "revealCurrent");
+    on("openCurrentSource", "openCurrentSource");
     on("deeper", "deeper");
     on("stop", "stop");
     on("exportTour", "exportTour");

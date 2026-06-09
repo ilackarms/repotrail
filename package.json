@@ -87,6 +87,10 @@
         "title": "RepoTrail: Jump to Current Step Code"
       },
       {
+        "command": "repoTrail.openCurrentSource",
+        "title": "RepoTrail: Open Current Step Source"
+      },
+      {
         "command": "repoTrail.deeper",
         "title": "RepoTrail: Go Deeper"
       },
@@ -125,6 +129,12 @@
         "command": "repoTrail.back",
         "key": "alt+left",
         "when": "repoTrail.tourActive"
+      },
+      {
+        "command": "repoTrail.openCurrentSource",
+        "key": "alt+o",
+        "mac": "cmd+alt+o",
+        "when": "repoTrail.tourActive"
       }
     ],
     "menus": {
@@ -154,6 +164,10 @@
         },
         {
           "command": "repoTrail.revealCurrent",
+          "when": "repoTrail.tourActive"
+        },
+        {
+          "command": "repoTrail.openCurrentSource",
           "when": "repoTrail.tourActive"
         },
         {

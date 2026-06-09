@@ -52,6 +52,19 @@ export interface ExecuteResult {
   capturedAnchor?: string;
 }
 
+interface StepEditorOptions {
+  allSteps?: TourStep[];
+  currentIndex?: number;
+  plan?: TourPlan;
+}
+
+interface PreparedStep {
+  doc: vscode.TextDocument;
+  range: vscode.Range;
+  drift: DriftStatus;
+  capturedAnchor?: string;
+}
+
 let logger: vscode.OutputChannel | null = null;
 export function setEditorLogger(channel: vscode.OutputChannel): void {
   logger = channel;
@@ -65,13 +78,55 @@ export function resetTourEditorLayout(): void {
 
 export async function executeStep(
   step: TourStep,
-  opts?: { allSteps?: TourStep[]; currentIndex?: number; plan?: TourPlan },
+  opts?: StepEditorOptions,
 ): Promise<ExecuteResult> {
+  if (!step.file) return { drift: "ok" };
+  const prepared = await prepareStep(step, opts);
+  if (!prepared) return { drift: "missing" };
+
+  const viewMode = effectiveViewMode(step);
+  await closeRepoTrailDiffTabs();
+  if (viewMode !== "diff") {
+    await showSourceDocument(step, prepared.doc, prepared.range, opts, true);
+  }
+  if (step.diff && viewMode !== "code") {
+    await showStepDiff(step, prepared.doc, prepared.range);
+  }
+
+  logger?.appendLine(
+    `[editor] step "${step.title}" range L${prepared.range.start.line + 1}:${prepared.range.start.character + 1}-L${prepared.range.end.line + 1}:${prepared.range.end.character + 1}` +
+      (step.range ? "" : " (defaulted — agent omitted range)") +
+      (step.diff && viewMode !== "code" ? ` [diff: ${viewMode}]` : "") +
+      (prepared.drift !== "ok" ? ` [drift: ${prepared.drift}]` : ""),
+  );
+
+  return { drift: prepared.drift, capturedAnchor: prepared.capturedAnchor };
+}
+
+export async function openStepSource(
+  step: TourStep,
+  opts?: StepEditorOptions,
+): Promise<ExecuteResult> {
+  if (!step.file) return { drift: "ok" };
+  const prepared = await prepareStep(step, opts);
+  if (!prepared) return { drift: "missing" };
+
+  await closeRepoTrailDiffTabs();
+  await showSourceDocument(step, prepared.doc, prepared.range, opts, false);
+
+  logger?.appendLine(
+    `[editor] source "${step.title}" range L${prepared.range.start.line + 1}:${prepared.range.start.character + 1}-L${prepared.range.end.line + 1}:${prepared.range.end.character + 1}` +
+      (prepared.drift !== "ok" ? ` [drift: ${prepared.drift}]` : ""),
+  );
+
+  return { drift: prepared.drift, capturedAnchor: prepared.capturedAnchor };
+}
+
+async function prepareStep(step: TourStep, opts?: StepEditorOptions): Promise<PreparedStep | null> {
   if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
     vscode.window.showErrorMessage("RepoTrail: open a workspace first.");
-    return { drift: "ok" };
+    return null;
   }
-  if (!step.file) return { drift: "ok" };
 
   const label = formatStepPath(step);
   let uri: vscode.Uri | null;
@@ -80,21 +135,23 @@ export async function executeStep(
   } catch (err) {
     logger?.appendLine(`[editor] invalid step target ${label}: ${String(err)}`);
     vscode.window.showErrorMessage(`RepoTrail: invalid step target ${label}.`);
-    return { drift: "missing" };
+    return null;
   }
   if (!uri) {
     logger?.appendLine(`[editor] no open workspace folder for ${label}`);
     vscode.window.showErrorMessage(`RepoTrail: cannot find workspace folder for ${label}.`);
-    return { drift: "missing" };
+    return null;
   }
+
   let doc: vscode.TextDocument;
   try {
     doc = await vscode.workspace.openTextDocument(uri);
   } catch (err) {
     logger?.appendLine(`[editor] open failed for ${label}: ${String(err)}`);
     vscode.window.showErrorMessage(`RepoTrail: cannot open ${label}.`);
-    return { drift: "missing" };
+    return null;
   }
+
   let range = resolveRange(step, doc);
   let drift: DriftStatus = "ok";
   let capturedAnchor: string | undefined;
@@ -110,31 +167,25 @@ export async function executeStep(
     }
   }
 
-  const viewMode = effectiveViewMode(step);
-  await closeRepoTrailDiffTabs();
-  if (viewMode !== "diff") {
-    const editor = await vscode.window.showTextDocument(doc, {
-      preview: true,
-      viewColumn: reusablePrimaryViewColumn() ?? vscode.ViewColumn.Active,
-    });
-    tourPrimaryViewColumn = editor.viewColumn;
-    editor.setDecorations(HIGHLIGHT_DECORATION, [{ range }]);
-    applyStopMarkers(editor, doc, step, opts);
-    editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
-    editor.selection = new vscode.Selection(range.start, range.start);
-  }
-  if (step.diff && viewMode !== "code") {
-    await showStepDiff(step, doc, range);
-  }
+  return { doc, range, drift, capturedAnchor };
+}
 
-  logger?.appendLine(
-    `[editor] step "${step.title}" range L${range.start.line + 1}:${range.start.character + 1}-L${range.end.line + 1}:${range.end.character + 1}` +
-      (step.range ? "" : " (defaulted — agent omitted range)") +
-      (step.diff && viewMode !== "code" ? ` [diff: ${viewMode}]` : "") +
-      (drift !== "ok" ? ` [drift: ${drift}]` : ""),
-  );
-
-  return { drift, capturedAnchor };
+async function showSourceDocument(
+  step: TourStep,
+  doc: vscode.TextDocument,
+  range: vscode.Range,
+  opts: StepEditorOptions | undefined,
+  preview: boolean,
+): Promise<void> {
+  const editor = await vscode.window.showTextDocument(doc, {
+    preview,
+    viewColumn: reusablePrimaryViewColumn() ?? vscode.ViewColumn.Active,
+  });
+  tourPrimaryViewColumn = editor.viewColumn;
+  editor.setDecorations(HIGHLIGHT_DECORATION, [{ range }]);
+  applyStopMarkers(editor, doc, step, opts);
+  editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+  editor.selection = new vscode.Selection(range.start, range.start);
 }
 
 /** Decorate the ranges of the other in-file stops with overview-ruler ticks. */

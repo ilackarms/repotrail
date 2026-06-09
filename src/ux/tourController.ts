@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { DriftStatus, TourPlan, TourStep } from "../engine/types";
 import { newTourId, TourRecord } from "../storage/tourStore";
 import { currentWorkspaceStorageRoot, resolveTourPlanRoots } from "../workspace";
-import { checkStepDrift, clearHighlights, executeStep, resetTourEditorLayout } from "./editorActions";
+import { checkStepDrift, clearHighlights, executeStep, openStepSource, resetTourEditorLayout } from "./editorActions";
 
 /**
  * What produced the most recent onDidChange. Lets the UX distinguish an agent
@@ -245,6 +245,24 @@ export class TourController {
   async revealCurrent(): Promise<void> {
     if (!this.plan || this.index < 0) return;
     await this.applyCurrent();
+  }
+
+  /** Open the current stop in its real editable workspace file, even for diff steps. */
+  async openCurrentSource(): Promise<void> {
+    if (!this.plan || this.index < 0) return;
+    clearHighlights();
+    const step = this.plan.steps[this.index];
+    const result = await openStepSource(step, {
+      allSteps: this.plan.steps,
+      currentIndex: this.index,
+      plan: this.plan,
+    });
+    this.driftByIndex.set(this.index, result.drift);
+    if (result.capturedAnchor && !step.anchor) {
+      step.anchor = result.capturedAnchor;
+      this.persist();
+    }
+    this.onChangeEmitter.fire();
   }
 
   /**

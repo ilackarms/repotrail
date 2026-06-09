@@ -156,6 +156,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (typeof index === "number") void controller.showStep(index);
     }),
     vscode.commands.registerCommand("repoTrail.revealCurrent", () => controller.revealCurrent()),
+    vscode.commands.registerCommand("repoTrail.openCurrentSource", () => controller.openCurrentSource()),
     vscode.commands.registerCommand("repoTrail.resumeRepoTour", async (arg?: string | { rootPath?: string; file?: string }) => {
       const file = typeof arg === "string" ? arg : arg?.file;
       const requestedRoot = typeof arg === "string" ? undefined : arg?.rootPath;
