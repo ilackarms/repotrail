@@ -607,18 +607,19 @@ async function buildAnimatedTourFrames(
 ): Promise<AnimatedTourFrame[]> {
   const frames: AnimatedTourFrame[] = [];
   for (let i = 0; i < plan.steps.length; i++) {
-    frames.push(await buildAnimatedTourFrame(plan.steps[i], i, log));
+    frames.push(await buildAnimatedTourFrame(plan, plan.steps[i], i, log));
   }
   return frames;
 }
 
 async function buildAnimatedTourFrame(
+  plan: TourPlan,
   step: TourStep,
   index: number,
   log: vscode.OutputChannel,
 ): Promise<AnimatedTourFrame> {
   const warnings: string[] = [];
-  const code = await snapshotStepCode(step, warnings, log);
+  const code = await snapshotStepCode(step, plan, warnings, log);
   const shouldRenderDiff = Boolean(step.diff && step.viewMode !== "code");
   const diff =
     step.diff && shouldRenderDiff
@@ -648,12 +649,13 @@ async function buildAnimatedTourFrame(
 
 async function snapshotStepCode(
   step: TourStep,
+  plan: TourPlan,
   warnings: string[],
   log: vscode.OutputChannel,
 ): Promise<AnimatedTourCodeFrame | undefined> {
   let uri: vscode.Uri | null;
   try {
-    uri = resolveStepUri(step);
+    uri = resolveStepUri(step, plan);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     warnings.push(`Could not resolve workspace target: ${detail}`);

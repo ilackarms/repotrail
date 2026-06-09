@@ -22,6 +22,7 @@ export class TourCodeLensProvider implements vscode.CodeLensProvider {
   provideCodeLenses(doc: vscode.TextDocument): vscode.CodeLens[] {
     const snap = this.controller.snapshot();
     if (!snap.plan || !snap.current) return [];
+    const plan = snap.plan;
 
     const lenses: vscode.CodeLens[] = [];
     const lineCount = Math.max(0, doc.lineCount - 1);
@@ -30,7 +31,7 @@ export class TourCodeLensProvider implements vscode.CodeLensProvider {
 
     let currentUri: vscode.Uri | null = null;
     try {
-      currentUri = resolveStepUri(snap.current);
+      currentUri = resolveStepUri(snap.current, plan);
     } catch {
       currentUri = null;
     }
@@ -77,7 +78,7 @@ export class TourCodeLensProvider implements vscode.CodeLensProvider {
       if (i === snap.index) return;
       let uri: vscode.Uri | null = null;
       try {
-        uri = resolveStepUri(step);
+        uri = resolveStepUri(step, plan);
       } catch {
         return;
       }

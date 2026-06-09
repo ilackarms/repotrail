@@ -138,7 +138,7 @@ export function resolveStepWorkspaceFolder(step: Pick<TourStep, "workspaceFolder
 export function resolveTourPlanRoots(plan: TourPlan): TourPlan {
   if (!plan.roots) return plan;
   const folders = currentWorkspaceFolders();
-  if (folders.length === 0) return plan;
+  if (folders.length < 2) return plan;
 
   let changed = false;
   const steps = plan.steps.map((step) => {
@@ -155,9 +155,11 @@ export function resolveTourPlanRoots(plan: TourPlan): TourPlan {
   return changed ? { ...plan, steps } : plan;
 }
 
-export function resolveStepUri(step: Pick<TourStep, "file" | "workspaceFolder">): vscode.Uri | null {
-  const keyedStep = step as Pick<TourStep, "file" | "workspaceFolder" | "root">;
-  const folder = resolveStepWorkspaceFolder(keyedStep);
+export function resolveStepUri(
+  step: Pick<TourStep, "file" | "workspaceFolder" | "root">,
+  plan?: TourPlan,
+): vscode.Uri | null {
+  const folder = resolveStepWorkspaceFolder(step, plan);
   if (!folder) return null;
   const file = normalizeWorkspaceFile(step.file);
   return vscode.Uri.joinPath(folder.uri, ...file.split("/"));

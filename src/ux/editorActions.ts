@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { DriftStatus, formatStepPath, TourStep, TourStepViewMode } from "../engine/types";
+import { DriftStatus, formatStepPath, TourPlan, TourStep, TourStepViewMode } from "../engine/types";
 import { resolveStepUri } from "../workspace";
 
 /**
@@ -65,7 +65,7 @@ export function resetTourEditorLayout(): void {
 
 export async function executeStep(
   step: TourStep,
-  opts?: { allSteps?: TourStep[]; currentIndex?: number },
+  opts?: { allSteps?: TourStep[]; currentIndex?: number; plan?: TourPlan },
 ): Promise<ExecuteResult> {
   if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
     vscode.window.showErrorMessage("RepoTrail: open a workspace first.");
@@ -76,7 +76,7 @@ export async function executeStep(
   const label = formatStepPath(step);
   let uri: vscode.Uri | null;
   try {
-    uri = resolveStepUri(step);
+    uri = resolveStepUri(step, opts?.plan);
   } catch (err) {
     logger?.appendLine(`[editor] invalid step target ${label}: ${String(err)}`);
     vscode.window.showErrorMessage(`RepoTrail: invalid step target ${label}.`);
@@ -142,7 +142,7 @@ function applyStopMarkers(
   editor: vscode.TextEditor,
   doc: vscode.TextDocument,
   current: TourStep,
-  opts?: { allSteps?: TourStep[]; currentIndex?: number },
+  opts?: { allSteps?: TourStep[]; currentIndex?: number; plan?: TourPlan },
 ): void {
   const all = opts?.allSteps;
   if (!all || all.length < 2) {
@@ -155,7 +155,7 @@ function applyStopMarkers(
     if (!s.range) return;
     let uri: vscode.Uri | null = null;
     try {
-      uri = resolveStepUri(s);
+      uri = resolveStepUri(s, opts?.plan);
     } catch {
       return;
     }
@@ -331,12 +331,13 @@ function checkAnchor(
  */
 export async function checkStepDrift(
   step: TourStep,
+  plan?: TourPlan,
 ): Promise<{ drift: DriftStatus; capturedAnchor?: string }> {
   if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) return { drift: "ok" };
   if (!step.file || !step.range) return { drift: "ok" };
   let uri: vscode.Uri | null;
   try {
-    uri = resolveStepUri(step);
+    uri = resolveStepUri(step, plan);
   } catch {
     return { drift: "missing" };
   }

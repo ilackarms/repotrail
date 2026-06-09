@@ -295,6 +295,7 @@ export class TourController {
     const result = await executeStep(step, {
       allSteps: this.plan.steps,
       currentIndex: this.index,
+      plan: this.plan,
     });
     this.driftByIndex.set(this.index, result.drift);
     this.seen.add(this.index);
@@ -318,7 +319,7 @@ export class TourController {
       const step = planAtStart.steps[i];
       if (!step.range) continue;
       try {
-        const res = await checkStepDrift(step);
+        const res = await checkStepDrift(step, planAtStart);
         this.driftByIndex.set(i, res.drift);
         if (res.capturedAnchor && !step.anchor) {
           step.anchor = res.capturedAnchor;
