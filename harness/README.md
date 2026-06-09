@@ -129,11 +129,16 @@ rejected.
 
 For PRs, commits, branch comparisons, and other explicit windows of changes,
 changed-code stops should be diff-backed with `viewMode: "diff"` and
-`diff: { beforeText, afterText?, beforeLabel?, afterLabel?, languageId? }`.
+`diff: { baseRef, headRef?, scope: "file", baseFile?, headFile? }`. RepoTrail
+reads the real file contents from local git and opens VS Code's native diff
+viewer, so the user can scroll imports and unchanged surrounding code while VS
+Code highlights the actual changes. Omit `headRef` when the current workspace
+file is the right side. `beforeText`/`afterText` remain accepted for non-git
+sources and old tours, but normal PR/commit tours should not rely on generated
+code text.
+
 Diff-backed steps default to `viewMode: "diff"`; legacy `both` inputs render
 compactly as diff-only so tours do not open separate source and diff panes.
-`afterText` can be omitted when the current selected lines are the right side of
-the diff.
 
 Highlight-only `viewMode: "code"` stops are for codebase, file, subsystem,
 request-path, or architecture tours unrelated to a window of changes. A

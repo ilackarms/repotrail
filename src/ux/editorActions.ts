@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { materializeStepDiff } from "../diffMaterialize";
 import { DriftStatus, formatStepPath, TourPlan, TourStep, TourStepViewMode } from "../engine/types";
 import { resolveStepUri } from "../workspace";
 
@@ -90,7 +91,7 @@ export async function executeStep(
     await showSourceDocument(step, prepared.doc, prepared.range, opts, true);
   }
   if (step.diff && viewMode !== "code") {
-    await showStepDiff(step, prepared.doc, prepared.range);
+    await showStepDiff(step, prepared.doc, prepared.range, opts?.plan);
   }
 
   logger?.appendLine(
@@ -232,21 +233,21 @@ async function showStepDiff(
   step: TourStep,
   doc: vscode.TextDocument,
   range: vscode.Range,
+  plan?: TourPlan,
 ): Promise<void> {
   if (!step.diff) return;
+  const materialized = await materializeStepDiff(step, doc, range, plan, logger);
+  if (!materialized) return;
   ensureDiffProvider();
-  const afterText = step.diff.afterText ?? textForDiffAfter(doc, step, range);
-  const beforeLabel = step.diff.beforeLabel ?? "Before";
-  const afterLabel = step.diff.afterLabel ?? "After";
-  const beforeUri = virtualDiffUri(step, beforeLabel, step.diff.beforeText);
-  const afterUri = virtualDiffUri(step, afterLabel, afterText);
-  await setVirtualDocLanguage(beforeUri, step.diff.languageId);
-  await setVirtualDocLanguage(afterUri, step.diff.languageId);
+  const beforeUri = virtualDiffUri(step, materialized.beforeLabel, materialized.beforeText);
+  const afterUri = virtualDiffUri(step, materialized.afterLabel, materialized.afterText);
+  await setVirtualDocLanguage(beforeUri, materialized.languageId);
+  await setVirtualDocLanguage(afterUri, materialized.languageId);
   await vscode.commands.executeCommand(
     "vscode.diff",
     beforeUri,
     afterUri,
-    `${formatStepPath(step)}: ${beforeLabel} -> ${afterLabel}`,
+    `${formatStepPath(step)}: ${materialized.beforeLabel} -> ${materialized.afterLabel}`,
     {
       preview: true,
       viewColumn: reusablePrimaryViewColumn() ?? vscode.ViewColumn.Active,
@@ -305,18 +306,6 @@ async function setVirtualDocLanguage(uri: vscode.Uri, languageId?: string): Prom
   } catch (err) {
     logger?.appendLine(`[editor] diff language "${languageId}" ignored: ${String(err)}`);
   }
-}
-
-function textForDiffAfter(doc: vscode.TextDocument, step: TourStep, range: vscode.Range): string {
-  if (!step.range) return doc.getText(range);
-  const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
-  const startLine = clamp(step.range.startLine - 1, 0, doc.lineCount - 1);
-  const endLine = clamp(step.range.endLine - 1, startLine, doc.lineCount - 1);
-  const lines: string[] = [];
-  for (let line = startLine; line <= endLine; line++) {
-    lines.push(doc.lineAt(line).text);
-  }
-  return lines.join(eol);
 }
 
 function extensionForFile(file: string): string {

@@ -139,10 +139,18 @@ function normalizeRange(value: unknown): TourStep["range"] {
 function normalizeDiff(value: unknown): TourStepDiff | undefined {
   if (!value || typeof value !== "object") return undefined;
   const d = value as Record<string, unknown>;
-  if (typeof d.beforeText !== "string") return undefined;
+  const beforeText = typeof d.beforeText === "string" ? d.beforeText : undefined;
+  const baseRef = typeof d.baseRef === "string" && d.baseRef.trim() ? d.baseRef.trim() : undefined;
+  const headRef = typeof d.headRef === "string" && d.headRef.trim() ? d.headRef.trim() : undefined;
+  if (beforeText === undefined && !baseRef && !headRef) return undefined;
   return {
-    beforeText: d.beforeText,
+    beforeText,
     afterText: typeof d.afterText === "string" ? d.afterText : undefined,
+    baseRef,
+    headRef,
+    baseFile: typeof d.baseFile === "string" && d.baseFile.trim() ? d.baseFile.trim() : undefined,
+    headFile: typeof d.headFile === "string" && d.headFile.trim() ? d.headFile.trim() : undefined,
+    scope: d.scope === "file" || d.scope === "hunk" ? d.scope : undefined,
     beforeLabel: typeof d.beforeLabel === "string" ? d.beforeLabel : undefined,
     afterLabel: typeof d.afterLabel === "string" ? d.afterLabel : undefined,
     languageId: typeof d.languageId === "string" ? d.languageId : undefined,

@@ -18,6 +18,7 @@ import {
   planToMarkdown,
   slugForFilename,
 } from "./engine/tourSerialize";
+import { materializeStepDiff } from "./diffMaterialize";
 import { RepoTrailMcpServer } from "./mcp/server";
 import { listRepoTours, readRepoTour, REPO_TOURS_DIR, saveRepoTour, saveRepoTourUnique } from "./storage/repoTours";
 import { deleteTour, listAllTourRecords, listTours, loadTour, saveTour, TourRecord } from "./storage/tourStore";
@@ -349,8 +350,9 @@ function buildTourAuthoringPrompt(): string {
     "",
     "Presentation mode decision:",
     "- If the user mentions a PR, PRs, commit, commits, branch comparison, diff, changes, review, or another explicit change window, create a change-review tour: use kind \"pr-diff\" and make every changed-code stop diff-backed.",
-    "- Changed-code stops in change-review tours use viewMode \"diff\" with diff.beforeText. Omit diff.afterText when the current selected lines in file/range are the right side.",
-    "- Do not fall back to highlight-only changed-code stops because the base text takes effort to find; inspect the base branch, PR diff, commit, or git show output and build a focused hunk.",
+    "- Changed-code stops in change-review tours use viewMode \"diff\" with diff.baseRef and optional diff.headRef. Omit headRef to compare the base ref against the current workspace file.",
+    "- Use diff.scope \"file\" for normal PR/commit review stops so RepoTrail reads real full-file contents from git and VS Code can show unchanged surrounding code.",
+    "- Do not paste generated code into diff.beforeText/diff.afterText for git-backed reviews. Use pasted text only when there is no local git ref to compare.",
     "- Use highlight-only viewMode \"code\" only for codebase, file, subsystem, request-path, or architecture tours unrelated to a window of changes, plus optional orientation/context stops that do not review changed code.",
     "",
     "JSON format:",
@@ -626,16 +628,9 @@ async function buildAnimatedTourFrame(
   const warnings: string[] = [];
   const code = await snapshotStepCode(step, plan, warnings, log);
   const shouldRenderDiff = Boolean(step.diff && step.viewMode !== "code");
-  const diff =
-    step.diff && shouldRenderDiff
-      ? buildAnimatedDiffFrame({
-          beforeText: step.diff.beforeText,
-          afterText: step.diff.afterText ?? code?.text ?? "",
-          beforeLabel: step.diff.beforeLabel,
-          afterLabel: step.diff.afterLabel,
-          languageId: step.diff.languageId ?? code?.languageId,
-        })
-      : undefined;
+  const diff = shouldRenderDiff
+    ? await buildAnimatedStepDiff(plan, step, warnings, log)
+    : undefined;
   if (diff?.truncated) {
     warnings.push("Diff snapshot was trimmed for a compact shareable export.");
   }
@@ -650,6 +645,49 @@ async function buildAnimatedTourFrame(
     diff,
     warnings,
   };
+}
+
+async function buildAnimatedStepDiff(
+  plan: TourPlan,
+  step: TourStep,
+  warnings: string[],
+  log: vscode.OutputChannel,
+): Promise<AnimatedTourFrame["diff"]> {
+  let uri: vscode.Uri | null;
+  try {
+    uri = resolveStepUri(step, plan);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    warnings.push(`Could not resolve diff target: ${detail}`);
+    return undefined;
+  }
+  if (!uri) {
+    warnings.push("The workspace file for this diff stop is not open in this VS Code window.");
+    return undefined;
+  }
+
+  let doc: vscode.TextDocument;
+  try {
+    doc = await vscode.workspace.openTextDocument(uri);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    log.appendLine(`[export:animated] diff open failed for ${formatStepPath(step)}: ${detail}`);
+    warnings.push("Could not read the workspace file for this diff stop.");
+    return undefined;
+  }
+
+  const materialized = await materializeStepDiff(step, doc, resolveExportRange(step, doc), plan, log);
+  if (!materialized) {
+    warnings.push("Could not materialize the diff for this stop.");
+    return undefined;
+  }
+  return buildAnimatedDiffFrame({
+    beforeText: materialized.beforeText,
+    afterText: materialized.afterText,
+    beforeLabel: materialized.beforeLabel,
+    afterLabel: materialized.afterLabel,
+    languageId: materialized.languageId,
+  });
 }
 
 async function snapshotStepCode(
@@ -718,6 +756,18 @@ async function snapshotStepCode(
     languageId: doc.languageId,
     truncated,
   };
+}
+
+function resolveExportRange(step: TourStep, doc: vscode.TextDocument): vscode.Range {
+  if (step.range) {
+    const startLine = clamp(step.range.startLine - 1, 0, doc.lineCount - 1);
+    const endLine = clamp(step.range.endLine - 1, startLine, doc.lineCount - 1);
+    const startCol = clamp(step.range.startColumn - 1, 0, doc.lineAt(startLine).text.length);
+    const endCol = clamp(step.range.endColumn - 1, 0, doc.lineAt(endLine).text.length);
+    return new vscode.Range(startLine, startCol, endLine, endCol);
+  }
+  const end = Math.min(Math.max(doc.lineCount - 1, 0), 4);
+  return new vscode.Range(0, 0, end, doc.lineAt(end).text.length);
 }
 
 function stepLocationLabel(step: TourStep): string {

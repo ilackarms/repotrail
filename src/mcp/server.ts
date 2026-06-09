@@ -278,17 +278,34 @@ export class RepoTrailMcpServer {
 
     const diffSchema = z
       .object({
-        beforeText: z.string().describe("Previous/base text for the left side of the diff. Can be a tight hunk."),
+        beforeText: z
+          .string()
+          .optional()
+          .describe("Legacy/non-git previous text for the left side. Prefer baseRef for PR/commit tours."),
         afterText: z
           .string()
           .optional()
-          .describe("Changed/current text for the right side. Omit to use the current selected lines from file/range."),
+          .describe("Legacy/non-git changed text for the right side. Omit to use the selected range or whole file, depending on scope."),
+        baseRef: z
+          .string()
+          .optional()
+          .describe("Git commit-ish for the left side, such as a base SHA or origin/main. Preferred for PR/commit tours."),
+        headRef: z
+          .string()
+          .optional()
+          .describe("Optional git commit-ish for the right side. Omit to use the current workspace file."),
+        baseFile: z.string().optional().describe("Optional path at baseRef when the file was renamed. Defaults to file."),
+        headFile: z.string().optional().describe("Optional path at headRef when the file was renamed. Defaults to file."),
+        scope: z
+          .enum(["file", "hunk"])
+          .optional()
+          .describe("Diff scope. Git-backed diffs default to file; pasted-text diffs default to hunk."),
         beforeLabel: z.string().optional().describe("Optional label for the left side of the diff."),
         afterLabel: z.string().optional().describe("Optional label for the right side of the diff."),
         languageId: z.string().optional().describe("Optional VS Code language id for virtual diff documents."),
       })
       .optional()
-      .describe("Optional diff payload for native VS Code diff display.");
+      .describe("Optional diff payload for native VS Code diff display. Use baseRef/headRef instead of pasted code when the diff comes from git.");
 
 	    server.registerTool(
 	      "add_step",
@@ -635,7 +652,7 @@ export class RepoTrailMcpServer {
           "For multi-root tours, define plan.roots aliases and set step.root instead of repeating workspaceFolder on every step.",
         presentationPolicy: {
           changeReview:
-            "If the user mentions a PR, PRs, commit, commits, branch comparison, diff, changes, review, or another explicit change window, use kind pr-diff and make every changed-code stop diff-backed with viewMode diff plus diff.beforeText.",
+            "If the user mentions a PR, PRs, commit, commits, branch comparison, diff, changes, review, or another explicit change window, use kind pr-diff and make every changed-code stop diff-backed with viewMode diff plus diff.baseRef and optional diff.headRef. Prefer scope file so RepoTrail reads real full-file contents from local git.",
           highlightOnly:
             "Use highlight-only viewMode code only for codebase, file, subsystem, request-path, or architecture tours unrelated to a window of changes, plus optional orientation/context stops that do not review changed code.",
         },
@@ -645,7 +662,7 @@ export class RepoTrailMcpServer {
         "For an existing VS Code workspace, call get_workspace only if you need to verify open roots or file lists.",
         "For a new RepoTrail workspace, create or reuse non-destructive worktrees, save a .code-workspace under the workspaceRegistry directory, and open it in VS Code if possible.",
         "Read the repo before choosing stops.",
-        "Choose presentation mode from the request: PRs, commits, branch comparisons, diffs, reviews, and explicit change windows use diff-backed changed-code stops; codebase/subsystem tours unrelated to changes may be highlight-only.",
+        "Choose presentation mode from the request: PRs, commits, branch comparisons, diffs, reviews, and explicit change windows use git-backed diff stops; codebase/subsystem tours unrelated to changes may be highlight-only.",
         "Write the complete JSON tour to <owning-project>/.repotrail/<slug>.json.",
         "Tell the user the workspace file path when one was created and the tour file path. Do not build normal tours through sequential start_tour/add_step calls.",
       ],

@@ -166,13 +166,15 @@ commits, a branch comparison, or another explicit window of changes. Treat those
 as change-review tours:
 
 - Use `kind: "pr-diff"` unless the user clearly requested a different kind.
-- Every changed-code stop must be diff-backed with `viewMode: "diff"` and
-  `diff.beforeText`.
-- Omit `diff.afterText` when the current `file` plus `range` is the right side
-  of the diff.
-- Do not fall back to highlight-only changed-code stops because the base text
-  takes effort to find. Inspect the base branch, PR diff, commit, or `git show`
-  output and build a focused hunk.
+- Every changed-code stop must be diff-backed with `viewMode: "diff"` plus a
+  git-backed `diff.baseRef`; add `diff.headRef` when the right side should be a
+  commit instead of the current workspace file.
+- Use `diff.scope: "file"` for normal PR/commit review stops so RepoTrail reads
+  real full-file contents from local git and VS Code can show unchanged
+  surrounding code.
+- Do not paste generated code into `diff.beforeText` or `diff.afterText` for
+  git-backed reviews. The agent identifies refs, paths, and ranges; RepoTrail
+  materializes the actual diff.
 
 Use highlight-only `viewMode: "code"` only when the user asks for a tour of the
 codebase itself, a file, a subsystem, a request path, or architecture unrelated
@@ -248,6 +250,27 @@ the envelope keeps schema version and export time explicit.
 }
 ```
 
+Git-backed change-review step example:
+
+```json
+{
+  "root": "project",
+  "file": "src/example.ts",
+  "range": { "startLine": 42, "startColumn": 1, "endLine": 68, "endColumn": 1 },
+  "title": "Tighten request validation",
+  "explanation": "Explain why this changed hunk matters.",
+  "viewMode": "diff",
+  "diff": {
+    "baseRef": "BASE_SHA_OR_REF",
+    "headRef": "HEAD_SHA_OR_REF",
+    "scope": "file"
+  }
+}
+```
+
+If the workspace is already checked out at the right side of the change, omit
+`headRef`; RepoTrail will compare `baseRef` to the current workspace file.
+
 ## Step Quality Rules
 
 - One logical chunk equals one step.
@@ -255,15 +278,21 @@ the envelope keeps schema version and export time explicit.
 - Keep ranges tight and 1-indexed. If you did not read the file, do not invent
   a range.
 - For PRs, commits, branch comparisons, and other change-review tours, use
-  `viewMode: "diff"` with `diff.beforeText` for changed-code stops so the user
-  gets one compact native VS Code diff instead of a highlight-only code view.
+  `viewMode: "diff"` with `diff.baseRef` for changed-code stops so the user
+  gets a native VS Code diff from real local git contents instead of
+  agent-generated snippets.
+- Prefer `diff.scope: "file"` for changed-code stops. This lets the user scroll
+  imports and surrounding unchanged code while VS Code highlights only the real
+  changes.
+- Omit `diff.headRef` when the current workspace file is the right side. Set
+  `diff.headRef` only when the right side should be a specific commit/SHA.
+- Use `diff.baseFile` or `diff.headFile` only for renames where the path differs
+  between refs.
 - Use highlight-only `viewMode: "code"` only for codebase/subsystem tours
   unrelated to a change window, or for optional orientation/context stops that
   are not reviewing a changed hunk.
-- `diff.beforeText` is the previous/base text for the left side. `diff.afterText`
-  is optional; omit it when the current selected lines in `file`/`range` are the
-  right side. Keep both sides to a focused hunk unless full-file context is
-  necessary.
+- `diff.beforeText` and `diff.afterText` remain accepted for non-git sources and
+  old tours, but do not use them for normal PR/commit tours.
 - Use workspace-relative forward-slash file paths only.
 - For multi-root VS Code windows, define `plan.roots` aliases and set `root` on
   each step. Prefer portable `{ "name": "...", "pathHint": "..." }` root refs.
@@ -272,7 +301,8 @@ the envelope keeps schema version and export time explicit.
   rejects files that can escape the selected workspace folder.
 - Explanations should be markdown, usually 2-4 short paragraphs.
 - Do not paste code into explanations; the user is looking at the code or diff
-  in VS Code. Put changed code in `diff`, not in narration.
+  in VS Code. Put refs and ranges in `diff`, not code text, when git can provide
+  the contents.
 
 ## Deepening And Follow-Ups
 

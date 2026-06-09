@@ -15,15 +15,31 @@ export interface TourRange {
 }
 
 export type TourStepViewMode = "code" | "diff" | "both";
+export type TourStepDiffScope = "hunk" | "file";
 
 export interface TourStepDiff {
-  /** Previous/base text for the diff editor's left side. */
-  beforeText: string;
+  /**
+   * Previous/base text for the diff editor's left side. Kept for old tours and
+   * non-git sources; PR/change tours should prefer baseRef so RepoTrail reads
+   * the real file from local git instead of trusting generated text.
+   */
+  beforeText?: string;
   /**
    * Changed/current text for the diff editor's right side. If omitted, RepoTrail
-   * uses the step's current selected lines from `file`.
+   * uses the step's current selected lines from `file` for hunk diffs, or the
+   * whole current file for git-backed file diffs.
    */
   afterText?: string;
+  /** Git commit-ish for the left side, such as a base SHA or `origin/main`. */
+  baseRef?: string;
+  /** Optional git commit-ish for the right side. Omit to use the workspace file. */
+  headRef?: string;
+  /** Optional path at baseRef when the file was renamed. Defaults to step.file. */
+  baseFile?: string;
+  /** Optional path at headRef when the file was renamed. Defaults to step.file. */
+  headFile?: string;
+  /** Git-backed diffs default to whole-file context; legacy text diffs default to hunks. */
+  scope?: TourStepDiffScope;
   beforeLabel?: string;
   afterLabel?: string;
   languageId?: string;

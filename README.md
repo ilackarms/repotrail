@@ -3,9 +3,9 @@
 **Agent-guided codebase tours inside VS Code.**
 
 RepoTrail turns a repo walkthrough JSON file into an editor-native route: your
-agent writes `.repotrail/*.json`, RepoTrail opens native diffs for change
-reviews or highlights tight ranges for codebase tours, shows narration, and
-lets you move through the route with Back/Next, CodeLens, and the sidebar.
+agent writes `.repotrail/*.json`, RepoTrail opens native git-backed diffs for
+change reviews or highlights tight ranges for codebase tours, shows narration,
+and lets you move through the route with Back/Next, CodeLens, and the sidebar.
 
 ![RepoTrail sidebar](media/sidebar.png)
 
@@ -52,7 +52,7 @@ fetch:
 Then ask:
 
 ```text
-Use the repo-trail skill. Create a RepoTrail tour for the current VS Code workspace. Read the repo, then write one complete JSON tour into the owning project's .repotrail/ directory. If this is about a PR, commit, branch comparison, diff, or changes, use diff-backed changed-code stops. Use highlight-only stops only for codebase/subsystem tours unrelated to a change window. Do not build it through sequential MCP calls.
+Use the repo-trail skill. Create a RepoTrail tour for the current VS Code workspace. Read the repo, then write one complete JSON tour into the owning project's .repotrail/ directory. If this is about a PR, commit, branch comparison, diff, or changes, use git-backed diff stops with baseRef/headRef instead of pasted code. Use highlight-only stops only for codebase/subsystem tours unrelated to a change window. Do not build it through sequential MCP calls.
 ```
 
 ![RepoTrail MCP setup](media/mcp-setup.png)
@@ -100,9 +100,9 @@ work.
 - Cross-repo tours in multi-root VS Code windows via `plan.roots` aliases or
   legacy per-step `workspaceFolder` addressing.
 - Tight highlighted ranges with auto-captured anchors that detect code drift.
-- Native diff steps for PRs, commits, branch comparisons, and other change
-  reviews. Highlight-only code stops stay available for codebase/subsystem tours
-  unrelated to a change window.
+- Native git-backed full-file diff steps for PRs, commits, branch comparisons,
+  and other change reviews. Highlight-only code stops stay available for
+  codebase/subsystem tours unrelated to a change window.
 - Sidebar route list with seen-state dimming and current-step narration.
 - CodeLens controls above highlighted stops.
 - Keyboard navigation with `Alt+Left`, `Alt+Right`, and `Alt+P`.
