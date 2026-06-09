@@ -122,6 +122,9 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         case "importTour":
           await vscode.commands.executeCommand("repoTrail.importTour");
           break;
+        case "migrateSavedTours":
+          await vscode.commands.executeCommand("repoTrail.migrateSavedTours");
+          break;
         case "exportTour":
           await vscode.commands.executeCommand("repoTrail.exportTour");
           break;
@@ -387,6 +390,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           <button id="start" title="Copy a prompt that tells your agent to write a complete .repotrail JSON tour">Copy authoring prompt</button>
           <button id="agentBootstrap" class="secondary" title="Copy workspace details, schema, and optional helper endpoints for your agent">Agent setup</button>
           <button id="importTour" class="secondary" title="Import a RepoTrail tour from a saved file">Import tour…</button>
+          <button id="migrateSavedTours" class="secondary" title="Copy compatible old saved tours into repo-local .repotrail JSON files">Migrate saved</button>
           <button id="refreshTours" class="secondary" title="Refresh the tour library from disk">Refresh</button>
         </div>
         <div class="meta">${helperLine}</div>`;
@@ -573,6 +577,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     on("start", "start");
     on("agentBootstrap", "agentBootstrap");
     on("importTour", "importTour");
+    on("migrateSavedTours", "migrateSavedTours");
     on("refreshTours", "refreshTours");
     on("next", "next");
     on("back", "back");

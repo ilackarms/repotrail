@@ -82,6 +82,8 @@ work.
   ElevenLabs, or OpenAI TTS.
 - Repository tour library backed by `.repotrail/*.json` across every open
   workspace root.
+- Non-destructive migration from compatible old saved tours in
+  `~/.repotrail/tours/` into repo-local `.repotrail/*.json` files.
 - Export to Markdown, JSON, or standalone animated HTML with browser playback,
   embedded code/diff frames, and standalone TTS controls; import JSON tours.
 - Per-workspace resume from `~/.repotrail/tours/`.
@@ -111,6 +113,7 @@ See [PRIVACY.md](PRIVACY.md) for the longer policy.
   browser-playable animated HTML walkthrough.
 - `RepoTrail: Import Tour`.
 - `RepoTrail: Save Tour to Repo (.repotrail/)`.
+- `RepoTrail: Migrate Saved Tours to Repo (.repotrail/)`.
 - `RepoTrail: Resume Saved Tour` / `RepoTrail: Delete Saved Tour`.
 
 ## Development

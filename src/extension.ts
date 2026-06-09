@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import * as vscode from "vscode";
 import {
   formatStepPath,
@@ -18,8 +19,8 @@ import {
   slugForFilename,
 } from "./engine/tourSerialize";
 import { RepoTrailMcpServer } from "./mcp/server";
-import { listRepoTours, readRepoTour, REPO_TOURS_DIR, saveRepoTour } from "./storage/repoTours";
-import { deleteTour, listTours, loadTour, saveTour } from "./storage/tourStore";
+import { listRepoTours, readRepoTour, REPO_TOURS_DIR, saveRepoTour, saveRepoTourUnique } from "./storage/repoTours";
+import { deleteTour, listAllTourRecords, listTours, loadTour, saveTour, TourRecord } from "./storage/tourStore";
 import { availableProviders, TtsManager, TtsProvider } from "./tts/manager";
 import { TourCodeLensProvider } from "./ux/codeLensProvider";
 import { setEditorLogger } from "./ux/editorActions";
@@ -34,6 +35,7 @@ import {
   resolveStepWorkspaceFolder,
   resolveStepUri,
   resolveTourPlanRoots,
+  workspaceFolderIdentity,
   workspaceFolderInfos,
 } from "./workspace";
 
@@ -145,6 +147,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("repoTrail.exportTour", () => exportActiveTour(controller, log)),
     vscode.commands.registerCommand("repoTrail.importTour", () => importTour(controller, log)),
     vscode.commands.registerCommand("repoTrail.saveTourToRepo", () => saveTourToRepo(controller, log)),
+    vscode.commands.registerCommand("repoTrail.migrateSavedTours", () => migrateSavedToursToRepo(viewProvider, log)),
     vscode.commands.registerCommand("repoTrail.tourFromHere", () => tourFromHere()),
     vscode.commands.registerCommand("repoTrail.next", () => controller.next()),
     vscode.commands.registerCommand("repoTrail.back", () => controller.back()),
@@ -793,6 +796,139 @@ async function saveTourToRepo(controller: TourController, log: vscode.OutputChan
     log.appendLine(`[repo-save] failed: ${err instanceof Error ? err.message : String(err)}`);
     vscode.window.showErrorMessage("RepoTrail: save to repo failed (see Output ▸ RepoTrail).");
   }
+}
+
+async function migrateSavedToursToRepo(
+  viewProvider: TourViewProvider,
+  log: vscode.OutputChannel,
+): Promise<void> {
+  if (!hasWorkspaceFolders()) {
+    vscode.window.showErrorMessage("RepoTrail: open the target workspace roots before migrating saved tours.");
+    return;
+  }
+
+  let records;
+  try {
+    records = await listAllTourRecords();
+  } catch (err) {
+    log.appendLine(`[migrate] list failed: ${err instanceof Error ? err.message : String(err)}`);
+    vscode.window.showErrorMessage("RepoTrail: saved tour migration failed (see Output - RepoTrail).");
+    return;
+  }
+
+  let skippedArchived = 0;
+  let skippedEmpty = 0;
+  let skippedUnmatched = 0;
+  let failed = 0;
+  const migrated: string[] = [];
+
+  for (const entry of records) {
+    if (entry.archived) {
+      skippedArchived++;
+      continue;
+    }
+    if (entry.record.plan.steps.length === 0) {
+      skippedEmpty++;
+      continue;
+    }
+    const candidate = buildMigratedTour(entry.record);
+    if (!candidate) {
+      skippedUnmatched++;
+      continue;
+    }
+
+    try {
+      const content = planToJson(candidate.plan, new Date(entry.record.updatedAt).toISOString());
+      const file = await saveRepoTourUnique(candidate.targetRoot, slugForFilename(candidate.plan.title), content);
+      migrated.push(file);
+      log.appendLine(`[migrate] ${entry.path} -> ${file}`);
+    } catch (err) {
+      failed++;
+      log.appendLine(`[migrate] failed ${entry.path}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  viewProvider.refresh();
+  const skipped = skippedArchived + skippedEmpty + skippedUnmatched;
+  const message = `RepoTrail: migrated ${migrated.length} saved tour${migrated.length === 1 ? "" : "s"} to ${REPO_TOURS_DIR}/` +
+    (skipped || failed ? ` (${skipped} skipped${failed ? `, ${failed} failed` : ""}).` : ".");
+  const choice = await vscode.window.showInformationMessage(message, migrated.length ? "Show Files" : "Show Log");
+  if (choice === "Show Files") {
+    const docs = migrated.slice(0, 5).map((file) => vscode.workspace.openTextDocument(vscode.Uri.file(file)));
+    for (const doc of await Promise.all(docs)) {
+      await vscode.window.showTextDocument(doc, { preview: false });
+    }
+  } else if (choice === "Show Log") {
+    log.show(true);
+  }
+}
+
+function buildMigratedTour(record: TourRecord): { plan: TourPlan; targetRoot: string } | null {
+  const folders = currentWorkspaceFolders();
+  const infos = workspaceFolderInfos(folders);
+  const aliases = buildRootAliases(infos.map((info) => info.name));
+  const aliasesByPath = new Map(infos.map((info, index) => [info.path, aliases[index] ?? `root${index + 1}`]));
+  const defaultFolder = resolveRecordWorkspaceFolder(record.workspaceRoot);
+  const roots: NonNullable<TourPlan["roots"]> = { ...(record.plan.roots ?? {}) };
+  const counts = new Map<string, number>();
+
+  const steps = record.plan.steps.map((step) => {
+    const folder = resolveStepFolderForMigration(step, record.plan, defaultFolder);
+    if (!folder) return step;
+    const alias = aliasesByPath.get(folder.uri.fsPath);
+    if (!alias) return step;
+
+    counts.set(folder.uri.fsPath, (counts.get(folder.uri.fsPath) ?? 0) + 1);
+    roots[alias] = rootRefForFolder(folder, folders);
+    const { workspaceFolder: _workspaceFolder, ...rest } = step;
+    return { ...rest, root: alias };
+  });
+
+  let targetRoot: string | null = null;
+  let targetCount = 0;
+  for (const [root, count] of counts) {
+    if (count > targetCount) {
+      targetRoot = root;
+      targetCount = count;
+    }
+  }
+  if (!targetRoot) return null;
+
+  return {
+    targetRoot,
+    plan: {
+      ...record.plan,
+      roots,
+      steps,
+    },
+  };
+}
+
+function resolveStepFolderForMigration(
+  step: TourStep,
+  plan: TourPlan,
+  defaultFolder: vscode.WorkspaceFolder | null,
+): vscode.WorkspaceFolder | null {
+  if (step.workspaceFolder || step.root) return resolveStepWorkspaceFolder(step, plan);
+  return defaultFolder;
+}
+
+function resolveRecordWorkspaceFolder(workspaceRoot: string): vscode.WorkspaceFolder | null {
+  if (!path.isAbsolute(workspaceRoot)) return null;
+  return currentWorkspaceFolders().find((folder) => folder.uri.fsPath === workspaceRoot) ?? null;
+}
+
+function rootRefForFolder(
+  folder: vscode.WorkspaceFolder,
+  folders: readonly vscode.WorkspaceFolder[],
+): NonNullable<TourPlan["roots"]>[string] {
+  const identity = workspaceFolderIdentity(folder, folders);
+  const ref: NonNullable<TourPlan["roots"]>[string] = {
+    name: folder.name,
+    pathHint: path.basename(folder.uri.fsPath),
+  };
+  if (identity !== folder.name) ref.workspaceFolder = identity;
+  return ref;
 }
 
 /**

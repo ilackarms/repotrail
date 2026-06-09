@@ -59,6 +59,10 @@
         "title": "RepoTrail: Save Tour to Repo (.repotrail/)"
       },
       {
+        "command": "repoTrail.migrateSavedTours",
+        "title": "RepoTrail: Migrate Saved Tours to Repo (.repotrail/)"
+      },
+      {
         "command": "repoTrail.tourFromHere",
         "title": "RepoTrail: Copy Tour From Here Prompt"
       },
@@ -168,6 +172,9 @@
         {
           "command": "repoTrail.saveTourToRepo",
           "when": "repoTrail.tourActive"
+        },
+        {
+          "command": "repoTrail.migrateSavedTours"
         },
         {
           "command": "repoTrail.exportTour",
