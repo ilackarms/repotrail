@@ -69,11 +69,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     void this.render();
   }
 
-  /** Toggle continuous "play the tour" mode (from a command/keybinding). */
-  togglePlay(): void {
-    this.view?.webview.postMessage({ type: "tts.togglePlay" });
-  }
-
   /**
    * Display the prompt a clipboard-bridge action (deepen / follow-up) just
    * copied, so the user can see what to paste into their agent instead of
@@ -546,7 +541,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           <button id="agentBootstrap" class="secondary" title="Copy workspace details, schema, and optional helper endpoints for your agent">Agent setup</button>
           <button id="stop" title="Stop this tour">Stop</button>
           <button id="playPause" class="secondary" ${ttsProvider === "off" ? "disabled" : ""} title="Read this stop aloud">🔊 Speak</button>
-          <button id="playTour" class="secondary" ${ttsProvider === "off" || total < 2 ? "disabled" : ""} title="Play the whole tour: read each stop aloud and auto-advance">▶ Play</button>
           <button id="exportTour" class="secondary" title="Export this tour as Markdown, JSON, or save it into the repo">⤓ Export</button>
         </div>
         <input id="q" class="follow-up" placeholder="Follow-up question — Enter to copy prompt" />
@@ -563,9 +557,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   ` : `${emptyState}${tourList}${repoTourList}`}
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
-    const HAS_TOUR = ${plan ? "true" : "false"};
-    const CAN_TTS = ${ttsProvider === "off" ? "false" : "true"};
-    const IS_LAST = ${plan ? (index >= total - 1 ? "true" : "false") : "true"};
     const send = (msg) => vscode.postMessage(msg);
     const readState = () => {
       try { return vscode.getState?.() || {}; } catch (e) { return {}; }
@@ -705,7 +696,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     }, true);
     // ---- TTS playback surface ----------------------------------------------
     // The host picks the provider; this page plays what it receives and owns the
-    // Play/Pause button:
+    // Speak button:
     //   tts.speak engine=system  -> SpeechSynthesis (native OS voices)
     //   tts.speak engine=kokoro  -> local Kokoro-82M neural voice (WASM)
     //   tts.audio                -> MP3 bytes from a hosted provider (ElevenLabs/OpenAI)
@@ -713,12 +704,10 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     // we never play an old utterance over a newer step. Pause/resume act on the
     // live SpeechSynthesis queue or <audio> element without a host round-trip.
     const btn = document.getElementById("playPause");
-    const playBtn = document.getElementById("playTour");
     let audioEl = null;
     let speakToken = 0;
     let mode = null;     // 'synth' | 'audio'
     let state = "idle";  // idle | preparing | playing | paused
-    let playMode = false; // continuous "play the tour" auto-advance
 
     function setState(s) {
       state = s;
@@ -768,7 +757,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         u.rate = 1.05;
         mode = "synth";
         u.onstart = () => { if (token === speakToken) setState("playing"); };
-        u.onend = () => { if (token === speakToken) { setState("idle"); naturalEnd(); } };
+        u.onend = () => { if (token === speakToken) setState("idle"); };
         window.speechSynthesis?.speak(u);
       } catch (err) {
         console.error("[repotrail tts] system speak failed", err);
@@ -790,7 +779,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         const bytes = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         playBlob(new Blob([bytes], { type: mime || "audio/mpeg" }), token)
-          .then(() => { if (token === speakToken) { setState("idle"); naturalEnd(); } });
+          .then(() => { if (token === speakToken) setState("idle"); });
       } catch (err) {
         console.error("[repotrail tts] audio decode failed", err);
         reportAudioFailure("decode failed: " + ((err && err.message) || err), false);
@@ -914,56 +903,12 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         if (token !== speakToken) return;
         await playBlob(new Blob([wav], { type: "audio/wav" }), token);
       }
-      if (token === speakToken) { setState("idle"); naturalEnd(); }
+      if (token === speakToken) setState("idle");
     }
 
-    // ---- Continuous "Play the tour" mode -----------------------------------
-    // Ordinary navigation never starts narration. Play mode is the explicit
-    // button-driven exception: once a stop finishes reading, move to the next
-    // one and ask the host to read it after the webview rerenders.
-    function updatePlayBtn() {
-      if (!playBtn) return;
-      playBtn.textContent = playMode ? "⏹ Stop play" : "▶ Play";
-      setButtonTooltip(
-        playBtn,
-        playMode ? "Stop tour playback and keep the current stop selected" : "Play the whole tour: read each stop aloud and auto-advance",
-      );
-    }
-    function setPlayMode(on) {
-      playMode = on;
-      writeState({ playMode: on });
-      updatePlayBtn();
-    }
-    function naturalEnd() {
-      if (!playMode) return;
-      if (IS_LAST) { setPlayMode(false); return; }
-      send({ type: "next" }); // rerender resumes playback because playMode is set
-    }
-    playBtn?.addEventListener("click", () => {
-      if (!playMode) {
-        setPlayMode(true);
-        if (state === "idle") send({ type: "speakCurrent" }); // kick off if not already reading
-      } else {
-        setPlayMode(false);
-        stopAll();
-        setState("idle");
-        send({ type: "stopTts" });
-      }
-    });
-    // Restore play flag across the reload; clear it once the tour ends.
-    (function initPlay() {
-      if (!HAS_TOUR || !CAN_TTS) {
-        if (readState().playMode) writeState({ playMode: false });
-        playMode = false;
-      } else {
-        playMode = !!readState().playMode;
-      }
-      updatePlayBtn();
-      if (playMode && state === "idle") {
-        setState("preparing");
-        window.setTimeout(() => {
-          if (playMode && state === "preparing") send({ type: "speakCurrent" });
-        }, 0);
+    (function clearLegacyPlayState() {
+      if (readState().playMode) {
+        writeState({ playMode: false });
       }
     })();
 
@@ -984,9 +929,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       } else if (m.type === "tts.cancel") {
         stopAll();
         setState("idle");
-        if (playMode) setPlayMode(false);
-      } else if (m.type === "tts.togglePlay") {
-        playBtn?.click();
       }
     });
   </script>

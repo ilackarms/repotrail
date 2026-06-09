@@ -569,7 +569,6 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
     </div>
     <div class="controls">
       <button id="prevBtn" title="Previous stop">Back</button>
-      <button id="playBtn" class="primary" title="Play or pause the animated tour">Play</button>
       <button id="nextBtn" title="Next stop">Next</button>
       <button id="speakBtn" title="Read the current stop aloud">Speak</button>
       <button id="ttsSettingsBtn" class="secondary" title="Configure speech for this exported tour">TTS</button>
@@ -667,15 +666,12 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
   const data = JSON.parse(document.getElementById("tour-data").textContent || "{}");
   const frames = Array.isArray(data.frames) ? data.frames : [];
   let index = 0;
-  let playing = false;
-  let timer = 0;
 
   const byId = (id) => document.getElementById(id);
   const setText = (id, value) => { const el = byId(id); if (el) el.textContent = value || ""; };
   const stopList = byId("stopList");
   const codeBody = byId("codeBody");
   const frameEl = byId("frame");
-  const playBtn = byId("playBtn");
   const speakBtn = byId("speakBtn");
   const ttsPanel = byId("ttsPanel");
   const ttsSettingsBtn = byId("ttsSettingsBtn");
@@ -686,7 +682,6 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
   let speakToken = 0;
   let audioEl = null;
   let activeUtterance = null;
-  let advanceAfterSpeech = false;
   let kokoroWorker = null;
   let kokoroReqId = 0;
   const kokoroPending = new Map();
@@ -694,19 +689,6 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
   setText("tourTitle", data.title || "RepoTrail tour");
   setText("tourSummary", data.summary || "");
   setText("railMeta", (data.kind || "tour") + " - " + frames.length + " stops - exported " + (data.exportedAt || ""));
-
-  function schedule() {
-    window.clearTimeout(timer);
-    if (!playing || frames.length < 2) return;
-    if (canSpeak()) {
-      startSpeech(true);
-      return;
-    }
-    const text = frames[index]?.explanation || "";
-    const words = text.trim() ? text.trim().split(/\\s+/).length : 0;
-    const duration = Math.max(4500, Math.min(14000, 3200 + words * 95));
-    timer = window.setTimeout(() => go(index >= frames.length - 1 ? 0 : index + 1), duration);
-  }
 
   function loadTtsSettings() {
     const defaults = {
@@ -795,12 +777,10 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
         speechState === "paused" ? "Resume speech" :
         "Speak";
     }
-    if (playBtn) playBtn.textContent = playing ? "Pause" : "Play";
   }
 
   function stopSpeech(clearStatus = false) {
     speakToken++;
-    advanceAfterSpeech = false;
     activeUtterance = null;
     try { window.speechSynthesis?.cancel(); } catch (e) {}
     if (audioEl) {
@@ -838,12 +818,11 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
     return humanizeForSpeech((frame.title || "") + ". " + (frame.explanation || ""));
   }
 
-  function startSpeech(advanceOnEnd) {
+  function startSpeech() {
     const text = currentSpeechText();
     if (!text.trim()) return;
     if (speechState === "loading" || speechState === "speaking") stopSpeech(false);
     const token = ++speakToken;
-    advanceAfterSpeech = !!advanceOnEnd;
     setSpeechState("loading");
     setTtsStatus("");
     const provider = ttsSettings.provider;
@@ -864,15 +843,6 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
   function speechEnded(token) {
     if (token !== speakToken) return;
     setSpeechState("idle");
-    if (!advanceAfterSpeech) return;
-    advanceAfterSpeech = false;
-    if (!playing) return;
-    if (index >= frames.length - 1) {
-      playing = false;
-      updateSpeechButtons();
-      return;
-    }
-    go(index + 1);
   }
 
   function speakSystem(text, token) {
@@ -1259,7 +1229,6 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
       void frameEl.offsetWidth;
       frameEl.classList.add("is-entering");
     }
-    schedule();
   }
 
   function go(next) {
@@ -1271,16 +1240,11 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
 
   byId("prevBtn")?.addEventListener("click", () => go(index - 1));
   byId("nextBtn")?.addEventListener("click", () => go(index + 1));
-  playBtn?.addEventListener("click", () => {
-    playing = !playing;
-    if (!playing) stopSpeech(true);
-    render();
-  });
   speakBtn?.addEventListener("click", () => {
     if (speechState === "speaking") pauseSpeech();
     else if (speechState === "paused") resumeSpeech();
     else if (speechState === "loading") stopSpeech(true);
-    else startSpeech(false);
+    else startSpeech();
   });
   ttsSettingsBtn?.addEventListener("click", () => {
     if (!ttsPanel) return;
@@ -1290,7 +1254,6 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
     saveTtsSettings(readTtsForm());
     setTtsStatus("TTS settings saved for this browser.");
     stopSpeech(false);
-    if (playing) render();
   });
   byId("clearTtsKeysBtn")?.addEventListener("click", () => {
     saveTtsSettings({ ...readTtsForm(), openAiApiKey: "", elevenLabsApiKey: "" });
@@ -1299,12 +1262,6 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
   window.addEventListener("keydown", (event) => {
     if (event.key === "ArrowLeft") go(index - 1);
     if (event.key === "ArrowRight") go(index + 1);
-    if (event.key === " ") {
-      event.preventDefault();
-      playing = !playing;
-      if (!playing) stopSpeech(true);
-      render();
-    }
   });
   syncTtsForm();
   render();

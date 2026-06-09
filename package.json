@@ -67,10 +67,6 @@
         "title": "RepoTrail: Copy Tour From Here Prompt"
       },
       {
-        "command": "repoTrail.togglePlay",
-        "title": "RepoTrail: Play / Pause Tour Narration"
-      },
-      {
         "command": "repoTrail.showStep",
         "title": "RepoTrail: Show Step"
       },
@@ -129,11 +125,6 @@
         "command": "repoTrail.back",
         "key": "alt+left",
         "when": "repoTrail.tourActive"
-      },
-      {
-        "command": "repoTrail.togglePlay",
-        "key": "alt+p",
-        "when": "repoTrail.tourActive"
       }
     ],
     "menus": {
@@ -163,10 +154,6 @@
         },
         {
           "command": "repoTrail.revealCurrent",
-          "when": "repoTrail.tourActive"
-        },
-        {
-          "command": "repoTrail.togglePlay",
           "when": "repoTrail.tourActive"
         },
         {

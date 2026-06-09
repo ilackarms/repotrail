@@ -155,7 +155,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("repoTrail.showStep", (index?: number) => {
       if (typeof index === "number") void controller.showStep(index);
     }),
-    vscode.commands.registerCommand("repoTrail.togglePlay", () => viewProvider.togglePlay()),
     vscode.commands.registerCommand("repoTrail.revealCurrent", () => controller.revealCurrent()),
     vscode.commands.registerCommand("repoTrail.resumeRepoTour", async (arg?: string | { rootPath?: string; file?: string }) => {
       const file = typeof arg === "string" ? arg : arg?.file;

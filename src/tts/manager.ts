@@ -62,8 +62,8 @@ export class TtsManager implements vscode.Disposable {
     this.dispatch(humanizeForSpeech(`${snap.current.title}. ${snap.current.explanation}`));
   }
 
-  /** Full stop: halt host-side work AND tell the webview to stop playing + reset
-   *  the Play/Pause button to idle. Use for explicit stop / provider-off. */
+  /** Full stop: halt host-side work AND tell the webview to stop narration + reset
+   *  the Speak button to idle. Use for explicit stop / provider-off. */
   cancel(): void {
     this.cancelHostWork();
     this.webviewSink?.({ type: "tts.cancel" });
