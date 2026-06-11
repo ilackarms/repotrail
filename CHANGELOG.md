@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.1 - 2026-06-11
+
+- Improved diff-tour playback so review tours stay workspace-aware, use a
+  single editor surface, avoid stale diff editors, and can jump back to editable
+  source files.
+- Made tours more portable and file-first with readable exports, repo-shared
+  saved tours, migration support, and root-alias resolution during playback.
+- Refined the sidebar controls and agent guidance around the workspace-first MCP
+  tour flow.
+- Kept narration user-initiated by preventing background tour steps from
+  starting hosted speech.
+
 ## 0.10.0 - 2026-06-01
 
 - Renamed the extension to RepoTrail for the first public Marketplace release.
