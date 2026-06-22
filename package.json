@@ -67,6 +67,10 @@
         "title": "RepoTrail: Copy Tour From Here Prompt"
       },
       {
+        "command": "repoTrail.copySelectionReference",
+        "title": "RepoTrail: Copy Selection Reference"
+      },
+      {
         "command": "repoTrail.showStep",
         "title": "RepoTrail: Show Step"
       },
@@ -135,6 +139,12 @@
         "key": "alt+o",
         "mac": "cmd+alt+o",
         "when": "repoTrail.tourActive"
+      },
+      {
+        "command": "repoTrail.copySelectionReference",
+        "key": "ctrl+alt+c",
+        "mac": "cmd+alt+c",
+        "when": "editorTextFocus && editorHasSelection"
       }
     ],
     "menus": {
@@ -143,6 +153,11 @@
           "command": "repoTrail.tourFromHere",
           "group": "navigation@99",
           "when": "editorTextFocus"
+        },
+        {
+          "command": "repoTrail.copySelectionReference",
+          "group": "navigation@98",
+          "when": "editorTextFocus && editorHasSelection"
         }
       ],
       "commandPalette": [

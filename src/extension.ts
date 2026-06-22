@@ -25,6 +25,7 @@ import { deleteTour, listAllTourRecords, listTours, loadTour, saveTour, TourReco
 import { availableProviders, TtsManager, TtsProvider } from "./tts/manager";
 import { TourCodeLensProvider } from "./ux/codeLensProvider";
 import { setEditorLogger } from "./ux/editorActions";
+import { formatSelectionReference, selectedFullLineRange } from "./ux/selectionReference";
 import { TourController } from "./ux/tourController";
 import { TourViewProvider } from "./ux/webviewPanel";
 import {
@@ -151,6 +152,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("repoTrail.saveTourToRepo", () => saveTourToRepo(controller, log)),
     vscode.commands.registerCommand("repoTrail.migrateSavedTours", () => migrateSavedToursToRepo(viewProvider, log)),
     vscode.commands.registerCommand("repoTrail.tourFromHere", () => tourFromHere()),
+    vscode.commands.registerCommand("repoTrail.copySelectionReference", () => copySelectionReference()),
     vscode.commands.registerCommand("repoTrail.next", () => controller.next()),
     vscode.commands.registerCommand("repoTrail.back", () => controller.back()),
     vscode.commands.registerCommand("repoTrail.showStep", (index?: number) => {
@@ -1024,6 +1026,52 @@ async function tourFromHere(): Promise<void> {
   await vscode.env.clipboard.writeText(prompt);
   await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
   vscode.window.setStatusBarMessage("RepoTrail: 'tour from here' prompt copied for your agent.", 3000);
+}
+
+async function copySelectionReference(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || !hasWorkspaceFolders()) {
+    vscode.window.showInformationMessage("RepoTrail: open a workspace file and select code first.");
+    return;
+  }
+  const target = relativePathInWorkspace(editor.document.uri);
+  if (!target) {
+    vscode.window.showInformationMessage("RepoTrail: open a workspace file to copy a selection reference.");
+    return;
+  }
+  const selectedLines = selectedFullLineRange({
+    start: {
+      line: editor.selection.start.line,
+      character: editor.selection.start.character,
+    },
+    end: {
+      line: editor.selection.end.line,
+      character: editor.selection.end.character,
+    },
+  });
+  if (!selectedLines) {
+    vscode.window.showInformationMessage("RepoTrail: select code to copy a reference.");
+    return;
+  }
+
+  const range = new vscode.Range(
+    new vscode.Position(selectedLines.startLine, 0),
+    editor.document.lineAt(selectedLines.endLine).range.end,
+  );
+  const code = editor.document.getText(range);
+  const snippet = formatSelectionReference({
+    ...target,
+    startLine: selectedLines.startLine + 1,
+    endLine: selectedLines.endLine + 1,
+    languageId: editor.document.languageId,
+    code,
+  });
+  await vscode.env.clipboard.writeText(snippet);
+
+  const lineRef = selectedLines.startLine === selectedLines.endLine
+    ? `${target.file}:${selectedLines.startLine + 1}`
+    : `${target.file}:${selectedLines.startLine + 1}-${selectedLines.endLine + 1}`;
+  vscode.window.setStatusBarMessage(`RepoTrail: copied ${lineRef} with code.`, 3000);
 }
 
 async function copyAgentSetup(): Promise<void> {
