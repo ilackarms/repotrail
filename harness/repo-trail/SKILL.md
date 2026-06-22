@@ -29,7 +29,9 @@ Use this when the target roots are already open in VS Code.
 
 1. Discover the open roots. If optional MCP helpers are available, call
    `get_workspace`; otherwise use the paths the user gave you or the current
-   shell workspace.
+   shell workspace. If `get_workspace` reports the wrong VS Code window, call
+   `open_workspace` with an absolute folder or `.code-workspace` path, then
+   reconnect to the RepoTrail endpoint for the opened window.
 2. Read the repo or repos for real.
 3. Write one complete tour JSON file to the owning project's `.repotrail/`
    directory.
@@ -108,6 +110,19 @@ workspace discovery. RepoTrail uses Streamable HTTP on `127.0.0.1` and requires
 a local auth token. MCP is optional for normal authoring: do not build the tour
 by calling `start_tour` and `add_step` repeatedly.
 
+Some harnesses cannot hot-add an MCP server after a session starts. In that
+case, treat the URL as a raw Streamable HTTP JSON-RPC endpoint. POST to the MCP
+URL with:
+
+```text
+Content-Type: application/json
+Accept: application/json, text/event-stream
+```
+
+RepoTrail currently runs stateless MCP. `initialize` does not return an
+`Mcp-Session-Id` header, and raw clients should omit `Mcp-Session-Id` on later
+requests.
+
 Clients may authenticate either way:
 
 - tokenized URL: `http://127.0.0.1:<port>/mcp?token=<token>`;
@@ -128,6 +143,7 @@ your client, such as `mcp__repotrail__get_workspace`.
 | Tool | Use for |
 | --- | --- |
 | `get_workspace` | Optional: confirm the VS Code window and list bounded files for each open workspace folder. |
+| `open_workspace` | Ask VS Code to open an absolute folder or `.code-workspace` path when the current MCP endpoint is attached to the wrong window. Defaults to a new window; reconnect before authoring. |
 | `start_tour` / `add_step` | Legacy/live helpers only. Do not use for normal tour creation. |
 | `insert_step` / `update_step` / `remove_step` | Legacy/live helpers for an already-active in-memory tour. Prefer editing the JSON file. |
 | `show_step` | Legacy/live helper to jump to a step by index. |

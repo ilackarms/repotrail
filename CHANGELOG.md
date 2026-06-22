@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.2 - 2026-06-22
+
+- Added an `open_workspace` MCP helper so agents attached to the wrong VS Code
+  window can ask RepoTrail to open an absolute folder or `.code-workspace` path
+  before reconnecting.
+- Clarified the served skill, bootstrap metadata, and harness docs around
+  repo-local `.repotrail/*.json` tours, raw Streamable HTTP clients, and
+  RepoTrail's stateless MCP session behavior.
+
 ## 0.10.1 - 2026-06-11
 
 - Improved diff-tour playback so review tours stay workspace-aware, use a

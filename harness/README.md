@@ -62,7 +62,14 @@ The MCP server:
   `Authorization: Bearer <token>`;
 - expects Streamable HTTP clients to send
   `Accept: application/json, text/event-stream`;
+- runs in stateless mode, so `initialize` does not return `Mcp-Session-Id` and
+  raw clients should omit that header on follow-up requests;
 - writes live connection metadata to `~/.repotrail/ports.json`.
+
+If your harness cannot hot-add MCP tools after the session starts, drive the
+endpoint directly as raw Streamable HTTP JSON-RPC. The durable output is still a
+repo-local `.repotrail/*.json` file; raw HTTP is only for discovery, workspace
+attachment, and legacy live helpers.
 
 ## Required Tour Workflow
 
@@ -116,6 +123,7 @@ Manifests are optional convenience records for agents and users:
 | Tool | Use |
 | --- | --- |
 | `get_workspace` | Optional helper: confirm the VS Code window and inspect bounded file lists for each open workspace folder. |
+| `open_workspace` | Ask VS Code to open an absolute folder or `.code-workspace` path when the current endpoint is attached to the wrong window. Defaults to a new window; reconnect to that window before authoring. |
 | `start_tour` / `add_step` | Legacy/live helpers only. Prefer `.repotrail/*.json` for normal authoring. |
 | `insert_step` / `update_step` / `remove_step` | Legacy/live helpers for an already-active in-memory tour. Prefer editing the JSON artifact. |
 | `show_step` | Legacy/live helper to jump the editor to a step. |

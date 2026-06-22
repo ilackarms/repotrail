@@ -10,6 +10,7 @@ import { z } from "zod";
 import { TourController } from "../ux/tourController";
 import { gatherRepoContext } from "../analysis/repoContext";
 import { TourAction, TourKind, TourPlan, TourStep, TourStepDiff, TourStepViewMode } from "../engine/types";
+import { normalizeOpenWorkspaceInput } from "./openWorkspace";
 import {
   currentWorkspaceRegistryKeys,
   currentWorkspaceStorageRoot,
@@ -133,7 +134,12 @@ export class RepoTrailMcpServer {
 
     if (url.pathname === "/health") {
       res.writeHead(200, { "content-type": "application/json" }).end(
-        JSON.stringify({ ok: true, port: this.actualPort, version: this.extensionVersion }),
+        JSON.stringify({
+          ok: true,
+          port: this.actualPort,
+          version: this.extensionVersion,
+          mcpSessionMode: "stateless",
+        }),
       );
       return;
     }
@@ -226,6 +232,45 @@ export class RepoTrailMcpServer {
                   files: [],
                   supportsMultiRoot: true,
                   workspaceFolders: workspaceFolderInfos().map((f) => ({ ...f, files: [] })),
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
+      },
+    );
+
+    server.registerTool(
+      "open_workspace",
+      {
+        title: "Open a VS Code workspace",
+        description:
+          "Ask VS Code to open an absolute folder path or .code-workspace file. Use this when get_workspace shows the wrong window. Defaults to a new window; reconnect to that window before authoring the tour.",
+        inputSchema: {
+          path: z.string().describe("Absolute local path to a folder or .code-workspace file."),
+          newWindow: z
+            .boolean()
+            .optional()
+            .describe("Open in a new VS Code window. Defaults to true so the MCP response can return before the current window changes."),
+        },
+      },
+      async (input) => {
+        const target = normalizeOpenWorkspaceInput(input);
+        await assertWorkspaceTargetExists(target.path);
+        await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(target.path), target.forceNewWindow);
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  ok: true,
+                  path: target.path,
+                  openedInNewWindow: target.forceNewWindow,
+                  nextStep:
+                    "Reconnect to the RepoTrail helper endpoint for the opened VS Code window. Check ~/.repotrail/ports.json or use RepoTrail: Copy Agent Setup in that window.",
                 },
                 null,
                 2,
@@ -539,6 +584,7 @@ export class RepoTrailMcpServer {
         url: this.connectionUrl,
         skillUrl: this.skillUrl,
         bootstrapUrl: this.bootstrapUrl,
+        mcpSessionMode: "stateless",
         workspaceRoot: firstWorkspaceRoot() ?? "_no_workspace",
         workspaceFolders: folders,
       };
@@ -627,6 +673,9 @@ export class RepoTrailMcpServer {
       mcp: {
         name: "repotrail",
         transport: "streamable-http",
+        sessionMode: "stateless",
+        sessionHeader:
+          "RepoTrail does not return Mcp-Session-Id from initialize. Omit Mcp-Session-Id on raw HTTP requests.",
         url: this.connectionUrl,
         alternateAuth: {
           url: `${mcpUrl.origin}${mcpUrl.pathname}`,
@@ -635,6 +684,8 @@ export class RepoTrailMcpServer {
             Authorization: `Bearer ${token}`,
           },
         },
+        rawHttp:
+          "If your harness cannot hot-add an MCP server mid-session, POST JSON-RPC directly to the URL with content-type application/json and Accept: application/json, text/event-stream.",
       },
       workspaceRegistry: {
         directory: WORKSPACE_REGISTRY_DIR,
@@ -660,6 +711,7 @@ export class RepoTrailMcpServer {
       workflow: [
         "Fetch the repo-trail skill and install or use it with the agent's own skill mechanism before generating a tour.",
         "For an existing VS Code workspace, call get_workspace only if you need to verify open roots or file lists.",
+        "If get_workspace reports the wrong root, call open_workspace with an absolute folder or .code-workspace path, then reconnect to the RepoTrail endpoint for the opened VS Code window.",
         "For a new RepoTrail workspace, create or reuse non-destructive worktrees, save a .code-workspace under the workspaceRegistry directory, and open it in VS Code if possible.",
         "Read the repo before choosing stops.",
         "Choose presentation mode from the request: PRs, commits, branch comparisons, diffs, reviews, and explicit change windows use git-backed diff stops; codebase/subsystem tours unrelated to changes may be highlight-only.",
@@ -670,6 +722,17 @@ export class RepoTrailMcpServer {
   }
 }
 
+async function assertWorkspaceTargetExists(targetPath: string): Promise<void> {
+  let stat;
+  try {
+    stat = await fs.stat(targetPath);
+  } catch {
+    throw new Error(`open_workspace target does not exist: ${targetPath}`);
+  }
+  if (stat.isDirectory() || targetPath.toLowerCase().endsWith(".code-workspace")) return;
+  throw new Error("open_workspace target must be a folder or .code-workspace file.");
+}
+
 type RegistryEntry = {
   port: number;
   pid: number;
@@ -678,6 +741,7 @@ type RegistryEntry = {
   url: string;
   skillUrl: string;
   bootstrapUrl: string;
+  mcpSessionMode?: "stateless";
   workspaceRoot?: string;
   workspaceFolders?: ReturnType<typeof workspaceFolderInfos>;
 };

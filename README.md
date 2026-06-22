@@ -49,6 +49,15 @@ fetch:
 - the tokenized Streamable HTTP MCP URL at `/mcp?token=...` for workspace
   discovery or legacy live updates.
 
+If your harness cannot hot-add MCP tools mid-session, you can POST JSON-RPC to
+the MCP URL directly with `Accept: application/json, text/event-stream`.
+RepoTrail runs this endpoint in stateless mode, so `initialize` does not return
+`Mcp-Session-Id`; omit that header on follow-up requests.
+
+If the helper endpoint is attached to the wrong VS Code window, call
+`open_workspace` with an absolute folder or `.code-workspace` path, then
+reconnect using that window's setup prompt or `~/.repotrail/ports.json`.
+
 Then ask:
 
 ```text
@@ -174,8 +183,8 @@ voices such as macOS `say` cannot run from a browser page.
 ## Limitations
 
 - MCP is optional. Clients that use the helper server must support Streamable
-  HTTP, and some clients need a new session after MCP registration so they can
-  load the `mcp__repotrail__*` tools.
+  HTTP, or drive the endpoint as raw Streamable HTTP JSON-RPC when they cannot
+  hot-add MCP tools.
 - RepoTrail is read-only. It navigates and explains code; it does not refactor
   files.
 - Open VSX publishing is not part of the first launch.

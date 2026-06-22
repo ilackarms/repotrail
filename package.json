@@ -2,7 +2,7 @@
   "name": "repotrail",
   "displayName": "RepoTrail",
   "description": "Agent-authored JSON codebase tours in VS Code.",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "publisher": "repotrail",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -321,6 +321,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p ./ --noEmit",
+    "test": "sh -c 'rm -rf out-test && tsc -p ./ --outDir out-test && node --test test/*.test.mjs; status=$?; rm -rf out-test; exit $status'",
     "compile": "node esbuild.mjs",
     "watch": "tsc -watch -p ./ --noEmit",
     "build": "pnpm typecheck && pnpm compile",

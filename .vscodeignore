@@ -5,6 +5,7 @@
 .omx/**
 .playwright-mcp/**
 docs/knowledge-pack/**
+test/**
 media/sidebar.svg
 media/mcp-setup.svg
 src/**

@@ -1036,9 +1036,11 @@ async function copyAgentSetup(): Promise<void> {
           "Optional RepoTrail helper endpoints:",
           `- bootstrap metadata: ${mcp.bootstrapUrl}`,
           `- current skill text: ${mcp.skillUrl}`,
-          `- MCP helper URL for get_workspace/open-state only: ${mcp.connectionUrl}`,
+          `- MCP helper URL for get_workspace/open_workspace/open-state only: ${mcp.connectionUrl}`,
           `- new workspace registry: ${WORKSPACE_REGISTRY_DIR_DISPLAY}/`,
           "",
+          "If your harness cannot hot-add MCP tools mid-session, use the MCP URL as a raw Streamable HTTP JSON-RPC endpoint. RepoTrail runs stateless MCP, so initialize does not return Mcp-Session-Id; omit that header on follow-up requests.",
+          "If the endpoint belongs to the wrong VS Code window, call open_workspace with an absolute folder or .code-workspace path, then reconnect using that window's setup or ~/.repotrail/ports.json.",
           "Use MCP only for workspace discovery or live playback helpers. Do not build the tour by calling start_tour/add_step repeatedly.",
         ].join("\n")
       : `\nMCP helpers are not available in this window. Use the workspace roots listed above and write the JSON file directly. For new workspaces, save .code-workspace files under ${WORKSPACE_REGISTRY_DIR_DISPLAY}/.`;
