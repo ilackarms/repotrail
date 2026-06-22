@@ -4,6 +4,7 @@ import { formatStepPath } from "../engine/types";
 import { RepoTourSummary } from "../storage/repoTours";
 import { TourSummary } from "../storage/tourStore";
 import { TourController } from "./tourController";
+import { RenderSignature, shouldDeferRenderForTts, WebviewTtsState } from "./renderPolicy";
 
 type WebviewSink = (msg: { type: string; text?: string }) => void;
 
@@ -27,6 +28,9 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   private mcpStatusLoader: (() => { enabled: boolean; port: number | null }) | null = null;
 
   private warnedKokoroFallback = false;
+  private ttsState: WebviewTtsState = "idle";
+  private pendingRender = false;
+  private lastRenderSignature: RenderSignature | null = null;
 
   // The last clipboard-bridge prompt (deepen / follow-up) so we can show the
   // user exactly what to paste, rather than a fire-and-forget toast. Pinned to
@@ -95,6 +99,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
+    this.ttsState = "idle";
     view.webview.options = { enableScripts: true, localResourceRoots: [this.extensionUri] };
 
     // Keep the webview's JS alive while the sidebar is collapsed so TTS doesn't
@@ -104,10 +109,22 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     view.onDidDispose(() => {
       this.onSinkChange?.(null);
       this.view = undefined;
+      this.ttsState = "idle";
+      this.pendingRender = false;
+      this.lastRenderSignature = null;
     });
 
     view.webview.onDidReceiveMessage(async (msg) => {
       switch (msg?.type) {
+        case "tts.state":
+          if (isWebviewTtsState(msg.state)) {
+            this.ttsState = msg.state;
+            if (this.ttsState === "idle" && this.pendingRender) {
+              this.pendingRender = false;
+              await this.render();
+            }
+          }
+          break;
         case "start":
           await vscode.commands.executeCommand("repoTrail.copyTourPrompt");
           break;
@@ -246,6 +263,11 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     }
 
     const mcp = this.mcpStatusLoader?.() ?? { enabled: true, port: null };
+    const nextSignature = renderSignature(snap, provider, tourId);
+    if (shouldDeferRenderForTts(this.ttsState, this.lastRenderSignature, nextSignature)) {
+      this.pendingRender = true;
+      return;
+    }
 
     this.view.webview.html = this.html(snap, provider, tours, {
       addedBanner,
@@ -253,6 +275,8 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       mcp,
       repoTours,
     });
+    this.lastRenderSignature = nextSignature;
+    this.ttsState = "idle";
   }
 
   private async loadTours(): Promise<TourSummary[]> {
@@ -723,6 +747,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
 
     function setState(s) {
       state = s;
+      send({ type: "tts.state", state: s });
       if (!btn) return;
       btn.textContent =
         s === "preparing" ? "⏳ Loading voice…" :
@@ -1072,4 +1097,32 @@ function viewModeLabel(mode: string): string {
   if (mode === "diff") return "Diff";
   if (mode === "both") return "Diff";
   return "Code";
+}
+
+function isWebviewTtsState(value: unknown): value is WebviewTtsState {
+  return value === "idle" || value === "preparing" || value === "playing" || value === "paused";
+}
+
+function renderSignature(
+  snap: ReturnType<TourController["snapshot"]>,
+  provider: string,
+  tourId: string | null,
+): RenderSignature {
+  const current = snap.current;
+  return {
+    tourId: current ? tourId : null,
+    index: snap.index,
+    provider,
+    currentKey: current
+      ? [
+          current.root ?? "",
+          current.workspaceFolder ?? "",
+          current.file,
+          current.title,
+          current.explanation,
+          current.viewMode ?? "",
+          current.diff ? JSON.stringify(current.diff) : "",
+        ].join("\0")
+      : "",
+  };
 }

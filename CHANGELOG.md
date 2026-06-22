@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.3 - 2026-06-22
+
+- Preserved active TTS playback across same-step sidebar refreshes so Pause and
+  Resume no longer collapse back into starting narration from the beginning.
+
 ## 0.10.2 - 2026-06-22
 
 - Added an `open_workspace` MCP helper so agents attached to the wrong VS Code
