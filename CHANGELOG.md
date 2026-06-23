@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.4 - 2026-06-23
+
+- Added the `RepoTrail: Copy Selection Reference` command for copying a
+  workspace-relative file/line reference with the selected full-line code block.
+
 ## 0.10.3 - 2026-06-22
 
 - Preserved active TTS playback across same-step sidebar refreshes so Pause and

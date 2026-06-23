@@ -2,7 +2,7 @@
   "name": "repotrail",
   "displayName": "RepoTrail",
   "description": "Agent-authored JSON codebase tours in VS Code.",
-  "version": "0.10.3",
+  "version": "0.10.4",
   "publisher": "repotrail",
   "license": "MIT",
   "icon": "media/icon.png",
