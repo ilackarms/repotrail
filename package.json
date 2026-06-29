@@ -79,6 +79,10 @@
         "title": "RepoTrail: Resume Repo Tour"
       },
       {
+        "command": "repoTrail.renameTour",
+        "title": "RepoTrail: Rename Tour"
+      },
+      {
         "command": "repoTrail.next",
         "title": "RepoTrail: Next Step"
       },
@@ -187,6 +191,10 @@
         },
         {
           "command": "repoTrail.saveTourToRepo",
+          "when": "repoTrail.tourActive"
+        },
+        {
+          "command": "repoTrail.renameTour",
           "when": "repoTrail.tourActive"
         },
         {

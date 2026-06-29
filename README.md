@@ -151,6 +151,8 @@ See [PRIVACY.md](PRIVACY.md) for the longer policy.
 - `RepoTrail: Export Tour` - export Markdown, re-importable JSON, or a
   browser-playable animated HTML walkthrough.
 - `RepoTrail: Import Tour`.
+- `RepoTrail: Rename Tour` - change the visible tour title without renaming
+  the `.repotrail/*.json` file.
 - `RepoTrail: Save Tour to Repo (.repotrail/)`.
 - `RepoTrail: Migrate Saved Tours to Repo (.repotrail/)`.
 - `RepoTrail: Resume Saved Tour` / `RepoTrail: Delete Saved Tour`.

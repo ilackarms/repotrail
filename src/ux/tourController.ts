@@ -27,10 +27,16 @@ export type TourMutation =
  */
 export type PersistFn = (record: TourRecord | null) => void;
 
+export interface ActiveRepoTourSource {
+  rootPath: string;
+  file: string;
+}
+
 export class TourController {
   private plan: TourPlan | null = null;
   private index = 0;
   private tourId: string | null = null;
+  private repoTourSource: ActiveRepoTourSource | null = null;
   private workspaceRoot: string | null = null;
   private createdAt: number | null = null;
   private persistFn: PersistFn | null = null;
@@ -79,6 +85,7 @@ export class TourController {
     this.plan = plan;
     this.index = -1; // nothing applied yet; appendStep will set to 0
     this.tourId = newTourId();
+    this.repoTourSource = null;
     this.workspaceRoot = this.resolveWorkspaceRoot(workspaceRoot);
     this.createdAt = Date.now();
     this.lastMutationKind = "start";
@@ -95,10 +102,11 @@ export class TourController {
    * Load a fully-formed plan as a brand-new tour. Unlike `resume`, this mints
    * a fresh id so it persists as its own entry, and lands the user on step 1.
    */
-  async loadPlan(plan: TourPlan, workspaceRoot?: string): Promise<void> {
+  async loadPlan(plan: TourPlan, workspaceRoot?: string, repoTourSource?: ActiveRepoTourSource): Promise<void> {
     this.plan = resolveTourPlanRoots(plan);
     this.index = plan.steps.length > 0 ? 0 : -1;
     this.tourId = newTourId();
+    this.repoTourSource = repoTourSource ?? null;
     this.workspaceRoot = this.resolveWorkspaceRoot(workspaceRoot);
     this.createdAt = Date.now();
     this.lastMutationKind = "start";
@@ -116,6 +124,7 @@ export class TourController {
   async resume(record: TourRecord): Promise<void> {
     this.plan = resolveTourPlanRoots(record.plan);
     this.tourId = record.id;
+    this.repoTourSource = null;
     this.workspaceRoot = record.workspaceRoot;
     this.createdAt = record.createdAt;
     this.index = Math.max(0, Math.min(record.lastIndex, record.plan.steps.length - 1));
@@ -132,6 +141,10 @@ export class TourController {
 
   get activeTourId(): string | null {
     return this.tourId;
+  }
+
+  get activeRepoTourSource(): ActiveRepoTourSource | null {
+    return this.repoTourSource;
   }
 
   /** What produced the most recent change. See {@link TourMutation}. */
@@ -189,6 +202,15 @@ export class TourController {
     if (this.index === at) await this.applyCurrent();
     this.persist();
     this.onChangeEmitter.fire();
+  }
+
+  renameActiveTitle(title: string): boolean {
+    if (!this.plan) return false;
+    this.plan.title = title;
+    this.lastMutationKind = "update";
+    this.persist();
+    this.onChangeEmitter.fire();
+    return true;
   }
 
   /** Remove the step at `at`. Adjusts index to stay valid. */
@@ -275,6 +297,7 @@ export class TourController {
     this.plan = null;
     this.index = 0;
     this.tourId = null;
+    this.repoTourSource = null;
     this.workspaceRoot = null;
     this.createdAt = null;
     this.lastMutationKind = "stop";

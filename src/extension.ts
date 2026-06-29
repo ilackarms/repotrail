@@ -21,6 +21,7 @@ import {
 import { materializeStepDiff } from "./diffMaterialize";
 import { RepoTrailMcpServer } from "./mcp/server";
 import { listRepoTours, readRepoTour, REPO_TOURS_DIR, saveRepoTour, saveRepoTourUnique } from "./storage/repoTours";
+import { renameRepoTourTitle, renameSavedTourTitle, validateTourTitle } from "./storage/tourRename";
 import { deleteTour, listAllTourRecords, listTours, loadTour, saveTour, TourRecord } from "./storage/tourStore";
 import { availableProviders, TtsManager, TtsProvider } from "./tts/manager";
 import { TourCodeLensProvider } from "./ux/codeLensProvider";
@@ -48,6 +49,8 @@ let tourStatusItem: vscode.StatusBarItem | null = null;
 const ANIMATED_EXPORT_CONTEXT_LINES = 2;
 const ANIMATED_EXPORT_MAX_CODE_LINES = 80;
 const WORKSPACE_REGISTRY_DIR_DISPLAY = "~/.repotrail/workspaces";
+
+type RenameTourArg = string | { id?: string; rootPath?: string; file?: string };
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const log = vscode.window.createOutputChannel("RepoTrail");
@@ -170,9 +173,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.window.showErrorMessage(`RepoTrail: ${REPO_TOURS_DIR}/${file} isn't a valid tour.`);
         return;
       }
-      await controller.loadPlan(plan, root);
+      await controller.loadPlan(plan, root, { rootPath: root, file });
       await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
     }),
+    vscode.commands.registerCommand("repoTrail.renameTour", (arg?: RenameTourArg) => renameTour(arg, controller, viewProvider, log)),
     vscode.commands.registerCommand("repoTrail.deeper", () => copyDeepenPrompt(controller, viewProvider, log)),
     vscode.commands.registerCommand(
       "repoTrail.followUp",
@@ -276,6 +280,113 @@ function repoTourRoots() {
 function resolveOpenRepoTourRoot(rootPath?: string): string | undefined {
   if (!rootPath) return firstWorkspaceRoot();
   return currentWorkspaceFolders().find((folder) => folder.uri.fsPath === rootPath)?.uri.fsPath;
+}
+
+async function renameTour(
+  arg: RenameTourArg | undefined,
+  controller: TourController,
+  viewProvider: TourViewProvider,
+  log: vscode.OutputChannel,
+): Promise<void> {
+  try {
+    const localId = typeof arg === "string" ? arg : arg?.id;
+    const repoFile = typeof arg === "object" ? arg.file : undefined;
+    const repoRoot = typeof arg === "object" ? arg.rootPath : undefined;
+
+    if (repoFile) {
+      const root = resolveOpenRepoTourRoot(repoRoot);
+      if (!root) {
+        vscode.window.showErrorMessage("RepoTrail: open the workspace that owns this repo tour first.");
+        return;
+      }
+      const plan = await readRepoTour(root, repoFile);
+      if (!plan) {
+        vscode.window.showErrorMessage(`RepoTrail: ${REPO_TOURS_DIR}/${repoFile} isn't a valid tour.`);
+        return;
+      }
+      const nextTitle = await promptTourTitle(plan.title);
+      if (!nextTitle) return;
+      const renamed = await renameRepoTourTitle(root, repoFile, nextTitle);
+      if (sameRepoTourSource(controller.activeRepoTourSource, { rootPath: root, file: repoFile })) {
+        controller.renameActiveTitle(renamed.title);
+      }
+      viewProvider.refresh();
+      vscode.window.setStatusBarMessage(`RepoTrail: renamed tour to "${renamed.title}".`, 2500);
+      return;
+    }
+
+    if (localId) {
+      if (!hasWorkspaceFolders()) {
+        vscode.window.showErrorMessage("RepoTrail: open a workspace first.");
+        return;
+      }
+      const root = currentWorkspaceStorageRoot();
+      const record = await loadTour(root, localId);
+      if (!record) {
+        vscode.window.showErrorMessage(`RepoTrail: tour ${localId} not found.`);
+        return;
+      }
+      const nextTitle = await promptTourTitle(record.plan.title);
+      if (!nextTitle) return;
+      const renamed = await renameSavedTourTitle(root, localId, nextTitle);
+      if (!renamed) {
+        vscode.window.showErrorMessage(`RepoTrail: tour ${localId} not found.`);
+        return;
+      }
+      if (controller.activeTourId === localId) controller.renameActiveTitle(renamed.plan.title);
+      viewProvider.refresh();
+      vscode.window.setStatusBarMessage(`RepoTrail: renamed tour to "${renamed.plan.title}".`, 2500);
+      return;
+    }
+
+    const snap = controller.snapshot();
+    if (!snap.plan) {
+      vscode.window.showInformationMessage("RepoTrail: no active tour to rename.");
+      return;
+    }
+    const nextTitle = await promptTourTitle(snap.plan.title);
+    if (!nextTitle) return;
+    const source = controller.activeRepoTourSource;
+    if (source) {
+      const renamed = await renameRepoTourTitle(source.rootPath, source.file, nextTitle);
+      controller.renameActiveTitle(renamed.title);
+      viewProvider.refresh();
+      vscode.window.setStatusBarMessage(`RepoTrail: renamed tour to "${renamed.title}".`, 2500);
+      return;
+    }
+    const title = validateTourTitle(nextTitle);
+    controller.renameActiveTitle(title);
+    viewProvider.refresh();
+    vscode.window.setStatusBarMessage(`RepoTrail: renamed tour to "${title}".`, 2500);
+  } catch (err) {
+    log.appendLine(`[rename] failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+    vscode.window.showErrorMessage(err instanceof Error ? err.message : "RepoTrail: rename failed.");
+  }
+}
+
+function sameRepoTourSource(
+  a: { rootPath: string; file: string } | null,
+  b: { rootPath: string; file: string },
+): boolean {
+  return Boolean(a && a.rootPath === b.rootPath && a.file === b.file);
+}
+
+async function promptTourTitle(currentTitle: string): Promise<string | null> {
+  const value = await vscode.window.showInputBox({
+    title: "Rename RepoTrail tour",
+    value: currentTitle,
+    prompt: `Visible title only; ${REPO_TOURS_DIR} filename stays the same.`,
+    validateInput: (input) => {
+      try {
+        validateTourTitle(input);
+        return null;
+      } catch {
+        return "Enter a non-empty title.";
+      }
+    },
+  });
+  if (value === undefined) return null;
+  return validateTourTitle(value);
 }
 
 function preferredRepoRootForPlan(plan: TourPlan): string | undefined {

@@ -210,9 +210,22 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
             await vscode.commands.executeCommand("repoTrail.resumeTour", msg.id);
           }
           break;
+        case "renameTour":
+          if (typeof msg.id === "string") {
+            await vscode.commands.executeCommand("repoTrail.renameTour", { id: msg.id });
+          }
+          break;
         case "resumeRepoTour":
           if (typeof msg.file === "string") {
             await vscode.commands.executeCommand("repoTrail.resumeRepoTour", {
+              file: msg.file,
+              rootPath: typeof msg.rootPath === "string" ? msg.rootPath : undefined,
+            });
+          }
+          break;
+        case "renameRepoTour":
+          if (typeof msg.file === "string") {
+            await vscode.commands.executeCommand("repoTrail.renameTour", {
               file: msg.file,
               rootPath: typeof msg.rootPath === "string" ? msg.rootPath : undefined,
             });
@@ -435,6 +448,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
               </div>
               <div class="tour-actions">
                 <button class="resume" data-id="${escape(t.id)}" title="Resume this saved tour from its last step">Resume</button>
+                <button class="rename secondary" data-id="${escape(t.id)}" title="Rename this saved tour's visible title">Rename</button>
                 <button class="del secondary" data-id="${escape(t.id)}" title="Delete this saved tour">🗑</button>
               </div>
             </li>`;
@@ -465,6 +479,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
               </div>
               <div class="tour-actions">
                 <button class="repo-resume" data-root="${escape(t.rootPath)}" data-file="${escape(t.file)}" title="Open this repo-shared tour">Open</button>
+                <button class="repo-rename secondary" data-root="${escape(t.rootPath)}" data-file="${escape(t.file)}" title="Rename this repo tour's visible title">Rename</button>
               </div>
             </li>`;
           },
@@ -634,9 +649,19 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     document.querySelectorAll("button.resume").forEach((b) => {
       b.addEventListener("click", () => send({ type: "resumeTour", id: b.getAttribute("data-id") }));
     });
+    document.querySelectorAll("button.rename").forEach((b) => {
+      b.addEventListener("click", () => send({ type: "renameTour", id: b.getAttribute("data-id") }));
+    });
     document.querySelectorAll("button.repo-resume").forEach((b) => {
       b.addEventListener("click", () => send({
         type: "resumeRepoTour",
+        file: b.getAttribute("data-file"),
+        rootPath: b.getAttribute("data-root"),
+      }));
+    });
+    document.querySelectorAll("button.repo-rename").forEach((b) => {
+      b.addEventListener("click", () => send({
+        type: "renameRepoTour",
         file: b.getAttribute("data-file"),
         rootPath: b.getAttribute("data-root"),
       }));
