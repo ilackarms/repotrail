@@ -637,7 +637,20 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       if (state.routeCollapsed) routePanel.removeAttribute("open");
       routePanel.addEventListener("toggle", () => {
         writeState({ routeCollapsed: !routePanel.open });
+        if (routePanel.open) {
+          const list = document.querySelector(".stops");
+          const active = document.querySelector(".stop.active");
+          if (list && active) restoreRouteScroll(list, active);
+        }
       });
+    }
+    const stopsList = document.querySelector(".stops");
+    const activeStop = document.querySelector(".stop.active");
+    if (stopsList && activeStop && (!routePanel || routePanel.open)) {
+      restoreRouteScroll(stopsList, activeStop);
+      stopsList.addEventListener("scroll", () => {
+        writeState({ routeScrollTop: stopsList.scrollTop });
+      }, { passive: true });
     }
     const q = document.getElementById("q");
     q?.addEventListener("keydown", (e) => {
@@ -748,6 +761,24 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     document.addEventListener("scroll", () => {
       if (tooltipTarget && !tooltip.hidden) placeTooltip(tooltipTarget);
     }, true);
+
+    function restoreRouteScroll(list, active) {
+      const state = readState();
+      const maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+      const saved = Number.isFinite(state.routeScrollTop)
+        ? Math.max(0, Math.min(maxScrollTop, state.routeScrollTop))
+        : null;
+      if (saved !== null) list.scrollTop = saved;
+      const top = active.offsetTop;
+      const bottom = active.offsetTop + active.offsetHeight;
+      const visibleTop = list.scrollTop;
+      const visibleBottom = visibleTop + list.clientHeight;
+      if (saved === null || top < visibleTop || bottom > visibleBottom) {
+        const centered = top - Math.max(0, Math.floor((list.clientHeight - active.offsetHeight) / 2));
+        list.scrollTop = Math.max(0, Math.min(maxScrollTop, centered));
+      }
+      writeState({ routeScrollTop: list.scrollTop });
+    }
     // ---- TTS playback surface ----------------------------------------------
     // The host picks the provider; this page plays what it receives and owns the
     // Speak button:
