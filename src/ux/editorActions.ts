@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { materializeStepDiff } from "../diffMaterialize";
 import { DriftStatus, formatStepPath, TourPlan, TourStep, TourStepViewMode } from "../engine/types";
 import { resolveStepUri } from "../workspace";
+import { diffRevealTargetForRange } from "./diffReveal";
 
 /**
  * Executes a TourStep's declarative actions against the editor.
@@ -243,6 +244,7 @@ async function showStepDiff(
   const afterUri = virtualDiffUri(step, materialized.afterLabel, materialized.afterText);
   await setVirtualDocLanguage(beforeUri, materialized.languageId);
   await setVirtualDocLanguage(afterUri, materialized.languageId);
+  const reveal = diffRevealTargetForRange(range, materialized.scope);
   await vscode.commands.executeCommand(
     "vscode.diff",
     beforeUri,
@@ -251,6 +253,12 @@ async function showStepDiff(
     {
       preview: true,
       viewColumn: reusablePrimaryViewColumn() ?? vscode.ViewColumn.Active,
+      selection: new vscode.Range(
+        reveal.startLine,
+        reveal.startCharacter,
+        reveal.endLine,
+        reveal.endCharacter,
+      ),
     },
   );
   tourPrimaryViewColumn = vscode.window.tabGroups.activeTabGroup.viewColumn;
