@@ -8,6 +8,26 @@ export interface RouteStopMetrics {
   offsetHeight: number;
 }
 
+export interface RouteScrollViewportMetrics {
+  top: number;
+  scrollTop: number;
+}
+
+export interface RouteStopViewportMetrics {
+  top: number;
+  height: number;
+}
+
+export function routeStopMetricsFromViewport(
+  container: RouteScrollViewportMetrics,
+  active: RouteStopViewportMetrics,
+): RouteStopMetrics {
+  return {
+    offsetTop: active.top - container.top + container.scrollTop,
+    offsetHeight: active.height,
+  };
+}
+
 export function routeScrollTopForActiveStop(
   container: RouteScrollContainer,
   active: RouteStopMetrics,

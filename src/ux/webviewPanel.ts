@@ -792,15 +792,25 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         ? Math.max(0, Math.min(maxScrollTop, state.routeScrollTop))
         : null;
       if (saved !== null) list.scrollTop = saved;
-      const top = active.offsetTop;
-      const bottom = active.offsetTop + active.offsetHeight;
+      const metrics = routeStopMetricsForList(list, active);
+      const top = metrics.offsetTop;
+      const bottom = metrics.offsetTop + metrics.offsetHeight;
       const visibleTop = list.scrollTop;
       const visibleBottom = visibleTop + list.clientHeight;
       if (saved === null || top < visibleTop || bottom > visibleBottom) {
-        const centered = top - Math.max(0, Math.floor((list.clientHeight - active.offsetHeight) / 2));
+        const centered = top - Math.max(0, Math.floor((list.clientHeight - metrics.offsetHeight) / 2));
         list.scrollTop = Math.max(0, Math.min(maxScrollTop, centered));
       }
       writeState({ routeScrollTop: list.scrollTop });
+    }
+
+    function routeStopMetricsForList(list, active) {
+      const listRect = list.getBoundingClientRect();
+      const activeRect = active.getBoundingClientRect();
+      return {
+        offsetTop: activeRect.top - listRect.top + list.scrollTop,
+        offsetHeight: activeRect.height,
+      };
     }
     // ---- TTS playback surface ----------------------------------------------
     // The host picks the provider; this page plays what it receives and owns the

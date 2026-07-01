@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { routeScrollTopForActiveStop } from "../out-test/ux/routeScroll.js";
+import { routeScrollTopForActiveStop, routeStopMetricsFromViewport } from "../out-test/ux/routeScroll.js";
 
 test("keeps the saved route scroll when the active stop is visible", () => {
   assert.equal(
@@ -41,5 +41,15 @@ test("clamps route scroll targets to the scrollable range", () => {
       { offsetTop: 490, offsetHeight: 24 },
     ),
     380,
+  );
+});
+
+test("normalizes active stop viewport position into route list scroll coordinates", () => {
+  assert.deepEqual(
+    routeStopMetricsFromViewport(
+      { top: 240, scrollTop: 180 },
+      { top: 360, height: 24 },
+    ),
+    { offsetTop: 300, offsetHeight: 24 },
   );
 });
