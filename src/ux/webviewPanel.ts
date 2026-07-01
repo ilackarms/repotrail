@@ -3,6 +3,11 @@ import * as vscode from "vscode";
 import { formatStepPath } from "../engine/types";
 import { RepoTourSummary } from "../storage/repoTours";
 import { TourSummary } from "../storage/tourStore";
+import {
+  NavigationControl,
+  primaryStepNavigationControls,
+  utilityNavigationControls,
+} from "./navigationControls";
 import { TourController } from "./tourController";
 import { RenderSignature, shouldDeferRenderForTts, WebviewTtsState } from "./renderPolicy";
 
@@ -416,6 +421,16 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       return `Optional MCP helpers starting.`;
     })();
 
+    const renderNavButton = (control: NavigationControl) => {
+      const classes = [control.className, control.secondary ? "secondary" : ""].filter(Boolean).join(" ");
+      const classAttr = classes ? ` class="${escape(classes)}"` : "";
+      const disabledAttr = control.disabled ? " disabled" : "";
+      return `<button id="${escape(control.id)}"${classAttr}${disabledAttr} title="${escape(control.tooltip)}">${escape(control.label)}</button>`;
+    };
+
+    const primaryStepButtons = primaryStepNavigationControls(index, total).map(renderNavButton).join("");
+    const utilityButtons = utilityNavigationControls(ttsProvider).map(renderNavButton).join("");
+
     const emptyState = plan
       ? ""
       : `
@@ -508,11 +523,20 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   .step-count { flex-shrink: 0; font-variant-numeric: tabular-nums; }
   .file-chip { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .view-chip { flex-shrink: 0; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); border-radius: 2px; padding: 1px 5px; }
-  .nav-title { margin-bottom: 8px; }
+  .nav-heading { display: grid; grid-template-columns: minmax(0, 1fr) 146px; align-items: start; gap: 8px; margin-bottom: 8px; }
+  .nav-title-block { min-width: 0; }
+  .nav-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-height: 38px; max-height: 38px; margin: 0; overflow: hidden; }
+  .nav-step-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; width: 146px; }
+  .nav-step-button { width: 100%; min-height: 28px; padding-left: 0; padding-right: 0; text-align: center; }
+  .nav-utilities { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .nav-utilities #playPause { min-width: 96px; }
+  @media (max-width: 260px) {
+    .nav-heading { grid-template-columns: minmax(0, 1fr); }
+    .nav-step-actions { width: 100%; }
+  }
   .tour-main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 12px 14px; }
   .explanation { white-space: pre-wrap; line-height: 1.5; margin-bottom: 16px; }
   .controls { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
-  .nav-dock .controls { margin-bottom: 8px; }
   .nav-dock .follow-up { margin: 8px 0 4px; }
   button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 6px 10px; cursor: pointer; border-radius: 2px; font-size: 12px; line-height: 1.2; }
   button:hover { background: var(--vscode-button-hoverBackground); }
@@ -574,17 +598,16 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           ${currentViewLabel ? `<span class="view-chip">${escape(currentViewLabel)}</span>` : ""}
         </div>
         <div class="progress" title="${index + 1} of ${total}"><div class="progress-fill" style="width:${progressPct}%"></div></div>
-        <h2 class="nav-title">${escape(title)}</h2>
-        <div class="controls">
-          <button id="back" ${index === 0 ? "disabled" : ""} title="Previous stop">← Back</button>
-          <button id="next" ${index >= total - 1 ? "disabled" : ""} title="Next stop">Next →</button>
-          <button id="revealCurrent" title="Jump back to this step's editor view">↩ View</button>
-          <button id="openCurrentSource" title="Open this stop in the real editable source file">↗ Source</button>
-          <button id="deeper" title="Copy a 'deepen this step' prompt to clipboard for your agent">📋 Deepen</button>
-          <button id="agentBootstrap" class="secondary" title="Copy workspace details, schema, and optional helper endpoints for your agent">Agent setup</button>
-          <button id="stop" title="Stop this tour">Stop</button>
-          <button id="playPause" class="secondary" ${ttsProvider === "off" ? "disabled" : ""} title="Read this stop aloud">🔊 Speak</button>
-          <button id="exportTour" class="secondary" title="Export this tour as Markdown, JSON, or save it into the repo">⤓ Export</button>
+        <div class="nav-heading">
+          <div class="nav-title-block">
+            <h2 class="nav-title" title="${escape(title)}">${escape(title)}</h2>
+          </div>
+          <div class="nav-step-actions" aria-label="Step navigation">
+            ${primaryStepButtons}
+          </div>
+        </div>
+        <div class="nav-utilities" aria-label="Tour tools">
+          ${utilityButtons}
         </div>
         <input id="q" class="follow-up" placeholder="Follow-up question — Enter to copy prompt" />
         <div class="meta">Voice: ${escape(ttsProvider)} · <a href="#" id="openTtsSettings">settings</a> · Deepen/follow-up copy prompts for your agent.</div>
