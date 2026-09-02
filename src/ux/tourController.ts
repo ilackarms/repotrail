@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import type { DriftStatus, TourPlan, TourStep } from "../engine/types";
 import type { RepoTourSource } from "../storage/repoTours";
-import { newTourId } from "../storage/tourStore";
+import { newTourId, repoTourProgressId } from "../storage/tourStore";
 import type { TourRecord } from "../storage/tourStore";
 import { currentWorkspaceStorageRoot, resolveTourPlanRoots } from "../workspace";
 import { checkStepDrift, clearHighlights, executeStep, openStepSource, resetTourEditorLayout } from "./editorActions";
@@ -60,13 +60,14 @@ export class TourController {
   }
 
   /**
-   * Load a fully-formed plan as a brand-new tour. Unlike `resume`, this mints
-   * a fresh id so it persists as its own entry, and lands the user on step 1.
+   * Load a fully-formed plan and land on step 1. Repo-local tours reuse one
+   * stable progress id so opening the same JSON never creates duplicate cache
+   * records. Imported files without a repo source still receive a fresh id.
    */
   async loadPlan(plan: TourPlan, workspaceRoot?: string, repoTourSource?: RepoTourSource): Promise<void> {
     this.plan = resolveTourPlanRoots(plan);
     this.index = plan.steps.length > 0 ? 0 : -1;
-    this.tourId = newTourId();
+    this.tourId = repoTourSource ? repoTourProgressId(repoTourSource) : newTourId();
     this.repoTourSource = repoTourSource ?? null;
     this.workspaceRoot = this.resolveWorkspaceRoot(workspaceRoot);
     this.createdAt = Date.now();
@@ -185,8 +186,8 @@ export class TourController {
   }
 
   /**
-   * Clear the active tour from memory. The persisted record stays on disk so
-   * the user can resume from the sidebar list.
+   * Clear the active tour from memory. Progress stays on disk for automatic
+   * restoration after a VS Code reload.
    */
   stop(options?: { forgetRepoSource?: boolean }): void {
     if (options?.forgetRepoSource) this.repoTourSource = null;

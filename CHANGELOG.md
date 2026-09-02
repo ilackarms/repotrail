@@ -5,10 +5,15 @@
 - Removed the local MCP/HTTP server, tokenized setup endpoints, port registry,
   server settings, connection status UI, and live tour mutation tools.
 - Made complete `.repotrail/*.json` files the only authoring interface. The
-  authoring prompt now carries the open roots and schema. The legacy
-  `repoTrail.copyAgentSetup` command ID remains as a compatibility alias.
+  Agent setup prompt now carries the open roots and schema. The
+  `repoTrail.copyTourPrompt` command ID remains as a compatibility alias.
 - Reloaded an active repo tour when its backing JSON file changes, preserving
   the current stop when possible.
+- Removed the Recent local tours section and the Import, Migrate, and Refresh
+  buttons from the sidebar. Repo-local JSON files are discovered automatically;
+  one-off imports remain available from the Command Palette.
+- Reused one progress record per repo tour instead of creating another record
+  every time the same JSON file is opened.
 
 ## 0.10.4 - 2026-06-23
 

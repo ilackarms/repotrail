@@ -31,18 +31,18 @@ code to a hosted service by itself.
 ## Author A Tour In The Current Workspace
 
 After installing the extension, open the target workspace in VS Code, open the
-RepoTrail sidebar, and click **Copy authoring prompt**. Paste that prompt into
-your agent.
+RepoTrail sidebar, and click **Agent setup**. Paste the copied prompt into your
+agent.
 
 You can also run this command:
 
 ```text
-RepoTrail: Copy Tour Prompt
+RepoTrail: Agent Setup
 ```
 
 The copied prompt includes the open workspace roots, the tour schema, and the
 path where the agent should write the completed JSON file. Existing integrations
-that invoke the old `repoTrail.copyAgentSetup` command ID receive the same
+that invoke the 0.11.0 `repoTrail.copyTourPrompt` command ID receive the same
 prompt.
 
 Then ask:
@@ -108,11 +108,10 @@ work.
   preserved when possible.
 - Agent-created VS Code workspace flow backed by
   `~/.repotrail/workspaces/*.code-workspace`.
-- Non-destructive migration from compatible old saved tours in
-  `~/.repotrail/tours/` into repo-local `.repotrail/*.json` files.
 - Export to Markdown, JSON, or standalone animated HTML with browser playback,
-  embedded code/diff frames, and standalone TTS controls; import JSON tours.
-- Per-workspace resume from `~/.repotrail/tours/`.
+  embedded code/diff frames, and standalone TTS controls.
+- Automatic restoration of the most recently active tour and its progress after
+  a VS Code reload.
 
 ## Security And Privacy
 
@@ -128,17 +127,18 @@ See [PRIVACY.md](PRIVACY.md) for the longer policy.
 
 ## Commands
 
-- `RepoTrail: Copy Tour Prompt` - copy a file-authoring prompt for your agent.
+- `RepoTrail: Agent Setup` - copy workspace details and the JSON schema for your
+  agent.
 - `RepoTrail: Copy Tour From Here Prompt` - copy a prompt scoped to the active
   file or selection.
 - `RepoTrail: Export Tour` - export Markdown, re-importable JSON, or a
   browser-playable animated HTML walkthrough.
-- `RepoTrail: Import Tour`.
+- `RepoTrail: Import Tour` - open a one-off JSON file stored outside an open
+  project's `.repotrail/` directory. Repo-local tours are discovered
+  automatically.
 - `RepoTrail: Rename Tour` - change the visible tour title without renaming
   the `.repotrail/*.json` file.
 - `RepoTrail: Save Tour to Repo (.repotrail/)`.
-- `RepoTrail: Migrate Saved Tours to Repo (.repotrail/)`.
-- `RepoTrail: Resume Saved Tour` / `RepoTrail: Delete Saved Tour`.
 
 ## Development
 

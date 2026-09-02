@@ -39,8 +39,8 @@
   "contributes": {
     "commands": [
       {
-        "command": "repoTrail.copyTourPrompt",
-        "title": "RepoTrail: Copy Tour Prompt"
+        "command": "repoTrail.copyAgentSetup",
+        "title": "RepoTrail: Agent Setup"
       },
       {
         "command": "repoTrail.exportTour",
@@ -53,10 +53,6 @@
       {
         "command": "repoTrail.saveTourToRepo",
         "title": "RepoTrail: Save Tour to Repo (.repotrail/)"
-      },
-      {
-        "command": "repoTrail.migrateSavedTours",
-        "title": "RepoTrail: Migrate Saved Tours to Repo (.repotrail/)"
       },
       {
         "command": "repoTrail.tourFromHere",
@@ -113,14 +109,6 @@
       {
         "command": "repoTrail.stopTts",
         "title": "RepoTrail: Stop Speech"
-      },
-      {
-        "command": "repoTrail.resumeTour",
-        "title": "RepoTrail: Resume Saved Tour"
-      },
-      {
-        "command": "repoTrail.deleteTour",
-        "title": "RepoTrail: Delete Saved Tour"
       }
     ],
     "keybindings": [
@@ -194,9 +182,6 @@
           "when": "repoTrail.tourActive"
         },
         {
-          "command": "repoTrail.migrateSavedTours"
-        },
-        {
           "command": "repoTrail.exportTour",
           "when": "repoTrail.tourActive"
         },
@@ -252,7 +237,7 @@
             "Never restore a tour automatically."
           ],
           "default": "prompt",
-          "description": "What to do with the most recent saved tour when VS Code opens this workspace. A window reload otherwise drops you to the empty state even though the tour is still saved."
+          "description": "What to do with the most recently active tour when VS Code opens this workspace. RepoTrail keeps a small local progress record so a window reload does not lose your place."
         },
         "repoTrail.tts.provider": {
           "type": "string",

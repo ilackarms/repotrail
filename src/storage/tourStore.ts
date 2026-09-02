@@ -1,5 +1,4 @@
 import * as crypto from "node:crypto";
-import type { Dirent } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -11,7 +10,7 @@ import type { RepoTourSource } from "./repoTours";
  *
  * Workspace path is hashed for a stable, FS-safe directory name; the raw path
  * is stored inside the record for traceability. Records persist across reloads
- * and extension reinstalls so the user can resume any tour they've taken.
+ * and extension reinstalls so the most recently active tour can be restored.
  */
 
 const ROOT = path.join(os.homedir(), ".repotrail", "tours");
@@ -37,12 +36,6 @@ export interface TourSummary {
   lastIndex: number;
   createdAt: number;
   updatedAt: number;
-}
-
-export interface SavedTourRecordFile {
-  path: string;
-  archived: boolean;
-  record: TourRecord;
 }
 
 function workspaceDir(workspaceRoot: string): string {
@@ -93,27 +86,6 @@ export async function listTours(workspaceRoot: string): Promise<TourSummary[]> {
   return summaries;
 }
 
-export async function listAllTourRecords(): Promise<SavedTourRecordFile[]> {
-  const files = await listJsonFiles(ROOT);
-  const records: SavedTourRecordFile[] = [];
-  for (const file of files) {
-    try {
-      const raw = await fs.readFile(file, "utf8");
-      const record = JSON.parse(raw) as TourRecord;
-      if (!isTourRecord(record)) continue;
-      records.push({
-        path: file,
-        archived: path.relative(ROOT, file).split(path.sep).some((part) => part.startsWith("archive-")),
-        record,
-      });
-    } catch {
-      /* skip unparseable */
-    }
-  }
-  records.sort((a, b) => b.record.updatedAt - a.record.updatedAt);
-  return records;
-}
-
 export async function loadTour(workspaceRoot: string, id: string): Promise<TourRecord | null> {
   const file = path.join(workspaceDir(workspaceRoot), `${id}.json`);
   try {
@@ -138,35 +110,8 @@ export function newTourId(): string {
   return `t_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`;
 }
 
-async function listJsonFiles(dir: string): Promise<string[]> {
-  let entries: Dirent[];
-  try {
-    entries = await fs.readdir(dir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  const files: string[] = [];
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...await listJsonFiles(full));
-    } else if (entry.isFile() && entry.name.endsWith(".json")) {
-      files.push(full);
-    }
-  }
-  return files;
-}
-
-function isTourRecord(value: unknown): value is TourRecord {
-  if (!value || typeof value !== "object") return false;
-  const record = value as TourRecord;
-  return (
-    typeof record.id === "string" &&
-    typeof record.workspaceRoot === "string" &&
-    typeof record.createdAt === "number" &&
-    typeof record.updatedAt === "number" &&
-    Boolean(record.plan) &&
-    typeof record.plan.title === "string" &&
-    Array.isArray(record.plan.steps)
-  );
+export function repoTourProgressId(source: RepoTourSource): string {
+  const key = `${path.resolve(source.rootPath)}\0${path.basename(source.file)}`;
+  const hash = crypto.createHash("sha1").update(key).digest("hex").slice(0, 24);
+  return `repo_${hash}`;
 }

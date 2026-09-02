@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { primaryStepNavigationControls, utilityNavigationControls } from "../out-test/ux/navigationControls.js";
+import {
+  emptyLibraryControls,
+  primaryStepNavigationControls,
+  utilityNavigationControls,
+} from "../out-test/ux/navigationControls.js";
+
+test("keeps the empty library focused on agent setup", () => {
+  assert.deepEqual(
+    emptyLibraryControls().map(({ id, label }) => ({ id, label })),
+    [{ id: "start", label: "Agent setup" }],
+  );
+});
 
 test("keeps Back and Next in stable primary navigation slots", () => {
   assert.deepEqual(

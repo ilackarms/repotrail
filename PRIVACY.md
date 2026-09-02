@@ -24,6 +24,7 @@ be generated.
 
 ## Local Files
 
-RepoTrail writes saved tour state under `~/.repotrail/tours/`. Repo-local tours
-live under `.repotrail/`, and optional agent-created VS Code workspace files can
-live under `~/.repotrail/workspaces/`.
+RepoTrail caches active-tour progress under `~/.repotrail/tours/` so it can
+restore your place after a VS Code reload. Tour content lives under
+`.repotrail/`, and optional agent-created VS Code workspace files can live under
+`~/.repotrail/workspaces/`.

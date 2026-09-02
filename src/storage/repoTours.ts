@@ -122,32 +122,3 @@ export async function saveRepoTour(
   await fs.rename(tmp, file);
   return file;
 }
-
-export async function saveRepoTourUnique(
-  workspaceRoot: string,
-  slug: string,
-  content: string,
-): Promise<string> {
-  const d = dir(workspaceRoot);
-  await fs.mkdir(d, { recursive: true });
-  const base = path.basename(slug).replace(/\.json$/i, "") || "tour";
-  for (let i = 0; i < 1000; i++) {
-    const suffix = i === 0 ? "" : `-${i + 1}`;
-    const file = path.join(d, `${base}${suffix}.json`);
-    if (await exists(file)) continue;
-    const tmp = tmpPathFor(file);
-    await fs.writeFile(tmp, content, "utf8");
-    await fs.rename(tmp, file);
-    return file;
-  }
-  throw new Error(`Could not find an unused ${REPO_TOURS_DIR}/${base}.json filename.`);
-}
-
-async function exists(file: string): Promise<boolean> {
-  try {
-    await fs.access(file);
-    return true;
-  } catch {
-    return false;
-  }
-}

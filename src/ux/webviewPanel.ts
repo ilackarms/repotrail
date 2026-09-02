@@ -2,8 +2,8 @@ import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import { formatStepPath } from "../engine/types";
 import { RepoTourSummary } from "../storage/repoTours";
-import { TourSummary } from "../storage/tourStore";
 import {
+  emptyLibraryControls,
   NavigationControl,
   primaryStepNavigationControls,
   utilityNavigationControls,
@@ -28,7 +28,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
 
   private view: vscode.WebviewView | undefined;
   private onSinkChange: ((sink: WebviewSink | null) => void) | null = null;
-  private tourListLoader: (() => Promise<TourSummary[]>) | null = null;
   private repoTourLoader: (() => Promise<RepoTourSummary[]>) | null = null;
 
   private warnedKokoroFallback = false;
@@ -53,12 +52,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("repoTrail.tts")) void this.render();
     });
-  }
-
-  /** Lets the extension supply a function that returns saved tours. */
-  setTourListLoader(fn: () => Promise<TourSummary[]>): void {
-    this.tourListLoader = fn;
-    void this.render();
   }
 
   /** Lets the extension supply tours committed to the repo (.repotrail/). */
@@ -120,13 +113,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           }
           break;
         case "start":
-          await vscode.commands.executeCommand("repoTrail.copyTourPrompt");
-          break;
-        case "importTour":
-          await vscode.commands.executeCommand("repoTrail.importTour");
-          break;
-        case "migrateSavedTours":
-          await vscode.commands.executeCommand("repoTrail.migrateSavedTours");
+          await vscode.commands.executeCommand("repoTrail.copyAgentSetup");
           break;
         case "exportTour":
           await vscode.commands.executeCommand("repoTrail.exportTour");
@@ -196,16 +183,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
             }
           }
           break;
-        case "resumeTour":
-          if (typeof msg.id === "string") {
-            await vscode.commands.executeCommand("repoTrail.resumeTour", msg.id);
-          }
-          break;
-        case "renameTour":
-          if (typeof msg.id === "string") {
-            await vscode.commands.executeCommand("repoTrail.renameTour", { id: msg.id });
-          }
-          break;
         case "resumeRepoTour":
           if (typeof msg.file === "string") {
             await vscode.commands.executeCommand("repoTrail.resumeRepoTour", {
@@ -222,14 +199,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
             });
           }
           break;
-        case "deleteTour":
-          if (typeof msg.id === "string") {
-            await vscode.commands.executeCommand("repoTrail.deleteTour", msg.id);
-          }
-          break;
-        case "refreshTours":
-          await this.render();
-          break;
       }
     });
 
@@ -241,7 +210,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     if (!this.view) return;
     const snap = this.controller.snapshot();
     const provider = vscode.workspace.getConfiguration("repoTrail").get<string>("tts.provider", "system");
-    const tours = snap.plan ? [] : await this.loadTours();
     const repoTours = snap.plan ? [] : await this.loadRepoTours();
 
     const tourId = this.controller.activeTourId;
@@ -257,21 +225,12 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    this.view.webview.html = this.html(snap, provider, tours, {
+    this.view.webview.html = this.html(snap, provider, {
       bridge: this.bridge,
       repoTours,
     });
     this.lastRenderSignature = nextSignature;
     this.ttsState = "idle";
-  }
-
-  private async loadTours(): Promise<TourSummary[]> {
-    if (!this.tourListLoader) return [];
-    try {
-      return await this.tourListLoader();
-    } catch {
-      return [];
-    }
   }
 
   private async loadRepoTours(): Promise<RepoTourSummary[]> {
@@ -286,7 +245,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   private html(
     snap: ReturnType<TourController["snapshot"]>,
     ttsProvider: string,
-    tours: TourSummary[],
     extra: {
       bridge: { label: string; prompt: string; index: number } | null;
       repoTours: RepoTourSummary[];
@@ -384,6 +342,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
 
     const primaryStepButtons = primaryStepNavigationControls(index, total).map(renderNavButton).join("");
     const utilityButtons = utilityNavigationControls(ttsProvider).map(renderNavButton).join("");
+    const emptyLibraryButtons = emptyLibraryControls().map(renderNavButton).join("");
 
     const emptyState = plan
       ? ""
@@ -391,40 +350,8 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         <h2>Tour library</h2>
         <div class="explanation">RepoTrail plays JSON tours from each open project's <code>.repotrail/</code> directory. Ask an agent to write a complete tour file, then open it here.</div>
         <div class="controls">
-          <button id="start" title="Copy a prompt that tells your agent to write a complete .repotrail JSON tour">Copy authoring prompt</button>
-          <button id="importTour" class="secondary" title="Import a RepoTrail tour from a saved file">Import tour…</button>
-          <button id="migrateSavedTours" class="secondary" title="Copy compatible old saved tours into repo-local .repotrail JSON files">Migrate saved</button>
-          <button id="refreshTours" class="secondary" title="Refresh the tour library from disk">Refresh</button>
+          ${emptyLibraryButtons}
         </div>`;
-
-    const tourList = (() => {
-      if (snap.plan || tours.length === 0) return "";
-      const rows = tours
-        .map((t) => {
-          const updated = new Date(t.updatedAt).toLocaleString(undefined, {
-            month: "short",
-            day: "numeric",
-            hour: "numeric",
-            minute: "2-digit",
-          });
-          return `
-            <li class="tour-item">
-              <div class="tour-row">
-                <div class="tour-title" title="${escape(t.title)}">${escape(t.title || "(untitled)")}</div>
-                <div class="tour-meta">${escape(t.kind)} · ${t.stepCount} stops · step ${t.lastIndex + 1} · ${escape(updated)}</div>
-              </div>
-              <div class="tour-actions">
-                <button class="resume" data-id="${escape(t.id)}" title="Resume this saved tour from its last step">Resume</button>
-                <button class="rename secondary" data-id="${escape(t.id)}" title="Rename this saved tour's visible title">Rename</button>
-                <button class="del secondary" data-id="${escape(t.id)}" title="Delete this saved tour">🗑</button>
-              </div>
-            </li>`;
-        })
-        .join("");
-      return `
-        <h3 class="section-h">Recent local tours</h3>
-        <ul class="tour-list">${rows}</ul>`;
-    })();
 
     // Tours committed into the repo (.repotrail/) — the team-shared artifact.
     const repoTourList = (() => {
@@ -571,7 +498,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         <div class="explanation">${escape(explanation)}</div>
       </main>
     </div>
-  ` : `${emptyState}${tourList}${repoTourList}`}
+  ` : `${emptyState}${repoTourList}`}
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const send = (msg) => vscode.postMessage(msg);
@@ -583,9 +510,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     };
     const on = (id, type) => document.getElementById(id)?.addEventListener("click", () => send({ type }));
     on("start", "start");
-    on("importTour", "importTour");
-    on("migrateSavedTours", "migrateSavedTours");
-    on("refreshTours", "refreshTours");
     on("next", "next");
     on("back", "back");
     on("revealCurrent", "revealCurrent");
@@ -632,12 +556,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         q.value = "";
       }
     });
-    document.querySelectorAll("button.resume").forEach((b) => {
-      b.addEventListener("click", () => send({ type: "resumeTour", id: b.getAttribute("data-id") }));
-    });
-    document.querySelectorAll("button.rename").forEach((b) => {
-      b.addEventListener("click", () => send({ type: "renameTour", id: b.getAttribute("data-id") }));
-    });
     document.querySelectorAll("button.repo-resume").forEach((b) => {
       b.addEventListener("click", () => send({
         type: "resumeRepoTour",
@@ -651,14 +569,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         file: b.getAttribute("data-file"),
         rootPath: b.getAttribute("data-root"),
       }));
-    });
-    document.querySelectorAll("button.del").forEach((b) => {
-      b.addEventListener("click", () => {
-        const id = b.getAttribute("data-id");
-        if (id && confirm("Delete this saved tour?")) {
-          send({ type: "deleteTour", id });
-        }
-      });
     });
     const tooltip = document.createElement("div");
     tooltip.id = "buttonTooltip";

@@ -16,4 +16,4 @@ When reporting tour loading or playback issues, include:
   narration removed if needed.
 
 For authoring-prompt problems, also include the agent name and version and the
-prompt copied by **RepoTrail: Copy Tour Prompt**.
+prompt copied by **RepoTrail: Agent Setup**.

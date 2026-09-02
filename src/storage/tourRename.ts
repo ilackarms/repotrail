@@ -4,39 +4,11 @@ import * as path from "node:path";
 import { parseTourJson } from "../engine/tourSerialize";
 import { TourPlan } from "../engine/types";
 import { REPO_TOURS_DIR } from "./repoTours";
-import { loadTour, saveTour, TourRecord } from "./tourStore";
 
 export function validateTourTitle(title: string): string {
   const trimmed = title.trim();
   if (!trimmed) throw new Error("RepoTrail: tour title must be non-empty.");
   return trimmed;
-}
-
-export function renameTourRecordTitle(
-  record: TourRecord,
-  title: string,
-  updatedAt = Date.now(),
-): TourRecord {
-  return {
-    ...record,
-    updatedAt,
-    plan: {
-      ...record.plan,
-      title: validateTourTitle(title),
-    },
-  };
-}
-
-export async function renameSavedTourTitle(
-  workspaceRoot: string,
-  id: string,
-  title: string,
-): Promise<TourRecord | null> {
-  const record = await loadTour(workspaceRoot, id);
-  if (!record) return null;
-  const renamed = renameTourRecordTitle(record, title);
-  await saveTour(renamed);
-  return renamed;
 }
 
 export async function renameRepoTourTitle(

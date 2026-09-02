@@ -5,7 +5,6 @@ import * as path from "node:path";
 import { test } from "node:test";
 import {
   renameRepoTourTitle,
-  renameTourRecordTitle,
   validateTourTitle,
 } from "../out-test/storage/tourRename.js";
 
@@ -74,23 +73,4 @@ test("renames a bare repo tour plan title in place", async () => {
   assert.equal(renamed.title, "Bare plan title");
   assert.equal(saved.title, "Bare plan title");
   assert.equal(saved.steps.length, 1);
-});
-
-test("renames a local saved tour record title and bumps updatedAt", () => {
-  const record = {
-    id: "tour-1",
-    workspaceRoot: "/tmp/workspace",
-    createdAt: 100,
-    updatedAt: 200,
-    lastIndex: 0,
-    seen: [0],
-    plan: samplePlan(),
-  };
-
-  const renamed = renameTourRecordTitle(record, "Local visible title", 300);
-
-  assert.equal(renamed.plan.title, "Local visible title");
-  assert.equal(renamed.updatedAt, 300);
-  assert.equal(renamed.id, "tour-1");
-  assert.deepEqual(renamed.seen, [0]);
 });

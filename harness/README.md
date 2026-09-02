@@ -19,8 +19,8 @@ RepoTrail has two supported harness modes.
 Use this when the user already has the target roots open in VS Code.
 
 1. Open the target workspace in VS Code.
-2. Click **Copy authoring prompt** in the RepoTrail sidebar, or run
-   **RepoTrail: Copy Tour Prompt**.
+2. Click **Agent setup** in the RepoTrail sidebar, or run
+   **RepoTrail: Agent Setup**.
 3. Paste the copied prompt into the agent.
 4. The agent reads the open roots and writes
    `<owning-project>/.repotrail/<slug>.json`.

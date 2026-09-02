@@ -19,9 +19,9 @@ import {
   slugForFilename,
 } from "./engine/tourSerialize";
 import { materializeStepDiff } from "./diffMaterialize";
-import { listRepoTours, readRepoTour, REPO_TOURS_DIR, saveRepoTour, saveRepoTourUnique } from "./storage/repoTours";
-import { renameRepoTourTitle, renameSavedTourTitle, validateTourTitle } from "./storage/tourRename";
-import { deleteTour, listAllTourRecords, listTours, loadTour, saveTour, TourRecord } from "./storage/tourStore";
+import { listRepoTours, readRepoTour, REPO_TOURS_DIR, saveRepoTour } from "./storage/repoTours";
+import { renameRepoTourTitle, validateTourTitle } from "./storage/tourRename";
+import { deleteTour, listTours, loadTour, saveTour, TourRecord } from "./storage/tourStore";
 import { availableProviders, TtsManager, TtsProvider } from "./tts/manager";
 import { TourCodeLensProvider } from "./ux/codeLensProvider";
 import { setEditorLogger } from "./ux/editorActions";
@@ -38,7 +38,6 @@ import {
   resolveStepWorkspaceFolder,
   resolveStepUri,
   resolveTourPlanRoots,
-  workspaceFolderIdentity,
   workspaceFolderInfos,
 } from "./workspace";
 
@@ -48,7 +47,7 @@ const ANIMATED_EXPORT_CONTEXT_LINES = 2;
 const ANIMATED_EXPORT_MAX_CODE_LINES = 80;
 const WORKSPACE_REGISTRY_DIR_DISPLAY = "~/.repotrail/workspaces";
 
-type RenameTourArg = string | { id?: string; rootPath?: string; file?: string };
+type RenameTourArg = { rootPath?: string; file?: string };
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const log = vscode.window.createOutputChannel("RepoTrail");
@@ -65,10 +64,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
 
   const viewProvider = new TourViewProvider(context.extensionUri, controller, log);
-  viewProvider.setTourListLoader(async () => {
-    if (!hasWorkspaceFolders()) return [];
-    return listTours(currentWorkspaceStorageRoot());
-  });
   viewProvider.setRepoTourLoader(async () => {
     return listRepoTours(repoTourRoots());
   });
@@ -131,11 +126,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("repoTrail.tour.focus", async () => {
       await vscode.commands.executeCommand("workbench.view.extension.repoTrail");
     }),
+    vscode.commands.registerCommand("repoTrail.copyAgentSetup", () => copyTourPrompt()),
+    // Compatibility alias for the 0.11.0 command ID.
     vscode.commands.registerCommand("repoTrail.copyTourPrompt", () => copyTourPrompt()),
     vscode.commands.registerCommand("repoTrail.exportTour", () => exportActiveTour(controller, log)),
     vscode.commands.registerCommand("repoTrail.importTour", () => importTour(controller, log)),
     vscode.commands.registerCommand("repoTrail.saveTourToRepo", () => saveTourToRepo(controller, log)),
-    vscode.commands.registerCommand("repoTrail.migrateSavedTours", () => migrateSavedToursToRepo(viewProvider, log)),
     vscode.commands.registerCommand("repoTrail.tourFromHere", () => tourFromHere()),
     vscode.commands.registerCommand("repoTrail.copySelectionReference", () => copySelectionReference()),
     vscode.commands.registerCommand("repoTrail.next", () => controller.next()),
@@ -155,7 +151,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.window.showErrorMessage(`RepoTrail: ${REPO_TOURS_DIR}/${file} isn't a valid tour.`);
         return;
       }
-      await controller.loadPlan(plan, root, { rootPath: root, file });
+      await controller.loadPlan(plan, currentWorkspaceStorageRoot(), { rootPath: root, file });
       await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
     }),
     vscode.commands.registerCommand("repoTrail.renameTour", (arg?: RenameTourArg) => renameTour(arg, controller, viewProvider, log)),
@@ -165,8 +161,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       (question?: string) => copyFollowUpPrompt(controller, viewProvider, question ?? "", log),
     ),
     vscode.commands.registerCommand("repoTrail.stop", () => controller.stop()),
-    // Compatibility alias for existing keybindings and command invocations.
-    vscode.commands.registerCommand("repoTrail.copyAgentSetup", () => copyTourPrompt()),
     vscode.commands.registerCommand("repoTrail.openNarration", () => {
       vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
     }),
@@ -184,67 +178,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("repoTrail.speakCurrent", () => tts.speakCurrent()),
     vscode.commands.registerCommand("repoTrail.stopTts", () => tts.cancel()),
-    vscode.commands.registerCommand("repoTrail.resumeTour", async (id?: string) => {
-      if (!hasWorkspaceFolders()) {
-        vscode.window.showErrorMessage("RepoTrail: open a workspace first.");
-        return;
-      }
-      const root = currentWorkspaceStorageRoot();
-      let chosen = id;
-      if (!chosen) {
-        const all = await listTours(root);
-        if (all.length === 0) {
-          vscode.window.showInformationMessage("RepoTrail: no saved tours for this workspace.");
-          return;
-        }
-        const pick = await vscode.window.showQuickPick(
-          all.map((t) => ({
-            label: t.title || "(untitled)",
-            description: `${t.kind} · ${t.stepCount} stops · step ${t.lastIndex + 1}`,
-            detail: new Date(t.updatedAt).toLocaleString(),
-            id: t.id,
-          })),
-          { placeHolder: "Resume which tour?" },
-        );
-        if (!pick) return;
-        chosen = pick.id;
-      }
-      const rec = await loadTour(root, chosen);
-      if (!rec) {
-        vscode.window.showErrorMessage(`RepoTrail: tour ${chosen} not found.`);
-        return;
-      }
-      await controller.resume(await refreshTourRecordFromSource(rec, log));
-      await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
-    }),
-    vscode.commands.registerCommand("repoTrail.deleteTour", async (id?: string) => {
-      if (!hasWorkspaceFolders()) return;
-      const root = currentWorkspaceStorageRoot();
-      let chosen = id;
-      if (!chosen) {
-        const all = await listTours(root);
-        if (all.length === 0) {
-          vscode.window.showInformationMessage("RepoTrail: no saved tours.");
-          return;
-        }
-        const pick = await vscode.window.showQuickPick(
-          all.map((t) => ({
-            label: t.title || "(untitled)",
-            description: `${t.kind} · ${t.stepCount} stops`,
-            id: t.id,
-          })),
-          { placeHolder: "Delete which tour?" },
-        );
-        if (!pick) return;
-        chosen = pick.id;
-      }
-      const ok = await deleteTour(root, chosen);
-      if (ok) {
-        // If we just deleted the active one, clear in-memory plan too.
-        if (controller.activeTourId === chosen) controller.stop();
-        viewProvider.refresh();
-      }
-    }),
   );
 
   viewProvider.refresh();
@@ -271,9 +204,8 @@ async function renameTour(
   log: vscode.OutputChannel,
 ): Promise<void> {
   try {
-    const localId = typeof arg === "string" ? arg : arg?.id;
-    const repoFile = typeof arg === "object" ? arg.file : undefined;
-    const repoRoot = typeof arg === "object" ? arg.rootPath : undefined;
+    const repoFile = arg?.file;
+    const repoRoot = arg?.rootPath;
 
     if (repoFile) {
       const root = resolveOpenRepoTourRoot(repoRoot);
@@ -294,30 +226,6 @@ async function renameTour(
       }
       viewProvider.refresh();
       vscode.window.setStatusBarMessage(`RepoTrail: renamed tour to "${renamed.title}".`, 2500);
-      return;
-    }
-
-    if (localId) {
-      if (!hasWorkspaceFolders()) {
-        vscode.window.showErrorMessage("RepoTrail: open a workspace first.");
-        return;
-      }
-      const root = currentWorkspaceStorageRoot();
-      const record = await loadTour(root, localId);
-      if (!record) {
-        vscode.window.showErrorMessage(`RepoTrail: tour ${localId} not found.`);
-        return;
-      }
-      const nextTitle = await promptTourTitle(record.plan.title);
-      if (!nextTitle) return;
-      const renamed = await renameSavedTourTitle(root, localId, nextTitle);
-      if (!renamed) {
-        vscode.window.showErrorMessage(`RepoTrail: tour ${localId} not found.`);
-        return;
-      }
-      if (controller.activeTourId === localId) controller.renameActiveTitle(renamed.plan.title);
-      viewProvider.refresh();
-      vscode.window.setStatusBarMessage(`RepoTrail: renamed tour to "${renamed.plan.title}".`, 2500);
       return;
     }
 
@@ -377,7 +285,9 @@ async function reloadActiveRepoTour(
     } catch {
       if (generation !== currentGeneration()) return;
       if (!sameRepoTourSource(controller.activeRepoTourSource, source)) return;
+      const progressId = controller.activeTourId;
       controller.stop({ forgetRepoSource: true });
+      if (progressId) await deleteTour(currentWorkspaceStorageRoot(), progressId);
       vscode.window.showInformationMessage("RepoTrail: the active tour file was deleted.");
       log.appendLine(`[repo-tour] active source deleted: ${uri.fsPath}`);
     }
@@ -392,15 +302,15 @@ async function reloadActiveRepoTour(
 async function refreshTourRecordFromSource(
   record: TourRecord,
   log: vscode.OutputChannel,
-): Promise<TourRecord> {
+): Promise<TourRecord | null> {
   const source = record.repoTourSource;
   if (!source) return record;
   const plan = await readRepoTour(source.rootPath, source.file);
   if (!plan) {
     log.appendLine(
-      `[repo-tour] using cached plan because ${path.join(source.rootPath, REPO_TOURS_DIR, source.file)} is unavailable`,
+      `[repo-tour] skipped cached progress because ${path.join(source.rootPath, REPO_TOURS_DIR, source.file)} is unavailable`,
     );
-    return record;
+    return null;
   }
   const nextPlan = resolveTourPlanRoots(plan);
   const progress = reconcileTourUpdate(
@@ -559,16 +469,18 @@ async function maybeAutoResume(controller: TourController, log: vscode.OutputCha
   if (!latest) return;
   if (controller.activeTourId) return; // re-check after the await
 
-  const resume = async () => {
+  const resume = async (): Promise<boolean> => {
     const rec = await loadTour(root, latest.id);
-    if (!rec) return;
-    await controller.resume(await refreshTourRecordFromSource(rec, log));
+    if (!rec) return false;
+    const refreshed = await refreshTourRecordFromSource(rec, log);
+    if (!refreshed) return false;
+    await controller.resume(refreshed);
     await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
+    return true;
   };
 
   if (mode === "auto") {
-    await resume();
-    log.appendLine(`[resume] auto-resumed "${latest.title}"`);
+    if (await resume()) log.appendLine(`[resume] auto-resumed "${latest.title}"`);
     return;
   }
   const pick = await vscode.window.showInformationMessage(
@@ -977,139 +889,6 @@ async function saveTourToRepo(controller: TourController, log: vscode.OutputChan
     log.appendLine(`[repo-save] failed: ${err instanceof Error ? err.message : String(err)}`);
     vscode.window.showErrorMessage("RepoTrail: save to repo failed (see Output ▸ RepoTrail).");
   }
-}
-
-async function migrateSavedToursToRepo(
-  viewProvider: TourViewProvider,
-  log: vscode.OutputChannel,
-): Promise<void> {
-  if (!hasWorkspaceFolders()) {
-    vscode.window.showErrorMessage("RepoTrail: open the target workspace roots before migrating saved tours.");
-    return;
-  }
-
-  let records;
-  try {
-    records = await listAllTourRecords();
-  } catch (err) {
-    log.appendLine(`[migrate] list failed: ${err instanceof Error ? err.message : String(err)}`);
-    vscode.window.showErrorMessage("RepoTrail: saved tour migration failed (see Output - RepoTrail).");
-    return;
-  }
-
-  let skippedArchived = 0;
-  let skippedEmpty = 0;
-  let skippedUnmatched = 0;
-  let failed = 0;
-  const migrated: string[] = [];
-
-  for (const entry of records) {
-    if (entry.archived) {
-      skippedArchived++;
-      continue;
-    }
-    if (entry.record.plan.steps.length === 0) {
-      skippedEmpty++;
-      continue;
-    }
-    const candidate = buildMigratedTour(entry.record);
-    if (!candidate) {
-      skippedUnmatched++;
-      continue;
-    }
-
-    try {
-      const content = planToJson(candidate.plan, new Date(entry.record.updatedAt).toISOString());
-      const file = await saveRepoTourUnique(candidate.targetRoot, slugForFilename(candidate.plan.title), content);
-      migrated.push(file);
-      log.appendLine(`[migrate] ${entry.path} -> ${file}`);
-    } catch (err) {
-      failed++;
-      log.appendLine(`[migrate] failed ${entry.path}: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
-  viewProvider.refresh();
-  const skipped = skippedArchived + skippedEmpty + skippedUnmatched;
-  const message = `RepoTrail: migrated ${migrated.length} saved tour${migrated.length === 1 ? "" : "s"} to ${REPO_TOURS_DIR}/` +
-    (skipped || failed ? ` (${skipped} skipped${failed ? `, ${failed} failed` : ""}).` : ".");
-  const choice = await vscode.window.showInformationMessage(message, migrated.length ? "Show Files" : "Show Log");
-  if (choice === "Show Files") {
-    const docs = migrated.slice(0, 5).map((file) => vscode.workspace.openTextDocument(vscode.Uri.file(file)));
-    for (const doc of await Promise.all(docs)) {
-      await vscode.window.showTextDocument(doc, { preview: false });
-    }
-  } else if (choice === "Show Log") {
-    log.show(true);
-  }
-}
-
-function buildMigratedTour(record: TourRecord): { plan: TourPlan; targetRoot: string } | null {
-  const folders = currentWorkspaceFolders();
-  const infos = workspaceFolderInfos(folders);
-  const aliases = buildRootAliases(infos.map((info) => info.name));
-  const aliasesByPath = new Map(infos.map((info, index) => [info.path, aliases[index] ?? `root${index + 1}`]));
-  const defaultFolder = resolveRecordWorkspaceFolder(record.workspaceRoot);
-  const roots: NonNullable<TourPlan["roots"]> = { ...(record.plan.roots ?? {}) };
-  const counts = new Map<string, number>();
-
-  const steps = record.plan.steps.map((step) => {
-    const folder = resolveStepFolderForMigration(step, record.plan, defaultFolder);
-    if (!folder) return step;
-    const alias = aliasesByPath.get(folder.uri.fsPath);
-    if (!alias) return step;
-
-    counts.set(folder.uri.fsPath, (counts.get(folder.uri.fsPath) ?? 0) + 1);
-    roots[alias] = rootRefForFolder(folder, folders);
-    const { workspaceFolder: _workspaceFolder, ...rest } = step;
-    return { ...rest, root: alias };
-  });
-
-  let targetRoot: string | null = null;
-  let targetCount = 0;
-  for (const [root, count] of counts) {
-    if (count > targetCount) {
-      targetRoot = root;
-      targetCount = count;
-    }
-  }
-  if (!targetRoot) return null;
-
-  return {
-    targetRoot,
-    plan: {
-      ...record.plan,
-      roots,
-      steps,
-    },
-  };
-}
-
-function resolveStepFolderForMigration(
-  step: TourStep,
-  plan: TourPlan,
-  defaultFolder: vscode.WorkspaceFolder | null,
-): vscode.WorkspaceFolder | null {
-  if (step.workspaceFolder || step.root) return resolveStepWorkspaceFolder(step, plan);
-  return defaultFolder;
-}
-
-function resolveRecordWorkspaceFolder(workspaceRoot: string): vscode.WorkspaceFolder | null {
-  if (!path.isAbsolute(workspaceRoot)) return null;
-  return currentWorkspaceFolders().find((folder) => folder.uri.fsPath === workspaceRoot) ?? null;
-}
-
-function rootRefForFolder(
-  folder: vscode.WorkspaceFolder,
-  folders: readonly vscode.WorkspaceFolder[],
-): NonNullable<TourPlan["roots"]>[string] {
-  const identity = workspaceFolderIdentity(folder, folders);
-  const ref: NonNullable<TourPlan["roots"]>[string] = {
-    name: folder.name,
-    pathHint: path.basename(folder.uri.fsPath),
-  };
-  if (identity !== folder.name) ref.workspaceFolder = identity;
-  return ref;
 }
 
 /**

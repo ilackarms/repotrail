@@ -7,6 +7,17 @@ export interface NavigationControl {
   secondary?: boolean;
 }
 
+export function emptyLibraryControls(): NavigationControl[] {
+  return [
+    {
+      id: "start",
+      label: "Agent setup",
+      tooltip: "Copy workspace details and the RepoTrail JSON schema for your agent",
+      disabled: false,
+    },
+  ];
+}
+
 export function primaryStepNavigationControls(index: number, total: number): NavigationControl[] {
   const hasStops = Number.isFinite(index) && Number.isFinite(total) && total > 0 && index >= 0;
   const atFirstStop = !hasStops || index <= 0;
