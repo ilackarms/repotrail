@@ -13,10 +13,7 @@ export function shouldDeferRenderForTts(
   next: RenderSignature,
 ): boolean {
   if (ttsState === "idle" || !previous) return false;
-  return (
-    previous.tourId === next.tourId &&
-    previous.index === next.index &&
-    previous.provider === next.provider &&
-    previous.currentKey === next.currentKey
-  );
+  // Keep the current playback surface alive until TtsManager sends tts.cancel.
+  // The resulting idle event flushes any pending tour/content change.
+  return previous.provider === next.provider;
 }

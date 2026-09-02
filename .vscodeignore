@@ -7,7 +7,7 @@
 docs/knowledge-pack/**
 test/**
 media/sidebar.svg
-media/mcp-setup.svg
+pnpm-workspace.yaml
 src/**
 .gitignore
 .gitattributes

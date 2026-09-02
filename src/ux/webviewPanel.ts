@@ -30,7 +30,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   private onSinkChange: ((sink: WebviewSink | null) => void) | null = null;
   private tourListLoader: (() => Promise<TourSummary[]>) | null = null;
   private repoTourLoader: (() => Promise<RepoTourSummary[]>) | null = null;
-  private mcpStatusLoader: (() => { enabled: boolean; port: number | null }) | null = null;
 
   private warnedKokoroFallback = false;
   private ttsState: WebviewTtsState = "idle";
@@ -41,10 +40,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   // user exactly what to paste, rather than a fire-and-forget toast. Pinned to
   // the step it was generated for; cleared once the user navigates away.
   private bridge: { label: string; prompt: string; index: number } | null = null;
-
-  // Track step count per tour so we can flag agent-inserted steps.
-  private lastTotal = 0;
-  private lastTourId: string | null = null;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -69,12 +64,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   /** Lets the extension supply tours committed to the repo (.repotrail/). */
   setRepoTourLoader(fn: () => Promise<RepoTourSummary[]>): void {
     this.repoTourLoader = fn;
-    void this.render();
-  }
-
-  /** Lets the extension report MCP server status for the empty-state hint. */
-  setMcpStatusLoader(fn: () => { enabled: boolean; port: number | null }): void {
-    this.mcpStatusLoader = fn;
     void this.render();
   }
 
@@ -132,9 +121,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           break;
         case "start":
           await vscode.commands.executeCommand("repoTrail.copyTourPrompt");
-          break;
-        case "agentBootstrap":
-          await vscode.commands.executeCommand("repoTrail.copyAgentSetup");
           break;
         case "importTour":
           await vscode.commands.executeCommand("repoTrail.importTour");
@@ -258,29 +244,13 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     const tours = snap.plan ? [] : await this.loadTours();
     const repoTours = snap.plan ? [] : await this.loadRepoTours();
 
-    const total = snap.plan?.steps.length ?? 0;
     const tourId = this.controller.activeTourId;
-
-    // "Steps added" banner: only when the agent spliced steps into a tour the
-    // user is already on (insert) — not during initial emission or navigation.
-    let addedBanner = 0;
-    if (
-      tourId &&
-      tourId === this.lastTourId &&
-      this.controller.lastMutation === "insert" &&
-      total > this.lastTotal
-    ) {
-      addedBanner = total - this.lastTotal;
-    }
-    this.lastTotal = total;
-    this.lastTourId = tourId;
 
     // A bridge prompt is pinned to one step; drop it once the user moves on.
     if (this.bridge && (!snap.plan || this.bridge.index !== snap.index)) {
       this.bridge = null;
     }
 
-    const mcp = this.mcpStatusLoader?.() ?? { enabled: true, port: null };
     const nextSignature = renderSignature(snap, provider, tourId);
     if (shouldDeferRenderForTts(this.ttsState, this.lastRenderSignature, nextSignature)) {
       this.pendingRender = true;
@@ -288,9 +258,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     }
 
     this.view.webview.html = this.html(snap, provider, tours, {
-      addedBanner,
       bridge: this.bridge,
-      mcp,
       repoTours,
     });
     this.lastRenderSignature = nextSignature;
@@ -320,9 +288,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     ttsProvider: string,
     tours: TourSummary[],
     extra: {
-      addedBanner: number;
       bridge: { label: string; prompt: string; index: number } | null;
-      mcp: { enabled: boolean; port: number | null };
       repoTours: RepoTourSummary[];
     },
   ): string {
@@ -386,12 +352,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         </details>`;
     })();
 
-    // Banner shown when the agent spliced new steps into the active tour.
-    const banner =
-      extra.addedBanner > 0
-        ? `<div class="banner">▲ ${extra.addedBanner} step${extra.addedBanner === 1 ? "" : "s"} added by the agent — click <strong>Next →</strong> or pick one from the route below.</div>`
-        : "";
-
     // Drift notice: the code this stop points at changed since the tour was
     // authored. "relocated" = we found it and re-anchored; "missing" = gone.
     const driftBadge =
@@ -415,12 +375,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         </div>`
       : "";
 
-    const helperLine = (() => {
-      if (!extra.mcp.enabled) return `MCP helpers off. Agents can still write tour JSON files directly.`;
-      if (extra.mcp.port) return `Optional MCP helpers listening on <code>127.0.0.1:${extra.mcp.port}</code> for workspace discovery.`;
-      return `Optional MCP helpers starting.`;
-    })();
-
     const renderNavButton = (control: NavigationControl) => {
       const classes = [control.className, control.secondary ? "secondary" : ""].filter(Boolean).join(" ");
       const classAttr = classes ? ` class="${escape(classes)}"` : "";
@@ -438,12 +392,10 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         <div class="explanation">RepoTrail plays JSON tours from each open project's <code>.repotrail/</code> directory. Ask an agent to write a complete tour file, then open it here.</div>
         <div class="controls">
           <button id="start" title="Copy a prompt that tells your agent to write a complete .repotrail JSON tour">Copy authoring prompt</button>
-          <button id="agentBootstrap" class="secondary" title="Copy workspace details, schema, and optional helper endpoints for your agent">Agent setup</button>
           <button id="importTour" class="secondary" title="Import a RepoTrail tour from a saved file">Import tour…</button>
           <button id="migrateSavedTours" class="secondary" title="Copy compatible old saved tours into repo-local .repotrail JSON files">Migrate saved</button>
           <button id="refreshTours" class="secondary" title="Refresh the tour library from disk">Refresh</button>
-        </div>
-        <div class="meta">${helperLine}</div>`;
+        </div>`;
 
     const tourList = (() => {
       if (snap.plan || tours.length === 0) return "";
@@ -614,7 +566,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         ${overview}
       </section>
       <main class="tour-main">
-        ${banner}
         ${driftBadge}
         ${bridgeBlock}
         <div class="explanation">${escape(explanation)}</div>
@@ -632,7 +583,6 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     };
     const on = (id, type) => document.getElementById(id)?.addEventListener("click", () => send({ type }));
     on("start", "start");
-    on("agentBootstrap", "agentBootstrap");
     on("importTour", "importTour");
     on("migrateSavedTours", "migrateSavedTours");
     on("refreshTours", "refreshTours");

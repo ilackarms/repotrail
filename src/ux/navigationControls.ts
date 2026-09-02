@@ -51,13 +51,6 @@ export function utilityNavigationControls(ttsProvider: string): NavigationContro
       disabled: false,
     },
     {
-      id: "agentBootstrap",
-      label: "Agent setup",
-      tooltip: "Copy workspace details, schema, and optional helper endpoints for your agent",
-      disabled: false,
-      secondary: true,
-    },
-    {
       id: "stop",
       label: "Stop",
       tooltip: "Stop this tour",

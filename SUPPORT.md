@@ -2,15 +2,18 @@
 
 Use GitHub issues for bugs, feature requests, and setup problems:
 
-https://github.com/ilackarms/repotrail/issues
+[github.com/ilackarms/repotrail/issues](https://github.com/ilackarms/repotrail/issues)
 
-When reporting MCP setup issues, include:
+When reporting tour loading or playback issues, include:
 
 - VS Code version.
 - RepoTrail version.
-- Whether `~/.repotrail/ports.json` contains an entry for the active workspace.
-- Whether the agent can fetch the `/bootstrap` and `/skill.md` URLs from
-  **Connect agent** / **RepoTrail: Copy Agent Setup**.
-- The agent or harness name and version.
-- The MCP client registration or connection status from your agent.
-- The exact error shown by your agent or the RepoTrail output channel.
+- The `.repotrail/*.json` path and whether it appears in the sidebar.
+- The workspace roots open in the affected VS Code window.
+- Whether the problem started while the tour JSON was being edited.
+- The exact error from the RepoTrail output channel.
+- A minimal tour JSON file that reproduces the problem, with private paths and
+  narration removed if needed.
+
+For authoring-prompt problems, also include the agent name and version and the
+prompt copied by **RepoTrail: Copy Tour Prompt**.

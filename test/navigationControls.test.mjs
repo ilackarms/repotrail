@@ -22,7 +22,7 @@ test("disables only the unavailable primary navigation direction", () => {
 test("keeps utility actions out of the primary Back and Next slots", () => {
   assert.deepEqual(
     utilityNavigationControls("system").map(({ id }) => id),
-    ["revealCurrent", "openCurrentSource", "deeper", "agentBootstrap", "stop", "playPause", "exportTour"],
+    ["revealCurrent", "openCurrentSource", "deeper", "stop", "playPause", "exportTour"],
   );
 });
 

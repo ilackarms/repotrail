@@ -1,4 +1,4 @@
-/** Data contracts shared by JSON tour files, optional MCP helpers, and editor UX. */
+/** Data contracts shared by JSON tour files and editor UX. */
 
 export type TourKind =
   | "architecture"
@@ -47,9 +47,8 @@ export interface TourStepDiff {
 
 export interface TourRootRef {
   /**
-   * Stable VS Code workspace folder identity. Agents may copy this from
-   * get_workspace, but shared tour files should prefer name/pathHint when they
-   * can stay stable across machines.
+   * Stable VS Code workspace folder identity. Shared tour files should prefer
+   * name/pathHint when they can stay stable across machines.
    */
   workspaceFolder?: string;
   /** Human-readable workspace name, usually the folder name shown by VS Code. */
@@ -78,8 +77,8 @@ export interface TourStep {
    */
   root?: string;
   /**
-   * Optional VS Code workspace folder identity from get_workspace. Omit for
-   * single-root tours or to target the first workspace folder.
+   * Optional legacy VS Code workspace folder identity. Omit for single-root
+   * tours or to target the first workspace folder.
    */
   workspaceFolder?: string;
   file: string;            // workspace-relative path inside workspaceFolder

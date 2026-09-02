@@ -2,13 +2,13 @@
 
 RepoTrail is harness-agnostic. The primary artifact is a complete JSON tour
 file under `.repotrail/`. The VS Code extension lists those files, watches them
-for changes, and plays them back. A small local MCP server can still expose
-workspace discovery and legacy live-edit helpers, but normal authoring does not
-require step-by-step MCP calls.
+for changes, and plays them back. Writing that file is the complete authoring
+contract.
 
-The single skill source lives in `harness/repo-trail/SKILL.md` and is served at
-`/skill.md?token=<token>`. The agent or harness owns installation: fetch that
-URL and install or apply the instructions using its own skill mechanism.
+The single skill source lives in `harness/repo-trail/SKILL.md`. The agent or
+harness installs or applies those instructions through its own skill mechanism.
+The prompt copied from RepoTrail includes the open workspace roots and JSON
+schema; the extension does not require a connection to the agent.
 
 ## Supported Modes
 
@@ -19,9 +19,9 @@ RepoTrail has two supported harness modes.
 Use this when the user already has the target roots open in VS Code.
 
 1. Open the target workspace in VS Code.
-2. Click **Agent setup** in the RepoTrail sidebar, or run
-   **RepoTrail: Copy Agent Setup**.
-3. Paste the copied setup into the agent.
+2. Click **Copy authoring prompt** in the RepoTrail sidebar, or run
+   **RepoTrail: Copy Tour Prompt**.
+3. Paste the copied prompt into the agent.
 4. The agent reads the open roots and writes
    `<owning-project>/.repotrail/<slug>.json`.
 
@@ -42,35 +42,6 @@ Use this when the user wants an agent to prepare the review or tour workspace.
 The global workspace directory stores launch files and manifests only. Tours
 remain repo-local so they are easy to inspect, refresh, copy, commit, or delete.
 
-## Optional Connection
-
-Open the target workspace in VS Code and click **Agent setup** in the
-RepoTrail sidebar, or run **RepoTrail: Copy Agent Setup**. Paste the copied
-setup prompt into your agent. The prompt includes the open workspace roots, JSON
-schema, and, when enabled, optional helper endpoints:
-
-- `/bootstrap?token=<token>` for machine-readable setup metadata;
-- `/skill.md?token=<token>` for the generic RepoTrail skill;
-- `/mcp?token=<token>` for the Streamable HTTP MCP server.
-
-The MCP server:
-
-- listens on `127.0.0.1`;
-- uses the `/mcp` endpoint;
-- serves the skill at `/skill.md` and setup metadata at `/bootstrap`;
-- requires either `?token=<token>` in the URL or
-  `Authorization: Bearer <token>`;
-- expects Streamable HTTP clients to send
-  `Accept: application/json, text/event-stream`;
-- runs in stateless mode, so `initialize` does not return `Mcp-Session-Id` and
-  raw clients should omit that header on follow-up requests;
-- writes live connection metadata to `~/.repotrail/ports.json`.
-
-If your harness cannot hot-add MCP tools after the session starts, drive the
-endpoint directly as raw Streamable HTTP JSON-RPC. The durable output is still a
-repo-local `.repotrail/*.json` file; raw HTTP is only for discovery, workspace
-attachment, and legacy live helpers.
-
 ## Required Tour Workflow
 
 1. Pick existing-workspace mode or agent-created-workspace mode.
@@ -79,8 +50,8 @@ attachment, and legacy live helpers.
 4. Stop and let the user open the tour from the RepoTrail sidebar.
 
 For deepening or follow-up requests, edit the owning `.repotrail/*.json` file or
-write a revised copy. The legacy MCP mutation tools remain available for live
-experiments, but committed tours should be JSON files.
+write a revised copy. Keep the full route coherent rather than writing partial
+updates anywhere else.
 
 ## Workspace Files
 
@@ -91,10 +62,7 @@ Workspace files are ordinary VS Code workspaces:
   "folders": [
     { "name": "project-pr-123", "path": "/absolute/path/to/project-pr-123" },
     { "name": "dependency-pr-456", "path": "/absolute/path/to/dependency-pr-456" }
-  ],
-  "settings": {
-    "repoTrail.mcpEnabled": true
-  }
+  ]
 }
 ```
 
@@ -118,17 +86,7 @@ Manifests are optional convenience records for agents and users:
 }
 ```
 
-## Tools
-
-| Tool | Use |
-| --- | --- |
-| `get_workspace` | Optional helper: confirm the VS Code window and inspect bounded file lists for each open workspace folder. |
-| `open_workspace` | Ask VS Code to open an absolute folder or `.code-workspace` path when the current endpoint is attached to the wrong window. Defaults to a new window; reconnect to that window before authoring. |
-| `start_tour` / `add_step` | Legacy/live helpers only. Prefer `.repotrail/*.json` for normal authoring. |
-| `insert_step` / `update_step` / `remove_step` | Legacy/live helpers for an already-active in-memory tour. Prefer editing the JSON artifact. |
-| `show_step` | Legacy/live helper to jump the editor to a step. |
-| `get_state` | Inspect the active plan and current step. |
-| `end_tour` | Clear the tour only when the user asks. |
+## Tour Files
 
 Use workspace-relative forward-slash paths. In multi-root windows, set
 `plan.roots` aliases and per-step `root` values. `workspaceFolder` is accepted

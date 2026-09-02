@@ -1,6 +1,7 @@
 import * as childProcess from "node:child_process";
 import * as vscode from "vscode";
 import { TourController } from "../ux/tourController";
+import { narrationTargetKey } from "./playbackPolicy";
 import { humanizeForSpeech } from "./speechText";
 
 export type TtsProvider = "off" | "kokoro" | "system" | "say" | "elevenlabs" | "openai";
@@ -30,15 +31,15 @@ export type TtsWebviewMsg =
  * Narration text is run through humanizeForSpeech() first so identifiers, paths,
  * and operators are spoken naturally regardless of backend.
  *
- * Subscribes to controller.onDidChange only to cancel stale work when the user
- * moves to another step or ends the tour. Speech starts from speakCurrent().
+ * Subscribes to controller.onDidChange only to cancel stale work when the
+ * current narration target changes or the tour ends. Speech starts from
+ * speakCurrent().
  */
 export class TtsManager implements vscode.Disposable {
   private subscription: vscode.Disposable | null = null;
   private currentChild: childProcess.ChildProcess | null = null;
   private webviewSink: ((msg: TtsWebviewMsg) => void) | null = null;
-  private observedTourId: string | null = null;
-  private observedIndex = -1;
+  private observedTargetKey: string | null = null;
   private fetchAbort: AbortController | null = null;
   private requestSeq = 0;
   private warnedMissing = new Set<string>();
@@ -59,6 +60,7 @@ export class TtsManager implements vscode.Disposable {
   speakCurrent(): void {
     const snap = this.controller.snapshot();
     if (!snap.current) return;
+    this.observedTargetKey = narrationTargetKey(this.controller.activeTourId, snap.current);
     this.dispatch(humanizeForSpeech(`${snap.current.title}. ${snap.current.explanation}`));
   }
 
@@ -94,18 +96,15 @@ export class TtsManager implements vscode.Disposable {
   private onChange(): void {
     const provider = currentProvider();
     const snap = this.controller.snapshot();
-    const tourId = this.controller.activeTourId;
-    const index = snap.current ? snap.index : -1;
+    const targetKey = narrationTargetKey(this.controller.activeTourId, snap.current);
     if (provider === "off" || !snap.current) {
       this.cancel();
-      this.observedTourId = tourId;
-      this.observedIndex = index;
+      this.observedTargetKey = targetKey;
       return;
     }
-    if (tourId !== this.observedTourId || index !== this.observedIndex) {
-      this.cancelHostWork();
-      this.observedTourId = tourId;
-      this.observedIndex = index;
+    if (targetKey !== this.observedTargetKey) {
+      this.cancel();
+      this.observedTargetKey = targetKey;
     }
   }
 

@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { parseTourJson } from "../engine/tourSerialize";
-import { TourPlan } from "../engine/types";
+import type { TourPlan } from "../engine/types";
 
 /**
  * Tours committed into the repository under `<root>/.repotrail/*.json`.
@@ -23,6 +23,11 @@ export interface RepoTourRoot {
   rootPath: string;
   workspaceFolder?: string;
   workspaceName?: string;
+}
+
+export interface RepoTourSource {
+  rootPath: string;
+  file: string;
 }
 
 export interface RepoTourSummary {

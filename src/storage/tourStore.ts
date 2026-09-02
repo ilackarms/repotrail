@@ -3,7 +3,8 @@ import type { Dirent } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { TourPlan } from "../engine/types";
+import type { TourPlan } from "../engine/types";
+import type { RepoTourSource } from "./repoTours";
 
 /**
  * Per-workspace tour persistence at ~/.repotrail/tours/<workspace-hash>/<id>.json
@@ -22,6 +23,8 @@ export interface TourRecord {
   updatedAt: number;
   lastIndex: number;
   plan: TourPlan;
+  /** Repo-local JSON source, when this record caches a shared tour. */
+  repoTourSource?: RepoTourSource;
   /** Indices the user has visited ("understood"), for route dimming. */
   seen?: number[];
 }

@@ -32,20 +32,6 @@ export function currentWorkspaceStorageRoot(): string {
   return `window:${workspaceFoldersHash(folders)}:${names}`;
 }
 
-export function currentWorkspaceRegistryKeys(): string[] {
-  const folders = currentWorkspaceFolders();
-  if (folders.length === 0) return ["_no_workspace"];
-  const keys = folders.map((f) => f.uri.fsPath);
-  if (folders.length > 1) keys.push(workspaceWindowRegistryKey(folders));
-  return [...new Set(keys)];
-}
-
-export function workspaceWindowRegistryKey(
-  folders: readonly vscode.WorkspaceFolder[] = currentWorkspaceFolders(),
-): string {
-  return `window:${workspaceFoldersHash(folders)}`;
-}
-
 export function workspaceFolderInfos(
   folders: readonly vscode.WorkspaceFolder[] = currentWorkspaceFolders(),
 ): WorkspaceFolderInfo[] {
@@ -64,17 +50,6 @@ export function workspaceFolderIdentity(
   return sameNameCount === 1 ? folder.name : folder.uri.fsPath;
 }
 
-export function normalizeTourStepTarget(
-  file: string,
-  workspaceFolder?: string,
-): { file: string; workspaceFolder?: string } {
-  const normalizedFile = normalizeWorkspaceFile(file);
-  const normalizedFolder = normalizeWorkspaceFolderRef(workspaceFolder);
-  return normalizedFolder
-    ? { file: normalizedFile, workspaceFolder: normalizedFolder }
-    : { file: normalizedFile };
-}
-
 export function normalizeWorkspaceFile(file: string): string {
   if (!file || file.includes("\0")) {
     throw new Error("Tour step file must be a non-empty workspace-relative path.");
@@ -88,17 +63,6 @@ export function normalizeWorkspaceFile(file: string): string {
     throw new Error("Tour step file cannot escape the workspace.");
   }
   return parts.join("/");
-}
-
-export function normalizeWorkspaceFolderRef(workspaceFolder?: string): string | undefined {
-  if (!workspaceFolder) return undefined;
-  const folder = resolveWorkspaceFolderRef(workspaceFolder);
-  if (!folder) {
-    const choices = workspaceFolderInfos().map((f) => `${f.workspaceFolder} (${f.path})`).join(", ");
-    throw new Error(`Tour step workspaceFolder must match an open VS Code workspace folder: ${choices || "none"}.`);
-  }
-  const folders = currentWorkspaceFolders();
-  return folders.length > 1 ? workspaceFolderIdentity(folder, folders) : undefined;
 }
 
 export function resolveWorkspaceFolderRef(workspaceFolder?: string): vscode.WorkspaceFolder | null {
