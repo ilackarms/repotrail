@@ -5,8 +5,10 @@ file under `.repotrail/`. The VS Code extension lists those files, watches them
 for changes, and plays them back. Writing that file is the complete authoring
 contract.
 
-The single skill source lives in `harness/repo-trail/SKILL.md`. The agent or
-harness installs or applies those instructions through its own skill mechanism.
+The single skill source lives in `harness/repo-trail/SKILL.md`. **Agent setup**
+includes that complete file in the copied prompt. The receiving agent can
+install it through its own persistent-skill mechanism or apply it directly for
+the current request.
 The prompt copied from RepoTrail includes the open workspace roots and JSON
 schema; the extension does not require a connection to the agent.
 
@@ -21,7 +23,8 @@ Use this when the user already has the target roots open in VS Code.
 1. Open the target workspace in VS Code.
 2. Click **Agent setup** in the RepoTrail sidebar, or run
    **RepoTrail: Agent Setup**.
-3. Paste the copied prompt into the agent.
+3. Paste the copied prompt into the agent. It contains the bundled skill and
+   the workspace-specific tour request.
 4. The agent reads the open roots and writes
    `<owning-project>/.repotrail/<slug>.json`.
 

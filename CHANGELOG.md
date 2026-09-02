@@ -14,6 +14,8 @@
   one-off imports remain available from the Command Palette.
 - Reused one progress record per repo tour instead of creating another record
   every time the same JSON file is opened.
+- Made Agent setup self-contained by embedding the canonical `repo-trail` skill
+  from the installed extension in every copied authoring prompt.
 
 ## 0.10.4 - 2026-06-23
 

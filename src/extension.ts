@@ -29,6 +29,7 @@ import { formatSelectionReference, selectedFullLineRange } from "./ux/selectionR
 import { TourController } from "./ux/tourController";
 import { reconcileTourUpdate } from "./ux/tourProgress";
 import { TourViewProvider } from "./ux/webviewPanel";
+import { composeAgentSetupPrompt } from "./ux/agentSetupPrompt";
 import {
   currentWorkspaceFolders,
   currentWorkspaceStorageRoot,
@@ -126,13 +127,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("repoTrail.tour.focus", async () => {
       await vscode.commands.executeCommand("workbench.view.extension.repoTrail");
     }),
-    vscode.commands.registerCommand("repoTrail.copyAgentSetup", () => copyTourPrompt()),
+    vscode.commands.registerCommand("repoTrail.copyAgentSetup", () => copyTourPrompt(context.extensionUri, log)),
     // Compatibility alias for the 0.11.0 command ID.
-    vscode.commands.registerCommand("repoTrail.copyTourPrompt", () => copyTourPrompt()),
+    vscode.commands.registerCommand("repoTrail.copyTourPrompt", () => copyTourPrompt(context.extensionUri, log)),
     vscode.commands.registerCommand("repoTrail.exportTour", () => exportActiveTour(controller, log)),
     vscode.commands.registerCommand("repoTrail.importTour", () => importTour(controller, log)),
     vscode.commands.registerCommand("repoTrail.saveTourToRepo", () => saveTourToRepo(controller, log)),
-    vscode.commands.registerCommand("repoTrail.tourFromHere", () => tourFromHere()),
+    vscode.commands.registerCommand("repoTrail.tourFromHere", () => tourFromHere(context.extensionUri, log)),
     vscode.commands.registerCommand("repoTrail.copySelectionReference", () => copySelectionReference()),
     vscode.commands.registerCommand("repoTrail.next", () => controller.next()),
     vscode.commands.registerCommand("repoTrail.back", () => controller.back()),
@@ -401,7 +402,7 @@ function buildTourAuthoringPrompt(): string {
   );
 
   return [
-    "Use the repo-trail skill. Create a RepoTrail tour for this VS Code workspace.",
+    "Create a RepoTrail tour for this VS Code workspace.",
     "",
     "Mode: existing VS Code workspace. The target roots are already open below.",
     "",
@@ -895,7 +896,7 @@ async function saveTourToRepo(controller: TourController, log: vscode.OutputChan
  * Right-click entry point: copy an agent prompt scoped to the file/selection
  * the user is looking at, so they can ask for a tour starting right here.
  */
-async function tourFromHere(): Promise<void> {
+async function tourFromHere(extensionUri: vscode.Uri, log: vscode.OutputChannel): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor || !hasWorkspaceFolders()) {
     vscode.window.showInformationMessage("RepoTrail: open a file to tour from here.");
@@ -915,13 +916,13 @@ async function tourFromHere(): Promise<void> {
     ? `the selected code in ${targetLabel} (lines ${sel.start.line + 1}–${sel.end.line + 1})`
     : targetLabel;
   const prompt =
-    `Use the repo-trail skill. Give me a RepoTrail tour starting from ${scope}. ` +
+    `Give me a RepoTrail tour starting from ${scope}. ` +
     `Walk through what it does and how it connects to the rest of the codebase, ` +
     `then write the complete tour as JSON under the owning project's ${REPO_TOURS_DIR}/ directory. ` +
     `Use root aliases for multi-root tours.`;
-  await vscode.env.clipboard.writeText(prompt);
+  if (!await copyBundledAgentPrompt(extensionUri, prompt, log)) return;
   await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
-  vscode.window.setStatusBarMessage("RepoTrail: 'tour from here' prompt copied for your agent.", 3000);
+  vscode.window.setStatusBarMessage("RepoTrail: 'tour from here' prompt and bundled skill copied.", 3000);
 }
 
 async function copySelectionReference(): Promise<void> {
@@ -970,15 +971,34 @@ async function copySelectionReference(): Promise<void> {
   vscode.window.setStatusBarMessage(`RepoTrail: copied ${lineRef} with code.`, 3000);
 }
 
-async function copyTourPrompt(): Promise<void> {
+async function copyTourPrompt(extensionUri: vscode.Uri, log: vscode.OutputChannel): Promise<void> {
   if (!hasWorkspaceFolders()) {
     vscode.window.showErrorMessage("RepoTrail: open a folder/workspace first.");
     return;
   }
-  const prompt = buildTourAuthoringPrompt();
-  await vscode.env.clipboard.writeText(prompt);
+  if (!await copyBundledAgentPrompt(extensionUri, buildTourAuthoringPrompt(), log)) return;
   await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
   vscode.window.showInformationMessage(
-    "RepoTrail tour authoring prompt copied. Paste it into your agent; it should write a .repotrail/*.json file.",
+    "RepoTrail agent setup copied with the bundled skill. Paste it into your agent; it should write a .repotrail/*.json file.",
   );
+}
+
+async function copyBundledAgentPrompt(
+  extensionUri: vscode.Uri,
+  request: string,
+  log: vscode.OutputChannel,
+): Promise<boolean> {
+  const skillUri = vscode.Uri.joinPath(extensionUri, "harness", "repo-trail", "SKILL.md");
+  try {
+    const bytes = await vscode.workspace.fs.readFile(skillUri);
+    const prompt = composeAgentSetupPrompt(Buffer.from(bytes).toString("utf8"), request);
+    await vscode.env.clipboard.writeText(prompt);
+    return true;
+  } catch (err) {
+    log.appendLine(`[agent-setup] failed to read ${skillUri.toString()}: ${err instanceof Error ? err.message : String(err)}`);
+    vscode.window.showErrorMessage(
+      "RepoTrail: the bundled agent skill could not be read. Reinstall the extension and try again.",
+    );
+    return false;
+  }
 }

@@ -40,16 +40,13 @@ You can also run this command:
 RepoTrail: Agent Setup
 ```
 
-The copied prompt includes the open workspace roots, the tour schema, and the
-path where the agent should write the completed JSON file. Existing integrations
-that invoke the 0.11.0 `repoTrail.copyTourPrompt` command ID receive the same
-prompt.
-
-Then ask:
-
-```text
-Use the repo-trail skill. Create a RepoTrail tour for the current VS Code workspace. Read the repo, then write one complete JSON tour into the owning project's .repotrail/ directory. If this is about a PR, commit, branch comparison, diff, or changes, use git-backed diff stops with baseRef/headRef instead of pasted code. Use highlight-only stops only for codebase/subsystem tours unrelated to a change window.
-```
+The copied prompt includes the complete `repo-trail` skill bundled with the
+installed extension, the open workspace roots, the tour schema, the output
+path, and the request to create the tour. Agents that support persistent skills
+can install or update it as `repo-trail`; other agents can apply the embedded
+instructions for that request. No separate download or extension server is
+required. Existing integrations that invoke the 0.11.0
+`repoTrail.copyTourPrompt` command ID receive the same prompt.
 
 ## Create A New RepoTrail Workspace
 
