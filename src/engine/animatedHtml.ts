@@ -1,4 +1,9 @@
 import { TourPlan } from "./types";
+import {
+  BROWSER_TTS_PROVIDERS,
+  TTS_DEFAULTS,
+  type BrowserTtsProvider,
+} from "../tts/config";
 
 export interface AnimatedTourCodeFrame {
   text: string;
@@ -44,7 +49,7 @@ export interface AnimatedTourHtmlInput {
 }
 
 export interface AnimatedTourTtsDefaults {
-  provider?: "off" | "kokoro" | "system" | "say" | "elevenlabs" | "openai";
+  provider?: BrowserTtsProvider;
   kokoroVoice?: string;
   elevenLabsVoiceId?: string;
   elevenLabsModel?: string;
@@ -87,6 +92,16 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
     frames: input.frames,
     tts: input.tts ?? {},
   }).replace(/</g, "\\u003c");
+  const browserTtsDefaults = JSON.stringify({
+    provider: TTS_DEFAULTS.provider,
+    kokoroVoice: TTS_DEFAULTS.kokoroVoice,
+    elevenLabsVoiceId: TTS_DEFAULTS.elevenLabsVoiceId,
+    elevenLabsModel: TTS_DEFAULTS.elevenLabsModel,
+    openAiModel: TTS_DEFAULTS.openAiModel,
+    openAiVoice: TTS_DEFAULTS.openAiVoice,
+    openAiInstructions: TTS_DEFAULTS.openAiInstructions,
+  });
+  const browserTtsProviders = JSON.stringify(BROWSER_TTS_PROVIDERS);
 
   return `<!doctype html>
 <html lang="en">
@@ -664,6 +679,8 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
 <script>
 (() => {
   const data = JSON.parse(document.getElementById("tour-data").textContent || "{}");
+  const defaultTts = ${browserTtsDefaults};
+  const browserTtsProviders = ${browserTtsProviders};
   const frames = Array.isArray(data.frames) ? data.frames : [];
   let index = 0;
 
@@ -692,13 +709,13 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
 
   function loadTtsSettings() {
     const defaults = {
-      provider: normalizeProvider(data.tts?.provider || "system"),
-      kokoroVoice: data.tts?.kokoroVoice || "af_heart",
-      elevenLabsVoiceId: data.tts?.elevenLabsVoiceId || "21m00Tcm4TlvDq8ikWAM",
-      elevenLabsModel: data.tts?.elevenLabsModel || "eleven_flash_v2_5",
-      openAiModel: data.tts?.openAiModel || "gpt-4o-mini-tts",
-      openAiVoice: data.tts?.openAiVoice || "ash",
-      openAiInstructions: data.tts?.openAiInstructions || "Read this code walkthrough aloud like a friendly senior engineer pair-programming: clear, calm, with natural pacing.",
+      provider: normalizeProvider(data.tts?.provider || defaultTts.provider),
+      kokoroVoice: data.tts?.kokoroVoice || defaultTts.kokoroVoice,
+      elevenLabsVoiceId: data.tts?.elevenLabsVoiceId || defaultTts.elevenLabsVoiceId,
+      elevenLabsModel: data.tts?.elevenLabsModel || defaultTts.elevenLabsModel,
+      openAiModel: data.tts?.openAiModel || defaultTts.openAiModel,
+      openAiVoice: data.tts?.openAiVoice || defaultTts.openAiVoice,
+      openAiInstructions: data.tts?.openAiInstructions || defaultTts.openAiInstructions,
       openAiApiKey: "",
       elevenLabsApiKey: "",
     };
@@ -711,7 +728,7 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
   }
 
   function normalizeProvider(provider) {
-    return ["off", "system", "kokoro", "elevenlabs", "openai"].includes(provider) ? provider : "system";
+    return browserTtsProviders.includes(provider) ? provider : defaultTts.provider;
   }
 
   function saveTtsSettings(next) {
@@ -745,11 +762,11 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
     const value = (id) => byId(id)?.value?.trim?.() || "";
     return {
       provider: value("ttsProvider"),
-      kokoroVoice: value("kokoroVoice") || "af_heart",
-      elevenLabsVoiceId: value("elevenLabsVoiceId") || "21m00Tcm4TlvDq8ikWAM",
-      elevenLabsModel: value("elevenLabsModel") || "eleven_flash_v2_5",
-      openAiModel: value("openAiModel") || "gpt-4o-mini-tts",
-      openAiVoice: value("openAiVoice") || "ash",
+      kokoroVoice: value("kokoroVoice") || defaultTts.kokoroVoice,
+      elevenLabsVoiceId: value("elevenLabsVoiceId") || defaultTts.elevenLabsVoiceId,
+      elevenLabsModel: value("elevenLabsModel") || defaultTts.elevenLabsModel,
+      openAiModel: value("openAiModel") || defaultTts.openAiModel,
+      openAiVoice: value("openAiVoice") || defaultTts.openAiVoice,
       openAiInstructions: value("openAiInstructions"),
       openAiApiKey: value("openAiApiKey"),
       elevenLabsApiKey: value("elevenLabsApiKey"),
@@ -881,7 +898,7 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
       '  try {',
       '    if (!modelP) modelP = KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", { dtype: "q8", device: "wasm" });',
       '    const tts = await modelP;',
-      '    const audio = await tts.generate(m.text, { voice: m.voice || "af_heart" });',
+      '    const audio = await tts.generate(m.text, { voice: m.voice || ' + JSON.stringify(defaultTts.kokoroVoice) + ' });',
       '    const wav = audio.toWav();',
       '    self.postMessage({ type: "audio", id: m.id, wav: wav }, [wav]);',
       '  } catch (err) {',
@@ -921,7 +938,7 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
         resolve: (wav) => { window.clearTimeout(timer); resolve(wav); },
         reject: (err) => { window.clearTimeout(timer); reject(err); },
       });
-      getKokoroWorker().postMessage({ type: "generate", id, text, voice: ttsSettings.kokoroVoice || "af_heart" });
+      getKokoroWorker().postMessage({ type: "generate", id, text, voice: ttsSettings.kokoroVoice || defaultTts.kokoroVoice });
     });
   }
 
@@ -950,7 +967,7 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
       setSpeechState("idle");
       return;
     }
-    const model = ttsSettings.openAiModel || "gpt-4o-mini-tts";
+    const model = ttsSettings.openAiModel || defaultTts.openAiModel;
     const steerable = model.startsWith("gpt-4o");
     await fetchSpeech(
       "https://api.openai.com/v1/audio/speech",
@@ -959,7 +976,7 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
         headers: { authorization: "Bearer " + key, "content-type": "application/json" },
         body: JSON.stringify({
           model,
-          voice: ttsSettings.openAiVoice || "ash",
+          voice: ttsSettings.openAiVoice || defaultTts.openAiVoice,
           input: text,
           response_format: "mp3",
           ...(steerable && ttsSettings.openAiInstructions ? { instructions: ttsSettings.openAiInstructions } : {}),
@@ -977,13 +994,13 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
       setSpeechState("idle");
       return;
     }
-    const voiceId = encodeURIComponent(ttsSettings.elevenLabsVoiceId || "21m00Tcm4TlvDq8ikWAM");
+    const voiceId = encodeURIComponent(ttsSettings.elevenLabsVoiceId || defaultTts.elevenLabsVoiceId);
     await fetchSpeech(
       "https://api.elevenlabs.io/v1/text-to-speech/" + voiceId + "?output_format=mp3_44100_128",
       {
         method: "POST",
         headers: { "xi-api-key": key, "content-type": "application/json", accept: "audio/mpeg" },
-        body: JSON.stringify({ text, model_id: ttsSettings.elevenLabsModel || "eleven_flash_v2_5" }),
+        body: JSON.stringify({ text, model_id: ttsSettings.elevenLabsModel || defaultTts.elevenLabsModel }),
       },
       token,
       "ElevenLabs",

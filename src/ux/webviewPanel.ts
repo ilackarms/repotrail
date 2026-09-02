@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import { formatStepPath } from "../engine/types";
 import { RepoTourSummary } from "../storage/repoTours";
+import { TTS_DEFAULTS } from "../tts/config";
 import {
   emptyLibraryControls,
   NavigationControl,
@@ -209,7 +210,9 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   private async render(): Promise<void> {
     if (!this.view) return;
     const snap = this.controller.snapshot();
-    const provider = vscode.workspace.getConfiguration("repoTrail").get<string>("tts.provider", "system");
+    const provider = vscode.workspace
+      .getConfiguration("repoTrail")
+      .get<string>("tts.provider", TTS_DEFAULTS.provider);
     const repoTours = snap.plan ? [] : await this.loadRepoTours();
 
     const tourId = this.controller.activeTourId;
@@ -942,7 +945,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         '  try {',
         '    if (!modelP) modelP = KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", { dtype: "q8", device: "wasm" });',
         '    const tts = await modelP;',
-        '    const audio = await tts.generate(m.text, { voice: m.voice || "af_heart" });',
+        '    const audio = await tts.generate(m.text, { voice: m.voice || ${JSON.stringify(TTS_DEFAULTS.kokoroVoice)} });',
         '    const wav = audio.toWav();',
         '    self.postMessage({ type: "audio", id: m.id, wav: wav }, [wav]);',
         '  } catch (err) {',

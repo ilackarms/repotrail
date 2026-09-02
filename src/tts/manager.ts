@@ -3,10 +3,14 @@ import * as vscode from "vscode";
 import { TourController } from "../ux/tourController";
 import { narrationTargetKey } from "./playbackPolicy";
 import { humanizeForSpeech } from "./speechText";
+import {
+  normalizeTtsProvider,
+  TTS_DEFAULTS,
+  TTS_SECRET_KEYS,
+  type TtsProvider,
+} from "./config";
 
-export type TtsProvider = "off" | "kokoro" | "system" | "say" | "elevenlabs" | "openai";
-
-const ALL_PROVIDERS: TtsProvider[] = ["off", "kokoro", "system", "say", "elevenlabs", "openai"];
+export type { TtsProvider } from "./config";
 
 /** Message shapes posted to the webview audio surface. */
 export type TtsWebviewMsg =
@@ -21,8 +25,9 @@ export type TtsWebviewMsg =
  * - "off": no audio.
  * - "kokoro": local Kokoro-82M neural voice. Runs entirely in the sidebar
  *   webview via WASM (downloads the model on first use, then offline). Free,
- *   natural — the default.
- * - "system": webview SpeechSynthesis using native OS voices. Free, robotic.
+ *   natural, and CPU-heavy.
+ * - "system": webview SpeechSynthesis using native OS voices. Free, robotic,
+ *   and the default.
  * - "say": spawn macOS `say` (override via repoTrail.tts.command on Linux).
  * - "elevenlabs" / "openai": hosted neural voices. Audio is fetched here in the
  *   extension host (keeping the API key out of the webview) and the bytes are
@@ -48,6 +53,7 @@ export class TtsManager implements vscode.Disposable {
   constructor(
     private readonly controller: TourController,
     private readonly log: vscode.OutputChannel,
+    private readonly secrets: vscode.SecretStorage,
   ) {
     this.subscription = controller.onDidChange(() => this.onChange());
   }
@@ -127,7 +133,7 @@ export class TtsManager implements vscode.Disposable {
           type: "tts.speak",
           engine: "kokoro",
           text,
-          voice: cfg.get<string>("tts.kokoroVoice", "af_heart"),
+          voice: cfg.get<string>("tts.kokoroVoice", TTS_DEFAULTS.kokoroVoice),
         });
         return;
       case "say":
@@ -151,7 +157,7 @@ export class TtsManager implements vscode.Disposable {
   }
 
   private speakViaCommand(text: string, cfg: vscode.WorkspaceConfiguration): void {
-    const cmd = cfg.get<string>("tts.command", "say");
+    const cmd = cfg.get<string>("tts.command", TTS_DEFAULTS.command);
     try {
       const child = childProcess.spawn(cmd, [text], { stdio: "ignore", detached: false });
       child.on("error", (err) =>
@@ -164,13 +170,13 @@ export class TtsManager implements vscode.Disposable {
   }
 
   private async speakViaElevenLabs(text: string, cfg: vscode.WorkspaceConfiguration): Promise<void> {
-    const key = (cfg.get<string>("tts.elevenLabsApiKey", "") || process.env.ELEVENLABS_API_KEY || "").trim();
+    const key = await this.apiKey(TTS_SECRET_KEYS.elevenLabs, "ELEVENLABS_API_KEY");
     if (!key) {
-      this.warnMissingKey("ElevenLabs", "repoTrail.tts.elevenLabsApiKey");
+      this.warnMissingKey("ElevenLabs");
       return;
     }
-    const voiceId = cfg.get<string>("tts.elevenLabsVoiceId", "21m00Tcm4TlvDq8ikWAM");
-    const model = cfg.get<string>("tts.elevenLabsModel", "eleven_flash_v2_5");
+    const voiceId = cfg.get<string>("tts.elevenLabsVoiceId", TTS_DEFAULTS.elevenLabsVoiceId);
+    const model = cfg.get<string>("tts.elevenLabsModel", TTS_DEFAULTS.elevenLabsModel);
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`;
     await this.fetchAndPlay(
       url,
@@ -181,19 +187,18 @@ export class TtsManager implements vscode.Disposable {
       },
       "audio/mpeg",
       "ElevenLabs",
-      "repoTrail.tts.elevenLabsApiKey",
     );
   }
 
   private async speakViaOpenAi(text: string, cfg: vscode.WorkspaceConfiguration): Promise<void> {
-    const key = (cfg.get<string>("tts.openAiApiKey", "") || process.env.OPENAI_API_KEY || "").trim();
+    const key = await this.apiKey(TTS_SECRET_KEYS.openAi, "OPENAI_API_KEY");
     if (!key) {
-      this.warnMissingKey("OpenAI", "repoTrail.tts.openAiApiKey");
+      this.warnMissingKey("OpenAI");
       return;
     }
-    const model = cfg.get<string>("tts.openAiModel", "gpt-4o-mini-tts");
-    const voice = cfg.get<string>("tts.openAiVoice", "ash");
-    const instructions = cfg.get<string>("tts.openAiInstructions", "").trim();
+    const model = cfg.get<string>("tts.openAiModel", TTS_DEFAULTS.openAiModel);
+    const voice = cfg.get<string>("tts.openAiVoice", TTS_DEFAULTS.openAiVoice);
+    const instructions = cfg.get<string>("tts.openAiInstructions", TTS_DEFAULTS.openAiInstructions).trim();
     // Only gpt-4o-mini-tts accepts `instructions`; sending it to tts-1/tts-1-hd
     // is a 400.
     const steerable = model.startsWith("gpt-4o");
@@ -212,8 +217,12 @@ export class TtsManager implements vscode.Disposable {
       },
       "audio/mpeg",
       "OpenAI",
-      "repoTrail.tts.openAiApiKey",
     );
+  }
+
+  private async apiKey(secretKey: string, environmentKey: string): Promise<string> {
+    const stored = await readSecret(this.secrets, secretKey);
+    return (stored || process.env[environmentKey] || "").trim();
   }
 
   /**
@@ -227,7 +236,6 @@ export class TtsManager implements vscode.Disposable {
     init: RequestInit,
     mime: string,
     label: string,
-    settingId: string,
   ): Promise<void> {
     const seq = ++this.requestSeq;
     const ac = new AbortController();
@@ -244,7 +252,7 @@ export class TtsManager implements vscode.Disposable {
             : res.status === 404
               ? "model not found for this key — try a different repoTrail.tts.*Model"
               : `HTTP ${res.status}`;
-        this.failHosted(label, `${hint}. ${summarizeApiError(body)}`.trim(), settingId);
+        this.failHosted(label, `${hint}. ${summarizeApiError(body)}`.trim());
         return;
       }
       const buf = Buffer.from(await res.arrayBuffer());
@@ -253,7 +261,7 @@ export class TtsManager implements vscode.Disposable {
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
       if (seq !== this.requestSeq) return;
-      this.failHosted(label, err instanceof Error ? err.message : String(err), settingId);
+      this.failHosted(label, err instanceof Error ? err.message : String(err));
     } finally {
       if (this.fetchAbort === ac) this.fetchAbort = null;
     }
@@ -263,32 +271,33 @@ export class TtsManager implements vscode.Disposable {
    *  "Loading voice…" state, and show an actionable warning. Throttled by time
    *  (not a permanent dedup) so a deliberate Speak click always surfaces the
    *  error, while repeated failures don't spam toasts. */
-  private failHosted(label: string, detail: string, settingId: string): void {
+  private failHosted(label: string, detail: string): void {
     this.log.appendLine(`[tts] ${label} failed: ${detail}`);
     this.webviewSink?.({ type: "tts.cancel" });
     const now = Date.now();
     if (now - this.lastHostedWarn < 8000) return;
     this.lastHostedWarn = now;
     void vscode.window
-      .showWarningMessage(`RepoTrail: ${label} TTS failed — ${detail}`, "Open Settings", "Show Log")
+      .showWarningMessage(`RepoTrail: ${label} TTS failed — ${detail}`, "Configure Credentials", "Show Log")
       .then((choice) => {
-        if (choice === "Open Settings") {
-          void vscode.commands.executeCommand("workbench.action.openSettings", settingId);
+        if (choice === "Configure Credentials") {
+          void vscode.commands.executeCommand("repoTrail.manageTtsCredentials");
         } else if (choice === "Show Log") {
           this.log.show(true);
         }
       });
   }
 
-  private warnMissingKey(label: string, settingId: string, reason = "needs an API key"): void {
-    this.log.appendLine(`[tts] ${label} ${reason} (${settingId}).`);
-    if (this.warnedMissing.has(settingId)) return;
-    this.warnedMissing.add(settingId);
+  private warnMissingKey(label: string, reason = "needs an API key"): void {
+    this.log.appendLine(`[tts] ${label} ${reason}.`);
+    this.webviewSink?.({ type: "tts.cancel" });
+    if (this.warnedMissing.has(label)) return;
+    this.warnedMissing.add(label);
     void vscode.window
-      .showWarningMessage(`RepoTrail: ${label} TTS ${reason}.`, "Open Settings")
+      .showWarningMessage(`RepoTrail: ${label} TTS ${reason}.`, "Configure Credentials")
       .then((choice) => {
-        if (choice === "Open Settings") {
-          void vscode.commands.executeCommand("workbench.action.openSettings", settingId);
+        if (choice === "Configure Credentials") {
+          void vscode.commands.executeCommand("repoTrail.manageTtsCredentials");
         }
       });
   }
@@ -308,23 +317,31 @@ function summarizeApiError(body: string): string {
 }
 
 export function currentProvider(): TtsProvider {
-  const raw = vscode.workspace.getConfiguration("repoTrail").get<string>("tts.provider", "system");
-  return (ALL_PROVIDERS as string[]).includes(raw) ? (raw as TtsProvider) : "system";
+  const raw = vscode.workspace.getConfiguration("repoTrail").get<string>("tts.provider", TTS_DEFAULTS.provider);
+  return normalizeTtsProvider(raw);
 }
 
 /**
  * Providers the cycle command should rotate through: the local engines are
- * always available; the hosted ones only appear once their API key is set
- * (config or env) so cycling can't land on a silent, key-less provider.
+ * always available; the hosted ones only appear once their API key is available
+ * from SecretStorage or the environment, so cycling cannot land on a silent
+ * provider.
  */
-export function availableProviders(): TtsProvider[] {
-  const cfg = vscode.workspace.getConfiguration("repoTrail");
+export async function availableProviders(secrets: vscode.SecretStorage): Promise<TtsProvider[]> {
   const list: TtsProvider[] = ["off", "kokoro", "system", "say"];
-  if ((cfg.get<string>("tts.elevenLabsApiKey", "") || process.env.ELEVENLABS_API_KEY || "").trim()) {
+  if (((await readSecret(secrets, TTS_SECRET_KEYS.elevenLabs)) || process.env.ELEVENLABS_API_KEY || "").trim()) {
     list.push("elevenlabs");
   }
-  if ((cfg.get<string>("tts.openAiApiKey", "") || process.env.OPENAI_API_KEY || "").trim()) {
+  if (((await readSecret(secrets, TTS_SECRET_KEYS.openAi)) || process.env.OPENAI_API_KEY || "").trim()) {
     list.push("openai");
   }
   return list;
+}
+
+async function readSecret(secrets: vscode.SecretStorage, key: string): Promise<string | undefined> {
+  try {
+    return await secrets.get(key);
+  } catch {
+    return undefined;
+  }
 }

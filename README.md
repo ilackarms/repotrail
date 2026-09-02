@@ -107,8 +107,8 @@ work.
   `~/.repotrail/workspaces/*.code-workspace`.
 - Export to Markdown, JSON, or standalone animated HTML with browser playback,
   embedded code/diff frames, and standalone TTS controls.
-- Automatic restoration of the most recently active tour and its progress after
-  a VS Code reload.
+- Automatic restoration of a tour that was still active when VS Code closed.
+  Stopping a tour prevents it from returning on the next reload.
 
 ## Security And Privacy
 
@@ -116,8 +116,9 @@ work.
   in `.repotrail/`.
 - Tour step files must be workspace-relative and cannot escape their selected
   workspace folder.
-- Hosted TTS providers are opt-in and require your own API key. Audio requests
-  are made by the extension host, not the webview.
+- Hosted TTS providers are opt-in and require your own API key. Keys are stored
+  in VS Code SecretStorage; audio requests are made by the extension host, not
+  the webview.
 - RepoTrail itself does not collect telemetry.
 
 See [PRIVACY.md](PRIVACY.md) for the longer policy.
@@ -136,6 +137,8 @@ See [PRIVACY.md](PRIVACY.md) for the longer policy.
 - `RepoTrail: Rename Tour` - change the visible tour title without renaming
   the `.repotrail/*.json` file.
 - `RepoTrail: Save Tour to Repo (.repotrail/)`.
+- `RepoTrail: Manage TTS Credentials` - securely store, replace, or clear an
+  OpenAI or ElevenLabs API key.
 
 ## Development
 
@@ -157,10 +160,11 @@ code snapshots, and diff frames, so it can be opened outside VS Code or shared a
 a single artifact.
 
 The exported player includes Back/Next, Play, Speak, and TTS settings. It carries
-non-secret VS Code TTS defaults such as provider, model, and voice. API keys are
-not embedded; hosted OpenAI or ElevenLabs speech requires entering a key in the
-browser, where it is stored only in that browser's local storage. Command-based
-voices such as macOS `say` cannot run from a browser page.
+non-secret VS Code TTS defaults such as provider, model, and voice. API keys from
+VS Code SecretStorage are not embedded; hosted OpenAI or ElevenLabs speech
+requires entering a key in the browser, where it is stored only in that browser's
+local storage. Command-based voices such as macOS `say` cannot run from a browser
+page, so exports configured for Command narration start with System speech.
 
 ## Limitations
 

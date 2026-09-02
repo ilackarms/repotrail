@@ -20,11 +20,19 @@ depends on its tools, model configuration, and skill-install behavior.
 The default `system` voice uses the webview's browser speech synthesis. Hosted
 TTS providers such as ElevenLabs and OpenAI are opt-in and require your own API
 key. When enabled, narration text is sent to the selected provider so audio can
-be generated.
+be generated. Keys saved with `RepoTrail: Manage TTS Credentials` live in VS
+Code SecretStorage rather than `settings.json`; environment variables remain a
+supported fallback.
+
+Standalone animated HTML exports cannot read VS Code SecretStorage. If you use
+a hosted voice in an export, its key is entered separately and stored only in
+that browser's local storage. RepoTrail never embeds the key in the exported
+file.
 
 ## Local Files
 
-RepoTrail caches active-tour progress under `~/.repotrail/tours/` so it can
-restore your place after a VS Code reload. Tour content lives under
-`.repotrail/`, and optional agent-created VS Code workspace files can live under
-`~/.repotrail/workspaces/`.
+RepoTrail caches tour progress under `~/.repotrail/tours/`. It restores a tour
+after a VS Code reload only when that tour was still active when the window
+closed; explicitly stopping it clears the active marker. Tour content lives
+under `.repotrail/`, and optional agent-created VS Code workspace files can live
+under `~/.repotrail/workspaces/`.

@@ -109,6 +109,10 @@
       {
         "command": "repoTrail.stopTts",
         "title": "RepoTrail: Stop Speech"
+      },
+      {
+        "command": "repoTrail.manageTtsCredentials",
+        "title": "RepoTrail: Manage TTS Credentials"
       }
     ],
     "keybindings": [
@@ -225,88 +229,87 @@
         }
       ]
     },
-    "configuration": {
-      "title": "RepoTrail",
-      "properties": {
-        "repoTrail.autoResume": {
-          "type": "string",
-          "enum": ["prompt", "auto", "off"],
-          "enumDescriptions": [
-            "On startup, ask whether to resume the most recent tour for this workspace.",
-            "Silently restore the most recent tour on startup.",
-            "Never restore a tour automatically."
-          ],
-          "default": "prompt",
-          "description": "What to do with the most recently active tour when VS Code opens this workspace. RepoTrail keeps a small local progress record so a window reload does not lose your place."
-        },
-        "repoTrail.tts.provider": {
-          "type": "string",
-          "enum": [
-            "off",
-            "kokoro",
-            "system",
-            "say",
-            "elevenlabs",
-            "openai"
-          ],
-          "enumDescriptions": [
-            "No narration.",
-            "Local Kokoro-82M neural voice (experimental). Free and natural; runs in a background Web Worker via WASM and downloads a ~80MB model on first use. Inference is CPU-heavy and slow on some machines — falls back to the system voice if it stalls.",
-            "Browser SpeechSynthesis using native OS voices. Free, instant, works offline. Robotic but reliable — the default.",
-            "Shell out to a system command (macOS `say`; override via repoTrail.tts.command on Linux).",
-            "ElevenLabs Flash v2.5 — natural hosted voice with low latency. Requires repoTrail.tts.elevenLabsApiKey.",
-            "OpenAI gpt-4o-mini-tts — natural, tone-steerable hosted voice. Requires repoTrail.tts.openAiApiKey."
-          ],
-          "default": "system",
-          "markdownDescription": "Which engine reads tour narration aloud. **system** (default) uses free native OS voices — instant and reliable. **kokoro** is a free, natural neural voice that runs locally in a background worker, but model load/inference is CPU-heavy (experimental). **say** shells out to a command. **elevenlabs**/**openai** are hosted neural voices that need an API key."
-        },
-        "repoTrail.tts.command": {
-          "type": "string",
-          "default": "say",
-          "description": "Command invoked when repoTrail.tts.provider is 'say'. The narration text is passed as a single argv[1]. Use `espeak` or `spd-say` on Linux."
-        },
-        "repoTrail.tts.kokoroVoice": {
-          "type": "string",
-          "default": "af_heart",
-          "description": "Kokoro voice id used when repoTrail.tts.provider is 'kokoro' (e.g. af_heart, af_bella, af_nicole, am_michael, am_adam, bf_emma, bm_george)."
-        },
-        "repoTrail.tts.elevenLabsApiKey": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "ElevenLabs API key, used when provider is 'elevenlabs'. Falls back to the `ELEVENLABS_API_KEY` env var. Prefer the env var or secret storage over committing a key."
-        },
-        "repoTrail.tts.elevenLabsVoiceId": {
-          "type": "string",
-          "default": "21m00Tcm4TlvDq8ikWAM",
-          "description": "ElevenLabs voice id (default: Rachel)."
-        },
-        "repoTrail.tts.elevenLabsModel": {
-          "type": "string",
-          "default": "eleven_flash_v2_5",
-          "description": "ElevenLabs model id. eleven_flash_v2_5 is the low-latency default; eleven_multilingual_v2 is higher quality but slower and pricier."
-        },
-        "repoTrail.tts.openAiApiKey": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "OpenAI API key, used when provider is 'openai'. Falls back to the `OPENAI_API_KEY` env var."
-        },
-        "repoTrail.tts.openAiModel": {
-          "type": "string",
-          "default": "gpt-4o-mini-tts",
-          "description": "OpenAI TTS model. gpt-4o-mini-tts is steerable (honors openAiInstructions) and recommended for code review. Use tts-1 or tts-1-hd if your key/project lacks access to gpt-4o-mini-tts."
-        },
-        "repoTrail.tts.openAiVoice": {
-          "type": "string",
-          "default": "ash",
-          "description": "OpenAI TTS voice. For reading code review feedback, calm/clear voices work best: ash, sage, alloy. (Also: ballad, coral, echo, shimmer, verse.)"
-        },
-        "repoTrail.tts.openAiInstructions": {
-          "type": "string",
-          "default": "Read this code walkthrough aloud like a friendly senior engineer pair-programming: clear, calm, with natural pacing.",
-          "description": "Tone/style instructions passed to gpt-4o-mini-tts. Only the gpt-4o-mini-tts model honors this."
+    "configuration": [
+      {
+        "title": "RepoTrail: Narration",
+        "order": 1,
+        "properties": {
+          "repoTrail.tts.provider": {
+            "type": "string",
+            "scope": "window",
+            "enum": ["off", "kokoro", "system", "say", "elevenlabs", "openai"],
+            "enumItemLabels": ["Off", "Kokoro", "System", "Command", "ElevenLabs", "OpenAI"],
+            "enumDescriptions": [
+              "No narration.",
+              "Local Kokoro-82M neural voice. Downloads a model on first use and runs in a Web Worker.",
+              "Browser SpeechSynthesis using native OS voices. Free, offline, and the default.",
+              "Run a local speech executable such as macOS say, espeak, or spd-say.",
+              "Hosted ElevenLabs narration. Configure credentials with RepoTrail: Manage TTS Credentials or ELEVENLABS_API_KEY.",
+              "Hosted OpenAI narration. Configure credentials with RepoTrail: Manage TTS Credentials or OPENAI_API_KEY."
+            ],
+            "default": "system",
+            "markdownDescription": "Narration engine. Hosted credentials are stored with **RepoTrail: Manage TTS Credentials**, not in settings.json."
+          },
+          "repoTrail.tts.kokoroVoice": {
+            "type": "string",
+            "scope": "window",
+            "enum": [
+              "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica", "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah", "af_sky",
+              "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", "am_michael", "am_onyx", "am_puck", "am_santa",
+              "bf_alice", "bf_emma", "bf_isabella", "bf_lily", "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
+              "ef_dora", "em_alex", "em_santa", "ff_siwis", "hf_alpha", "hf_beta", "hm_omega", "hm_psi", "if_sara", "im_nicola",
+              "jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro", "jm_kumo", "pf_dora", "pm_alex", "pm_santa",
+              "zf_xiaobei", "zf_xiaoni", "zf_xiaoxiao", "zf_xiaoyi", "zm_yunjian", "zm_yunxi", "zm_yunxia", "zm_yunyang"
+            ],
+            "default": "af_heart",
+            "description": "Voice used by the local Kokoro provider."
+          }
+        }
+      },
+      {
+        "title": "RepoTrail: Narration (Advanced)",
+        "order": 2,
+        "properties": {
+          "repoTrail.tts.command": {
+            "type": "string",
+            "scope": "window",
+            "default": "say",
+            "description": "Executable name or absolute path used by the Command provider. RepoTrail passes narration as one argument; command-line arguments are not supported. Animated HTML exports use System speech instead."
+          },
+          "repoTrail.tts.elevenLabsVoiceId": {
+            "type": "string",
+            "scope": "window",
+            "default": "21m00Tcm4TlvDq8ikWAM",
+            "description": "ElevenLabs voice id override."
+          },
+          "repoTrail.tts.elevenLabsModel": {
+            "type": "string",
+            "scope": "window",
+            "default": "eleven_flash_v2_5",
+            "description": "ElevenLabs model id override."
+          },
+          "repoTrail.tts.openAiModel": {
+            "type": "string",
+            "scope": "window",
+            "default": "gpt-4o-mini-tts",
+            "description": "OpenAI speech model override. Tone instructions are sent only to steerable gpt-4o models."
+          },
+          "repoTrail.tts.openAiVoice": {
+            "type": "string",
+            "scope": "window",
+            "default": "ash",
+            "description": "OpenAI voice id override, such as ash, sage, alloy, ballad, coral, echo, shimmer, or verse."
+          },
+          "repoTrail.tts.openAiInstructions": {
+            "type": "string",
+            "scope": "window",
+            "editPresentation": "multilineText",
+            "default": "Read this code walkthrough aloud like a friendly senior engineer pair-programming: clear, calm, with natural pacing.",
+            "description": "Tone instructions for steerable OpenAI speech models."
+          }
         }
       }
-    }
+    ]
   },
   "scripts": {
     "typecheck": "tsc -p ./ --noEmit",

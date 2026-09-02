@@ -21,8 +21,19 @@ import {
 import { materializeStepDiff } from "./diffMaterialize";
 import { listRepoTours, readRepoTour, REPO_TOURS_DIR, saveRepoTour } from "./storage/repoTours";
 import { renameRepoTourTitle, validateTourTitle } from "./storage/tourRename";
-import { deleteTour, listTours, loadTour, saveTour, TourRecord } from "./storage/tourStore";
+import { deleteTour, loadTour, saveTour, TourRecord } from "./storage/tourStore";
+import {
+  ACTIVE_TOUR_STATE_KEY,
+  activeTourRefForRecord,
+  activeTourRefForWorkspace,
+} from "./storage/activeTour";
 import { availableProviders, TtsManager, TtsProvider } from "./tts/manager";
+import {
+  browserTtsProvider,
+  normalizeTtsProvider,
+  TTS_DEFAULTS,
+  TTS_SECRET_KEYS,
+} from "./tts/config";
 import { TourCodeLensProvider } from "./ux/codeLensProvider";
 import { setEditorLogger } from "./ux/editorActions";
 import { formatSelectionReference, selectedFullLineRange } from "./ux/selectionReference";
@@ -55,13 +66,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(log);
   setEditorLogger(log);
   log.appendLine(`[ext] activate ${(context.extension.packageJSON as { version?: string }).version ?? "?"}`);
+  try {
+    await migrateLegacyTtsCredentials(context.secrets, log);
+  } catch (err) {
+    log.appendLine(`[tts] legacy credential migration failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   const controller = new TourController();
+  let persistQueue = Promise.resolve();
   controller.setPersistFn((record) => {
-    if (!record) return;
-    saveTour(record).catch((err) =>
-      log.appendLine(`[store] save failed: ${err instanceof Error ? err.message : String(err)}`),
-    );
+    persistQueue = persistQueue
+      .then(async () => {
+        if (!record) {
+          await context.workspaceState.update(ACTIVE_TOUR_STATE_KEY, undefined);
+          return;
+        }
+        await saveTour(record);
+        await context.workspaceState.update(ACTIVE_TOUR_STATE_KEY, activeTourRefForRecord(record));
+      })
+      .catch((err) => {
+        log.appendLine(`[store] persist failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
   });
 
   const viewProvider = new TourViewProvider(context.extensionUri, controller, log);
@@ -114,7 +139,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(controller.onDidChange(refreshTourStatus));
   refreshTourStatus();
 
-  const tts = new TtsManager(controller, log);
+  const tts = new TtsManager(controller, log, context.secrets);
   viewProvider.registerSinkListener((sink) => tts.setWebviewSink(sink));
   context.subscriptions.push(tts);
 
@@ -162,16 +187,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       (question?: string) => copyFollowUpPrompt(controller, viewProvider, question ?? "", log),
     ),
     vscode.commands.registerCommand("repoTrail.stop", () => controller.stop()),
+    vscode.commands.registerCommand("repoTrail.manageTtsCredentials", () => manageTtsCredentials(context.secrets)),
     vscode.commands.registerCommand("repoTrail.openNarration", () => {
       vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
     }),
     vscode.commands.registerCommand("repoTrail.cycleTts", async () => {
       const cfg = vscode.workspace.getConfiguration("repoTrail");
-      const cur = cfg.get<string>("tts.provider", "system") as TtsProvider;
-      const order = availableProviders();
+      const cur = cfg.get<string>("tts.provider", TTS_DEFAULTS.provider) as TtsProvider;
+      const order = await availableProviders(context.secrets);
       const idx = order.indexOf(cur);
       const next = order[(idx + 1) % order.length] ?? "off";
-      await cfg.update("tts.provider", next, vscode.ConfigurationTarget.Global);
+      await cfg.update("tts.provider", next, configurationTargetForSetting(cfg, "tts.provider"));
       vscode.window.setStatusBarMessage(`RepoTrail TTS: ${next}`, 1500);
       // Switching providers no longer auto-speaks — it only stops any current
       // narration. Use the Speak button to start playback on demand.
@@ -182,7 +208,128 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   viewProvider.refresh();
-  void maybeAutoResume(controller, log);
+  void restoreActiveTour(context, controller, log);
+}
+
+function configurationTargetForSetting(
+  configuration: vscode.WorkspaceConfiguration,
+  setting: string,
+): vscode.ConfigurationTarget {
+  const inspected = configuration.inspect(setting);
+  if (inspected?.workspaceFolderValue !== undefined) return vscode.ConfigurationTarget.WorkspaceFolder;
+  if (inspected?.workspaceValue !== undefined) return vscode.ConfigurationTarget.Workspace;
+  return vscode.ConfigurationTarget.Global;
+}
+
+async function manageTtsCredentials(secrets: vscode.SecretStorage): Promise<void> {
+  const providers = [
+    { label: "OpenAI TTS", secretKey: TTS_SECRET_KEYS.openAi, environmentKey: "OPENAI_API_KEY" },
+    { label: "ElevenLabs TTS", secretKey: TTS_SECRET_KEYS.elevenLabs, environmentKey: "ELEVENLABS_API_KEY" },
+  ];
+  const states = await Promise.all(
+    providers.map(async (provider) => ({
+      ...provider,
+      stored: Boolean((await readSecret(secrets, provider.secretKey))?.trim()),
+      fromEnvironment: Boolean(process.env[provider.environmentKey]?.trim()),
+    })),
+  );
+  const provider = await vscode.window.showQuickPick(
+    states.map((state) => ({
+      label: state.label,
+      description: state.stored
+        ? "Stored securely in VS Code"
+        : state.fromEnvironment
+          ? `Using ${state.environmentKey}`
+          : "Not configured",
+      state,
+    })),
+    { title: "Manage RepoTrail TTS credentials", placeHolder: "Choose a provider" },
+  );
+  if (!provider) return;
+
+  const actions = [{ label: provider.state.stored ? "Replace stored API key" : "Store API key", action: "set" }];
+  if (provider.state.stored) actions.push({ label: "Clear stored API key", action: "clear" });
+  const action = await vscode.window.showQuickPick(actions, {
+    title: provider.state.label,
+    placeHolder: provider.state.fromEnvironment
+      ? `${provider.state.environmentKey} is also available in this extension host.`
+      : "API keys are stored in VS Code SecretStorage.",
+  });
+  if (!action) return;
+
+  if (action.action === "clear") {
+    await secrets.delete(provider.state.secretKey);
+    vscode.window.setStatusBarMessage(`RepoTrail: cleared the stored ${provider.state.label} API key.`, 3000);
+    return;
+  }
+  const value = await vscode.window.showInputBox({
+    title: `Store ${provider.state.label} API key`,
+    prompt: "Saved in VS Code SecretStorage. The value will not appear in settings.json.",
+    password: true,
+    ignoreFocusOut: true,
+  });
+  if (!value?.trim()) return;
+  await secrets.store(provider.state.secretKey, value.trim());
+  vscode.window.setStatusBarMessage(`RepoTrail: stored the ${provider.state.label} API key.`, 3000);
+}
+
+async function migrateLegacyTtsCredentials(
+  secrets: vscode.SecretStorage,
+  log: vscode.OutputChannel,
+): Promise<void> {
+  const legacy = [
+    { setting: "tts.openAiApiKey", secretKey: TTS_SECRET_KEYS.openAi, label: "OpenAI" },
+    { setting: "tts.elevenLabsApiKey", secretKey: TTS_SECRET_KEYS.elevenLabs, label: "ElevenLabs" },
+  ];
+  for (const item of legacy) {
+    const base = vscode.workspace.getConfiguration("repoTrail");
+    const folderConfigurations = currentWorkspaceFolders().map((folder) =>
+      vscode.workspace.getConfiguration("repoTrail", folder.uri),
+    );
+    const candidates = [base, ...folderConfigurations]
+      .map((configuration) => configuration.get<string>(item.setting, "").trim())
+      .filter(Boolean);
+    const stored = await readSecret(secrets, item.secretKey);
+    if (!stored?.trim() && candidates[0]) {
+      await secrets.store(item.secretKey, candidates[0]);
+      log.appendLine(`[tts] migrated the ${item.label} API key to SecretStorage.`);
+    }
+    await clearLegacyTtsSetting(base, item.setting, vscode.ConfigurationTarget.Global, "globalValue", log);
+    await clearLegacyTtsSetting(base, item.setting, vscode.ConfigurationTarget.Workspace, "workspaceValue", log);
+    for (const configuration of folderConfigurations) {
+      await clearLegacyTtsSetting(
+        configuration,
+        item.setting,
+        vscode.ConfigurationTarget.WorkspaceFolder,
+        "workspaceFolderValue",
+        log,
+      );
+    }
+  }
+}
+
+async function readSecret(secrets: vscode.SecretStorage, key: string): Promise<string | undefined> {
+  try {
+    return await secrets.get(key);
+  } catch {
+    return undefined;
+  }
+}
+
+async function clearLegacyTtsSetting(
+  configuration: vscode.WorkspaceConfiguration,
+  setting: string,
+  target: vscode.ConfigurationTarget,
+  field: "globalValue" | "workspaceValue" | "workspaceFolderValue",
+  log: vscode.OutputChannel,
+): Promise<void> {
+  const inspected = configuration.inspect<string>(setting);
+  if (inspected?.[field] === undefined) return;
+  try {
+    await configuration.update(setting, undefined, target);
+  } catch (err) {
+    log.appendLine(`[tts] could not remove legacy ${setting}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 function repoTourRoots() {
@@ -448,48 +595,35 @@ function buildRootAliases(names: string[]): string[] {
   });
 }
 
-/**
- * On startup, offer to bring back the most recent tour for this workspace so a
- * window reload doesn't feel like losing your place. Controlled by
- * repoTrail.autoResume: "prompt" (default) asks, "auto" restores silently,
- * "off" does nothing.
- */
-async function maybeAutoResume(controller: TourController, log: vscode.OutputChannel): Promise<void> {
-  if (controller.activeTourId) return; // an agent/import already loaded one
-  const mode = vscode.workspace.getConfiguration("repoTrail").get<string>("autoResume", "prompt");
-  if (mode === "off") return;
+/** Restore the tour that was still active when this workspace last closed. */
+async function restoreActiveTour(
+  context: vscode.ExtensionContext,
+  controller: TourController,
+  log: vscode.OutputChannel,
+): Promise<void> {
+  if (controller.activeTourId) return;
   if (!hasWorkspaceFolders()) return;
   const root = currentWorkspaceStorageRoot();
-  let summaries;
-  try {
-    summaries = await listTours(root);
-  } catch {
+  const rawRef = context.workspaceState.get<unknown>(ACTIVE_TOUR_STATE_KEY);
+  const ref = activeTourRefForWorkspace(rawRef, root);
+  if (!ref) {
+    if (rawRef !== undefined) await context.workspaceState.update(ACTIVE_TOUR_STATE_KEY, undefined);
     return;
   }
-  const latest = summaries[0]; // listTours is sorted newest-first
-  if (!latest) return;
-  if (controller.activeTourId) return; // re-check after the await
-
-  const resume = async (): Promise<boolean> => {
-    const rec = await loadTour(root, latest.id);
-    if (!rec) return false;
-    const refreshed = await refreshTourRecordFromSource(rec, log);
-    if (!refreshed) return false;
-    await controller.resume(refreshed);
-    await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
-    return true;
-  };
-
-  if (mode === "auto") {
-    if (await resume()) log.appendLine(`[resume] auto-resumed "${latest.title}"`);
+  const record = await loadTour(ref.workspaceRoot, ref.id);
+  if (!record) {
+    await context.workspaceState.update(ACTIVE_TOUR_STATE_KEY, undefined);
     return;
   }
-  const pick = await vscode.window.showInformationMessage(
-    `RepoTrail: resume "${latest.title}" (step ${latest.lastIndex + 1} of ${latest.stepCount})?`,
-    "Resume",
-    "Not now",
-  );
-  if (pick === "Resume" && !controller.activeTourId) await resume();
+  const refreshed = await refreshTourRecordFromSource(record, log);
+  if (!refreshed) {
+    await context.workspaceState.update(ACTIVE_TOUR_STATE_KEY, undefined);
+    return;
+  }
+  if (controller.activeTourId) return;
+  await controller.resume(refreshed);
+  await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
+  log.appendLine(`[resume] restored active tour "${refreshed.plan.title}"`);
 }
 
 /**
@@ -816,16 +950,13 @@ function clamp(value: number, min: number, max: number): number {
 function buildAnimatedTtsDefaults(): AnimatedTourTtsDefaults {
   const cfg = vscode.workspace.getConfiguration("repoTrail");
   return {
-    provider: cfg.get<AnimatedTourTtsDefaults["provider"]>("tts.provider", "system"),
-    kokoroVoice: cfg.get<string>("tts.kokoroVoice", "af_heart"),
-    elevenLabsVoiceId: cfg.get<string>("tts.elevenLabsVoiceId", "21m00Tcm4TlvDq8ikWAM"),
-    elevenLabsModel: cfg.get<string>("tts.elevenLabsModel", "eleven_flash_v2_5"),
-    openAiModel: cfg.get<string>("tts.openAiModel", "gpt-4o-mini-tts"),
-    openAiVoice: cfg.get<string>("tts.openAiVoice", "ash"),
-    openAiInstructions: cfg.get<string>(
-      "tts.openAiInstructions",
-      "Read this code walkthrough aloud like a friendly senior engineer pair-programming: clear, calm, with natural pacing.",
-    ),
+    provider: browserTtsProvider(normalizeTtsProvider(cfg.get<string>("tts.provider", TTS_DEFAULTS.provider))),
+    kokoroVoice: cfg.get<string>("tts.kokoroVoice", TTS_DEFAULTS.kokoroVoice),
+    elevenLabsVoiceId: cfg.get<string>("tts.elevenLabsVoiceId", TTS_DEFAULTS.elevenLabsVoiceId),
+    elevenLabsModel: cfg.get<string>("tts.elevenLabsModel", TTS_DEFAULTS.elevenLabsModel),
+    openAiModel: cfg.get<string>("tts.openAiModel", TTS_DEFAULTS.openAiModel),
+    openAiVoice: cfg.get<string>("tts.openAiVoice", TTS_DEFAULTS.openAiVoice),
+    openAiInstructions: cfg.get<string>("tts.openAiInstructions", TTS_DEFAULTS.openAiInstructions),
   };
 }
 

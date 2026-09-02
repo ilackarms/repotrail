@@ -16,6 +16,13 @@
   every time the same JSON file is opened.
 - Made Agent setup self-contained by embedding the canonical `repo-trail` skill
   from the installed extension in every copied authoring prompt.
+- Replaced the auto-resume preference with direct state tracking: tours that are
+  active when VS Code closes return after reload, while Stop clears the marker.
+- Moved hosted TTS credentials out of `settings.json` and into VS Code
+  SecretStorage, with automatic migration and a credential-management command.
+- Grouped narration settings, moved model and command overrides into an advanced
+  section, added a Kokoro voice picker, and centralized TTS defaults used by the
+  extension and animated HTML exports.
 
 ## 0.10.4 - 2026-06-23
 

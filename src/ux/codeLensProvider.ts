@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { TTS_DEFAULTS } from "../tts/config";
 import { resolveStepUri } from "../workspace";
 import { TourController } from "./tourController";
 
@@ -101,7 +102,9 @@ export class TourCodeLensProvider implements vscode.CodeLensProvider {
 }
 
 function ttsLensLabel(): string {
-  const provider = vscode.workspace.getConfiguration("repoTrail").get<string>("tts.provider", "system");
+  const provider = vscode.workspace
+    .getConfiguration("repoTrail")
+    .get<string>("tts.provider", TTS_DEFAULTS.provider);
   if (provider === "off") return "$(unmute) TTS";
   return `$(megaphone) TTS: ${provider}`;
 }

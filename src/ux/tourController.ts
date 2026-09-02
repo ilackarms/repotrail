@@ -185,10 +185,7 @@ export class TourController {
     this.onChangeEmitter.fire();
   }
 
-  /**
-   * Clear the active tour from memory. Progress stays on disk for automatic
-   * restoration after a VS Code reload.
-   */
+  /** Clear the active tour while keeping its last progress record on disk. */
   stop(options?: { forgetRepoSource?: boolean }): void {
     if (options?.forgetRepoSource) this.repoTourSource = null;
     // Persist final state before tearing down in-memory references.
@@ -205,6 +202,7 @@ export class TourController {
     this.setActiveContext(false);
     clearHighlights();
     this.onChangeEmitter.fire();
+    this.persistFn?.(null);
   }
 
   snapshot(): {
