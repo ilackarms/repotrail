@@ -23,6 +23,10 @@
 - Grouped narration settings, moved model and command overrides into an advanced
   section, added a Kokoro voice picker, and centralized TTS defaults used by the
   extension and animated HTML exports.
+- Wrapped tour titles, stop titles, and the current step heading instead of
+  truncating them in a narrow sidebar. Library Open/Rename buttons drop below
+  the title when space runs out, and Back/Next move above the heading under
+  360px so long titles never shift them between steps.
 
 ## 0.10.4 - 2026-06-23
 

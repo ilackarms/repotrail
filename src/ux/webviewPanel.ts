@@ -296,7 +296,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
               <span class="stop-num">${i + 1}</span>
               <span class="stop-body">
                 <span class="stop-title">${seenSet.has(i) && i !== index ? "✓ " : ""}${driftIcon ? `<span class="drift-mark" title="${escape(driftTitle)}">${driftIcon}</span> ` : ""}${escape(s.title)}</span>
-                <span class="stop-loc">${escape(loc + viewLabel)}</span>
+                <span class="stop-loc" title="${escape(loc + viewLabel)}">${escape(loc + viewLabel)}</span>
               </span>
             </li>`;
         })
@@ -407,14 +407,18 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   .view-chip { flex-shrink: 0; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); border-radius: 2px; padding: 1px 5px; }
   .nav-heading { display: grid; grid-template-columns: minmax(0, 1fr) 146px; align-items: start; gap: 8px; margin-bottom: 8px; }
   .nav-title-block { min-width: 0; }
-  .nav-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-height: 38px; max-height: 38px; margin: 0; overflow: hidden; }
+  /* Titles wrap rather than truncate: in a thin sidebar the name is the most
+     useful text on screen. Back/Next never sit below the title, so a long
+     title can grow the heading without moving them between steps. */
+  .nav-title { min-height: 38px; margin: 0; overflow-wrap: anywhere; }
   .nav-step-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; width: 146px; }
   .nav-step-button { width: 100%; min-height: 28px; padding-left: 0; padding-right: 0; text-align: center; }
   .nav-utilities { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
   .nav-utilities #playPause { min-width: 96px; }
-  @media (max-width: 260px) {
+  @media (max-width: 360px) {
     .nav-heading { grid-template-columns: minmax(0, 1fr); }
-    .nav-step-actions { width: 100%; }
+    .nav-step-actions { width: 100%; order: -1; }
+    .nav-title { min-height: 0; }
   }
   .tour-main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 12px 14px; }
   .explanation { white-space: pre-wrap; line-height: 1.5; margin-bottom: 16px; }
@@ -431,10 +435,11 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   .answer { margin-top: 8px; padding: 8px; background: var(--vscode-textCodeBlock-background); border-radius: 2px; white-space: pre-wrap; }
   .section-h { margin: 20px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--vscode-descriptionForeground); }
   .tour-list { list-style: none; margin: 0; padding: 0; }
-  .tour-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
-  .tour-row { flex: 1; min-width: 0; }
-  .tour-title { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .tour-meta { color: var(--vscode-descriptionForeground); font-size: 11px; margin-top: 2px; }
+  /* Actions wrap below the title once the row can't fit both comfortably. */
+  .tour-item { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 0; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+  .tour-row { flex: 1 1 180px; min-width: 0; }
+  .tour-title { font-weight: 500; overflow-wrap: anywhere; }
+  .tour-meta { color: var(--vscode-descriptionForeground); font-size: 11px; margin-top: 2px; overflow-wrap: anywhere; }
   .tour-actions { display: flex; gap: 4px; flex-shrink: 0; }
   .tour-actions button { padding: 3px 8px; font-size: 11px; }
   .empty-panel { color: var(--vscode-descriptionForeground); border: 1px dashed var(--vscode-panel-border, rgba(127,127,127,0.35)); border-radius: 3px; padding: 8px; line-height: 1.4; }
@@ -456,8 +461,8 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   .stop.active { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); border-left-color: var(--vscode-focusBorder); }
   .stop-num { flex-shrink: 0; width: 1.4em; text-align: right; color: var(--vscode-descriptionForeground); font-size: 11px; }
   .stop.active .stop-num { color: inherit; }
-  .stop-body { display: flex; flex-direction: column; min-width: 0; }
-  .stop-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stop-body { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+  .stop-title { overflow-wrap: anywhere; }
   .stop-loc { color: var(--vscode-descriptionForeground); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .stop.active .stop-loc { color: inherit; opacity: 0.8; }
   .stop.seen:not(.active) .stop-title { opacity: 0.6; }
