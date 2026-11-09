@@ -94,7 +94,12 @@ work.
 - Native git-backed full-file diff steps for PRs, commits, branch comparisons,
   and other change reviews. Highlight-only code stops stay available for
   codebase/subsystem tours unrelated to a change window.
+- Cmd/Ctrl+click navigation inside diffs: the new side is the real workspace
+  file when it matches what's checked out, and clicks on older revisions jump
+  to the matching code or definition in the current file.
 - Sidebar route list with seen-state dimming and current-step narration.
+- Tour Files tree that shows the tour's files by folder, follows the current
+  stop, and jumps to any file or stop on click.
 - CodeLens controls above highlighted stops.
 - Keyboard navigation with `Alt+Left` and `Alt+Right`.
 - Optional narration via system speech, local Kokoro, macOS/Linux command TTS,

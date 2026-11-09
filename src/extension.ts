@@ -39,6 +39,7 @@ import { setEditorLogger } from "./ux/editorActions";
 import { formatSelectionReference, selectedFullLineRange } from "./ux/selectionReference";
 import { TourController } from "./ux/tourController";
 import { reconcileTourUpdate } from "./ux/tourProgress";
+import { TourFilesProvider } from "./ux/tourFilesView";
 import { TourViewProvider } from "./ux/webviewPanel";
 import { composeAgentSetupPrompt } from "./ux/agentSetupPrompt";
 import {
@@ -96,6 +97,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(TourViewProvider.viewType, viewProvider),
   );
+  const filesProvider = new TourFilesProvider(controller);
+  const filesView = vscode.window.createTreeView("repoTrail.files", {
+    treeDataProvider: filesProvider,
+    showCollapseAll: true,
+  });
+  filesProvider.attach(filesView);
+  context.subscriptions.push(filesView, filesProvider);
   const repoTourWatcher = vscode.workspace.createFileSystemWatcher(`**/${REPO_TOURS_DIR}/*.json`);
   let reloadTimer: NodeJS.Timeout | null = null;
   let reloadGeneration = 0;

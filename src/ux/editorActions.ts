@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
-import { materializeStepDiff } from "../diffMaterialize";
+import { GitDiffSide, materializeStepDiff } from "../diffMaterialize";
 import { DriftStatus, formatStepPath, TourPlan, TourStep, TourStepViewMode } from "../engine/types";
 import { resolveStepUri } from "../workspace";
+import { mapDiffPositionToSource, sameDocumentText } from "./diffPositionMap";
 import { diffRevealTargetForRange } from "./diffReveal";
 
 /**
@@ -45,6 +46,8 @@ const STOP_MARKER_DECORATION = vscode.window.createTextEditorDecorationType({
 const DIFF_SCHEME = "repotrail-diff";
 const MAX_ANCHOR_LEN = 200;
 const diffDocuments = new Map<string, string>();
+/** Real workspace file behind each virtual diff side, for go-to-definition. */
+const diffDocumentSources = new Map<string, { sourceUri: vscode.Uri; lineOffset?: number }>();
 let diffProviderRegistered = false;
 let diffDocumentSeq = 0;
 
@@ -240,10 +243,23 @@ async function showStepDiff(
   const materialized = await materializeStepDiff(step, doc, range, plan, logger);
   if (!materialized) return;
   ensureDiffProvider();
-  const beforeUri = virtualDiffUri(step, materialized.beforeLabel, materialized.beforeText);
-  const afterUri = virtualDiffUri(step, materialized.afterLabel, materialized.afterText);
+  // When the right side is exactly the workspace file, show the real file so
+  // the language server attaches: cmd+click, hover, and edits work natively,
+  // as in VS Code's own working-tree diffs. Otherwise it stays virtual and the
+  // definition provider below maps clicks back to the real file.
+  const afterIsWorkspaceFile =
+    materialized.scope === "file" && sameDocumentText(materialized.afterText, doc.getText());
+  const beforeUri = await diffSideUri(step, materialized.beforeLabel, materialized.beforeText, materialized.beforeGit, {
+    sourceUri: doc.uri,
+  });
+  const afterUri = afterIsWorkspaceFile
+    ? doc.uri
+    : await diffSideUri(step, materialized.afterLabel, materialized.afterText, materialized.afterGit, {
+        sourceUri: doc.uri,
+        lineOffset: materialized.afterWorkspaceLineOffset,
+      });
   await setVirtualDocLanguage(beforeUri, materialized.languageId);
-  await setVirtualDocLanguage(afterUri, materialized.languageId);
+  if (!afterIsWorkspaceFile) await setVirtualDocLanguage(afterUri, materialized.languageId);
   const reveal = diffRevealTargetForRange(range, materialized.scope);
   await vscode.commands.executeCommand(
     "vscode.diff",
@@ -273,16 +289,42 @@ function reusablePrimaryViewColumn(): vscode.ViewColumn | undefined {
 
 async function closeRepoTrailDiffTabs(): Promise<void> {
   const tabs = vscode.window.tabGroups.all.flatMap((group) => group.tabs).filter(isRepoTrailDiffTab);
-  if (tabs.length === 0) return;
-  const closed = await vscode.window.tabGroups.close(tabs, false);
-  if (!closed) {
-    logger?.appendLine("[editor] stale RepoTrail diff tabs could not be closed before navigation");
+  if (tabs.length > 0) {
+    const closed = await vscode.window.tabGroups.close(tabs, false);
+    if (!closed) {
+      logger?.appendLine("[editor] stale RepoTrail diff tabs could not be closed before navigation");
+    }
+  }
+  pruneDiffDocuments();
+}
+
+/** Drop virtual diff text no open tab still shows, so long tours don't pile up file copies. */
+function pruneDiffDocuments(): void {
+  const live = new Set<string>();
+  for (const tab of vscode.window.tabGroups.all.flatMap((group) => group.tabs)) {
+    if (tab.input instanceof vscode.TabInputTextDiff) {
+      live.add(tab.input.original.toString());
+      live.add(tab.input.modified.toString());
+    } else if (tab.input instanceof vscode.TabInputText) {
+      live.add(tab.input.uri.toString());
+    }
+  }
+  for (const key of [...diffDocuments.keys(), ...diffDocumentSources.keys()]) {
+    if (live.has(key)) continue;
+    diffDocuments.delete(key);
+    diffDocumentSources.delete(key);
   }
 }
 
 function isRepoTrailDiffTab(tab: vscode.Tab): boolean {
   if (!(tab.input instanceof vscode.TabInputTextDiff)) return false;
-  return tab.input.original.scheme === DIFF_SCHEME || tab.input.modified.scheme === DIFF_SCHEME;
+  const { original, modified } = tab.input;
+  return (
+    original.scheme === DIFF_SCHEME ||
+    modified.scheme === DIFF_SCHEME ||
+    diffDocumentSources.has(original.toString()) ||
+    diffDocumentSources.has(modified.toString())
+  );
 }
 
 function ensureDiffProvider(): void {
@@ -292,10 +334,125 @@ function ensureDiffProvider(): void {
       return diffDocuments.get(uri.toString()) ?? "";
     },
   });
+  // `git` covers sides served by the built-in Git extension; the provider only
+  // answers for URIs RepoTrail opened, so other git: documents are untouched.
+  vscode.languages.registerDefinitionProvider([{ scheme: DIFF_SCHEME }, { scheme: "git" }], {
+    provideDefinition: provideDiffDefinition,
+  });
   diffProviderRegistered = true;
 }
 
-function virtualDiffUri(step: TourStep, label: string, text: string): vscode.Uri {
+interface GitExtensionExports {
+  getAPI(version: 1): { toGitUri(uri: vscode.Uri, ref: string): vscode.Uri };
+}
+
+/**
+ * URI for one diff side. Git-backed sides prefer the built-in Git extension's
+ * `git:` URIs, as VS Code's own Source Control diffs do: TypeScript and other
+ * language servers skip that scheme, so cmd+click there reaches only our
+ * definition provider instead of also resolving inside the copied text. Falls
+ * back to RepoTrail's own scheme when Git is unavailable or its text differs.
+ */
+async function diffSideUri(
+  step: TourStep,
+  label: string,
+  text: string,
+  git: GitDiffSide | undefined,
+  source: { sourceUri: vscode.Uri; lineOffset?: number },
+): Promise<vscode.Uri> {
+  if (git) {
+    const uri = await builtInGitUri(git, text);
+    if (uri) {
+      diffDocumentSources.set(uri.toString(), source);
+      return uri;
+    }
+  }
+  return virtualDiffUri(step, label, text, source);
+}
+
+async function builtInGitUri(side: GitDiffSide, expectedText: string): Promise<vscode.Uri | undefined> {
+  try {
+    const ext = vscode.extensions.getExtension<GitExtensionExports>("vscode.git");
+    if (!ext) return undefined;
+    const exports = ext.isActive ? ext.exports : await ext.activate();
+    const uri = exports.getAPI(1).toGitUri(side.fileUri, side.ref);
+    const doc = await vscode.workspace.openTextDocument(uri);
+    if (sameDocumentText(doc.getText(), expectedText)) return uri;
+    logger?.appendLine(`[editor] git:${side.ref} text differs from RepoTrail's read; using a RepoTrail diff document`);
+  } catch (err) {
+    logger?.appendLine(`[editor] built-in git URI unavailable: ${String(err)}`);
+  }
+  return undefined;
+}
+
+/**
+ * Cmd+click inside a virtual diff side. Language servers don't attach to the
+ * `repotrail-diff` scheme, so map the click onto the real workspace file and
+ * ask its providers. With no definition there, land on the matching code in
+ * the real file; as a last resort, use workspace symbols with the same name.
+ */
+async function provideDiffDefinition(
+  doc: vscode.TextDocument,
+  position: vscode.Position,
+): Promise<vscode.Definition | vscode.LocationLink[] | undefined> {
+  const source = diffDocumentSources.get(doc.uri.toString());
+  const wordRange = doc.getWordRangeAtPosition(position);
+  if (!source || !wordRange) return undefined;
+  const word = doc.getText(wordRange);
+
+  let sourceDoc: vscode.TextDocument;
+  try {
+    sourceDoc = await vscode.workspace.openTextDocument(source.sourceUri);
+  } catch {
+    return undefined;
+  }
+  const mapped = mapDiffPositionToSource({
+    virtualLines: documentLines(doc),
+    position: { line: position.line, character: position.character },
+    word,
+    sourceLines: documentLines(sourceDoc),
+    lineOffset: source.lineOffset,
+  });
+
+  if (mapped) {
+    const sourcePosition = new vscode.Position(mapped.line, mapped.character);
+    const found = await vscode.commands.executeCommand<Array<vscode.Location | vscode.LocationLink>>(
+      "vscode.executeDefinitionProvider",
+      source.sourceUri,
+      sourcePosition,
+    );
+    if (found && found.length > 0) {
+      // Re-anchor the underline to the word in this virtual document.
+      return found.map((d) =>
+        d instanceof vscode.Location
+          ? { originSelectionRange: wordRange, targetUri: d.uri, targetRange: d.range, targetSelectionRange: d.range }
+          : { ...d, originSelectionRange: wordRange },
+      );
+    }
+    const target = new vscode.Range(sourcePosition, sourcePosition.translate(0, word.length));
+    return [{ originSelectionRange: wordRange, targetUri: source.sourceUri, targetRange: target, targetSelectionRange: target }];
+  }
+
+  const symbols = await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
+    "vscode.executeWorkspaceSymbolProvider",
+    word,
+  );
+  const exact = (symbols ?? []).filter((s) => s.name === word).slice(0, 20);
+  return exact.length > 0 ? exact.map((s) => s.location) : undefined;
+}
+
+function documentLines(doc: vscode.TextDocument): string[] {
+  const lines: string[] = [];
+  for (let i = 0; i < doc.lineCount; i++) lines.push(doc.lineAt(i).text);
+  return lines;
+}
+
+function virtualDiffUri(
+  step: TourStep,
+  label: string,
+  text: string,
+  source: { sourceUri: vscode.Uri; lineOffset?: number },
+): vscode.Uri {
   const ext = extensionForFile(step.file);
   const slug = sanitizePathPart(`${step.title}-${label}`) || "step";
   const uri = vscode.Uri.from({
@@ -303,6 +460,7 @@ function virtualDiffUri(step: TourStep, label: string, text: string): vscode.Uri
     path: `/${diffDocumentSeq++}-${slug}${ext}`,
   });
   diffDocuments.set(uri.toString(), text);
+  diffDocumentSources.set(uri.toString(), source);
   return uri;
 }
 

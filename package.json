@@ -225,7 +225,14 @@
         {
           "id": "repoTrail.tour",
           "name": "Tour",
-          "type": "webview"
+          "type": "webview",
+          "initialSize": 3
+        },
+        {
+          "id": "repoTrail.files",
+          "name": "Tour Files",
+          "when": "repoTrail.tourActive",
+          "initialSize": 1
         }
       ]
     },

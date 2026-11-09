@@ -27,6 +27,16 @@
   truncating them in a narrow sidebar. Library Open/Rename buttons drop below
   the title when space runs out, and Back/Next move above the heading under
   360px so long titles never shift them between steps.
+- Made diff stops navigable with Cmd/Ctrl+click. When the right side matches
+  the workspace file, the diff now shows the real file, so language features
+  work natively. Git-backed sides use the built-in Git extension's documents,
+  and clicks on older revisions map to the matching code or definition in the
+  current file.
+- Added a Tour Files view under the Tour panel: the tour's files as a folder
+  tree with stop counts, the current file and stop selected as you navigate,
+  and click-to-jump for files and stops.
+- Released virtual diff text once its tab closes, so long tours no longer keep
+  a copy of every visited file revision in memory.
 
 ## 0.10.4 - 2026-06-23
 

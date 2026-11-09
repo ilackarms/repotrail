@@ -10,6 +10,21 @@ export interface MaterializedStepDiff {
   afterLabel: string;
   languageId?: string;
   scope: TourStepDiffScope;
+  /**
+   * Set when the right side was read from the workspace document: the 0-based
+   * source line of the text's first line. Lets editor features map virtual
+   * positions back to the real file exactly.
+   */
+  afterWorkspaceLineOffset?: number;
+  /** Git source of each side, when it was read from a ref. */
+  beforeGit?: GitDiffSide;
+  afterGit?: GitDiffSide;
+}
+
+export interface GitDiffSide {
+  /** Workspace URI of the file path at that ref (may not exist on disk). */
+  fileUri: vscode.Uri;
+  ref: string;
 }
 
 export async function materializeStepDiff(
@@ -28,6 +43,7 @@ export async function materializeStepDiff(
 
   let beforeText: string | undefined;
   let beforeLabel = diff.beforeLabel ?? "Before";
+  let beforeGit: GitDiffSide | undefined;
   if (diff.baseRef) {
     if (!folder) {
       vscode.window.showErrorMessage(`RepoTrail: cannot resolve workspace folder for git diff ${step.file}.`);
@@ -38,6 +54,7 @@ export async function materializeStepDiff(
       const base = await readGitBlobText(folder.uri.fsPath, diff.baseRef, baseFile);
       beforeText = base.text;
       beforeLabel = diff.beforeLabel ?? labelForGitSide(diff.baseRef, base.gitPath, base.missing);
+      beforeGit = { fileUri: vscode.Uri.joinPath(folder.uri, ...baseFile.split("/")), ref: diff.baseRef };
     } catch (err) {
       reportMaterializeError("base", step, err, logger);
       return null;
@@ -55,6 +72,8 @@ export async function materializeStepDiff(
 
   let afterText: string;
   let afterLabel = diff.afterLabel ?? "After";
+  let afterWorkspaceLineOffset: number | undefined;
+  let afterGit: GitDiffSide | undefined;
   if (diff.headRef) {
     if (!folder) {
       vscode.window.showErrorMessage(`RepoTrail: cannot resolve workspace folder for git diff ${step.file}.`);
@@ -65,6 +84,7 @@ export async function materializeStepDiff(
       const head = await readGitBlobText(folder.uri.fsPath, diff.headRef, headFile);
       afterText = head.text;
       afterLabel = diff.afterLabel ?? labelForGitSide(diff.headRef, head.gitPath, head.missing);
+      afterGit = { fileUri: vscode.Uri.joinPath(folder.uri, ...headFile.split("/")), ref: diff.headRef };
     } catch (err) {
       reportMaterializeError("head", step, err, logger);
       return null;
@@ -74,6 +94,7 @@ export async function materializeStepDiff(
   } else {
     afterText = scope === "file" ? doc.getText() : textForDiffAfter(doc, step, range);
     afterLabel = diff.afterLabel ?? (diff.baseRef ? "Workspace" : "After");
+    afterWorkspaceLineOffset = scope === "file" ? 0 : diffAfterStartLine(doc, step, range);
   }
 
   return {
@@ -83,6 +104,9 @@ export async function materializeStepDiff(
     afterLabel,
     languageId,
     scope,
+    afterWorkspaceLineOffset,
+    beforeGit,
+    afterGit,
   };
 }
 
@@ -93,6 +117,11 @@ export function effectiveDiffScope(step: TourStep): TourStepDiffScope {
   return diff.baseRef || diff.headRef || diff.baseFile || diff.headFile ? "file" : "hunk";
 }
 
+/** 0-based workspace line where `textForDiffAfter` starts. */
+function diffAfterStartLine(doc: vscode.TextDocument, step: TourStep, range: vscode.Range): number {
+  return step.range ? clamp(step.range.startLine - 1, 0, doc.lineCount - 1) : range.start.line;
+}
+
 export function textForDiffAfter(
   doc: vscode.TextDocument,
   step: TourStep,
@@ -100,7 +129,7 @@ export function textForDiffAfter(
 ): string {
   if (!step.range) return doc.getText(range);
   const eol = doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
-  const startLine = clamp(step.range.startLine - 1, 0, doc.lineCount - 1);
+  const startLine = diffAfterStartLine(doc, step, range);
   const endLine = clamp(step.range.endLine - 1, startLine, doc.lineCount - 1);
   const lines: string[] = [];
   for (let line = startLine; line <= endLine; line++) {
