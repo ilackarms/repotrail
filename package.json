@@ -96,6 +96,10 @@
         "title": "RepoTrail: Previous Step"
       },
       {
+        "command": "repoTrail.nextStop",
+        "title": "RepoTrail: Next Stop (Skip Slide Beats)"
+      },
+      {
         "command": "repoTrail.revealCurrent",
         "title": "RepoTrail: Jump to Current Step Code"
       },
@@ -137,6 +141,11 @@
       {
         "command": "repoTrail.back",
         "key": "alt+left",
+        "when": "repoTrail.tourActive"
+      },
+      {
+        "command": "repoTrail.nextStop",
+        "key": "shift+alt+right",
         "when": "repoTrail.tourActive"
       },
       {
@@ -250,6 +259,30 @@
       ]
     },
     "configuration": [
+      {
+        "title": "RepoTrail: Slides",
+        "order": 0,
+        "properties": {
+          "repoTrail.slides.motion": {
+            "type": "string",
+            "scope": "window",
+            "enum": ["full", "reduced", "off"],
+            "enumDescriptions": [
+              "Animate beats: elements fade in, edges draw, tokens travel along edges.",
+              "Fade elements in and out only. Also used when the system asks for reduced motion.",
+              "Change slides instantly."
+            ],
+            "default": "full",
+            "description": "How slide beats animate."
+          },
+          "repoTrail.slides.captions": {
+            "type": "boolean",
+            "scope": "window",
+            "default": true,
+            "description": "Show each beat's narration as a caption on the slide."
+          }
+        }
+      },
       {
         "title": "RepoTrail: Narration",
         "order": 1,

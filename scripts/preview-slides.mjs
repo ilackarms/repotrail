@@ -44,7 +44,7 @@ const payloads = plan.steps.flatMap((step, index) => {
     source = `${step.root ? `${step.root}/` : ""}${step.file}`;
     if (step.range) source += step.range.startLine === step.range.endLine ? `:${step.range.startLine}` : `:${step.range.startLine}-${step.range.endLine}`;
   }
-  return [{ title: step.title, slide: step.slide, index, total: plan.steps.length, source }];
+  return [{ title: step.title, slide: step.slide, index, total: plan.steps.length, source, position: 0, motion: "full", captions: true }];
 });
 
 const [runtime, css] = await Promise.all([readFile("out/slides.js", "utf8"), readFile("out/slides.css", "utf8")]);
@@ -75,7 +75,8 @@ const html = `<!doctype html>
   html, body { height: auto; overflow: auto; }
   body { padding: 16px 0 40px; background: #888; }
   .frame { position: relative; width: 1280px; height: 720px; margin: 0 auto 28px; overflow: hidden; }
-  .caption { width: 1280px; margin: 0 auto 6px; font: 12px ui-monospace, Menlo, monospace; color: #111; }
+  .caption { width: 1280px; margin: 0 auto 6px; font: 12px ui-monospace, Menlo, monospace; color: #111; display: flex; gap: 8px; align-items: center; }
+  .caption button { font: inherit; padding: 1px 8px; }
 </style>
 </head>
 <body>
@@ -83,23 +84,37 @@ const html = `<!doctype html>
 <script>${runtime}</script>
 <script>
   const payloads = ${data};
+  // ?pos=last starts every slide on its final beat; window.views drives them from scripts.
+  const startLast = new URLSearchParams(location.search).get("pos") === "last";
+  window.views = [];
   function draw() {
     const theme = location.hash === "#light" ? "light" : "dark";
     document.body.className = "theme-" + theme;
     const root = document.getElementById("frames");
     root.replaceChildren();
+    window.views = [];
     for (const payload of payloads) {
       const caption = document.createElement("div");
       caption.className = "caption";
-      const beats = payload.slide.beats ? payload.slide.beats.length : 0;
-      caption.textContent = "stop " + (payload.index + 1) + " · " + payload.slide.layout + " · " + beats + " beats · " + theme;
       const frame = document.createElement("div");
       frame.className = "frame";
       frame.id = "stop-" + (payload.index + 1);
       root.append(caption, frame);
-      const slide = RepoTrailSlides.renderSlide(payload);
-      frame.append(slide);
-      RepoTrailSlides.fitSlide(slide);
+      const view = new RepoTrailSlides.SlideView({ ...payload, position: startLast ? 999 : 0 });
+      frame.append(view.root);
+      view.mount();
+      window.views.push(view);
+      const label = document.createElement("span");
+      const back = document.createElement("button");
+      const next = document.createElement("button");
+      back.textContent = "◀";
+      next.textContent = "▶";
+      const beats = view.root.querySelectorAll(".rt-dots i").length - 1;
+      const update = () => (label.textContent = "stop " + (payload.index + 1) + " · " + payload.slide.layout + " · beat " + view.position + " / " + Math.max(0, beats) + " · " + theme);
+      back.onclick = () => { view.goTo(view.position - 1, { animate: false, motion: "full" }); update(); };
+      next.onclick = () => { view.goTo(view.position + 1, { animate: true, motion: "full" }); update(); };
+      caption.append(back, next, label);
+      update();
     }
   }
   window.addEventListener("hashchange", draw);

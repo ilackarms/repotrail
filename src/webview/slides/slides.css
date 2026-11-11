@@ -275,3 +275,96 @@ body {
 }
 .rt-warnings summary { cursor: pointer; }
 .rt-warnings ul { margin: 6px 0 2px; padding-left: 1.2em; max-height: 220px; overflow: auto; color: var(--rt-fg); }
+
+/* Sequence diagrams */
+
+.rt-lifeline { fill: none; stroke: var(--rt-border); stroke-width: 1.3; stroke-dasharray: 4 4; }
+.rt-seq-message .rt-edge-path { stroke-width: 1.6; }
+.rt-seq-message.dashed .rt-edge-path { stroke-dasharray: 6 5; }
+.rt-seq-label { font: 13px var(--rt-font); fill: var(--rt-fg); }
+.rt-seq-note rect {
+  fill: color-mix(in srgb, var(--rt-warn) 12%, var(--rt-bg));
+  stroke: color-mix(in srgb, var(--rt-warn) 45%, transparent);
+}
+.rt-seq-note[class*="tone-"] rect {
+  fill: color-mix(in srgb, var(--tone) 12%, var(--rt-bg));
+  stroke: color-mix(in srgb, var(--tone) 50%, transparent);
+}
+.rt-seq-note text { font: 13px var(--rt-font); fill: var(--rt-fg); }
+.rt-edge-label.empty rect { opacity: 0; }
+
+/* Beats: hidden, focus and highlight states, and how they change */
+
+.rt-slide [data-id],
+.rt-slide [data-for] {
+  transition: opacity 220ms ease, transform 220ms ease, filter 200ms ease, background-color 200ms ease;
+}
+.rt-shape,
+.rt-shape-line,
+.rt-edge-path,
+.rt-arrowhead,
+.rt-group-box {
+  transition: fill 300ms ease, stroke 300ms ease, stroke-width 200ms ease;
+}
+.rt-flow-svg [data-id] { transform-box: fill-box; transform-origin: center; }
+.rt-slide .rt-hidden { opacity: 0 !important; pointer-events: none; }
+.rt-motion-full .rt-body .rt-hidden:is(li, .rt-block, .rt-line) { transform: translateY(6px); }
+.rt-slide .rt-dim { opacity: 0.28; }
+.rt-snap,
+.rt-snap *,
+.rt-motion-off,
+.rt-motion-off * {
+  transition: none !important;
+}
+
+.rt-node.rt-highlight .rt-shape { stroke: var(--rt-accent); stroke-width: 2.6; }
+.rt-node.toned.rt-highlight .rt-shape { stroke: var(--tone); }
+.rt-node.rt-highlight { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--rt-accent) 55%, transparent)); }
+.rt-edge.rt-highlight .rt-edge-path,
+.rt-seq-message.rt-highlight .rt-edge-path { stroke: var(--rt-accent); stroke-width: 2.6; }
+.rt-seq-message.rt-highlight .rt-seq-label { font-weight: 600; }
+.rt-list li.rt-highlight > .rt-item-text,
+.rt-line.rt-highlight,
+.rt-line.rt-focus {
+  background: color-mix(in srgb, var(--rt-accent) 16%, transparent);
+  border-radius: 4px;
+}
+.rt-table tr.rt-highlight td { background: color-mix(in srgb, var(--rt-accent) 14%, transparent); }
+.rt-block.rt-highlight { outline: 2px solid var(--rt-accent); outline-offset: 6px; border-radius: 8px; }
+
+.rt-token circle { fill: var(--tone, var(--rt-accent)); stroke: var(--rt-bg); stroke-width: 2; }
+.rt-token rect { fill: var(--tone, var(--rt-accent)); }
+.rt-token text { font: 600 11px var(--rt-font); fill: var(--rt-bg); }
+
+/* Captions and beat dots */
+
+.rt-slide.has-captions { padding-bottom: 96px; }
+.rt-caption {
+  position: absolute;
+  left: 60px;
+  right: 60px;
+  bottom: 40px;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 18px;
+  line-height: 1.35;
+  color: var(--rt-fg);
+  transition: opacity 200ms ease;
+}
+.rt-caption.empty { opacity: 0; }
+
+.rt-dots { display: flex; gap: 6px; align-items: center; }
+.rt-dots i {
+  display: block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--rt-muted) 35%, transparent);
+  transition: background-color 200ms ease, transform 200ms ease;
+}
+.rt-dots i.on { background: var(--rt-muted); }
+.rt-dots i.current { background: var(--rt-accent); transform: scale(1.25); }
+.rt-source { text-align: right; }

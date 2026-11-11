@@ -83,7 +83,7 @@ test("drops what it can't use and says why", () => {
   const slide = normalizeSlide({
     layout: "grid",
     blocks: [
-      { type: "sequence", participants: [] },
+      { type: "chart", series: [] },
       { type: "flow", nodes: [{ id: "a" }, { id: "a" }, { label: "no id" }], edges: ["a -> ghost", "a -> a"] },
       { type: "text" },
       { type: "callout", tone: "danger", md: "Careful" },
@@ -96,7 +96,7 @@ test("drops what it can't use and says why", () => {
   assert.equal(slide.blocks[1].tone, "info");
   const text = slide.warnings.join("\n");
   assert.match(text, /Unknown layout "grid"/);
-  assert.match(text, /Block 1: unknown type "sequence"/);
+  assert.match(text, /Block 1: unknown type "chart"/);
   assert.match(text, /id "a" is already used/);
   assert.match(text, /node 3 needs an id/);
   assert.match(text, /"ghost" isn't a node/);

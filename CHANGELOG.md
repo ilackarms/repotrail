@@ -10,7 +10,18 @@
   PageDown in the slide move through the tour. A slide's optional `file` and
   `range` name its source, which Open source file opens. Problems in slide
   JSON show on the slide and in Output ▸ RepoTrail. Tours get a new
-  `design-review` kind. Beats are read and checked but don't animate yet.
+  `design-review` kind.
+- Slides build up in beats. Next and Back step through a slide's beats before
+  moving to another stop, and Back from a slide's first beat shows the previous
+  slide finished. **RepoTrail: Next Stop** (⇧⌥→, or ⇧→ in the slide) skips the
+  rest. Beats reveal and hide elements, change labels and colors, spotlight or
+  highlight parts of the slide, send tokens along diagram edges, and pulse
+  elements; nothing moves when they do. Each beat's `say` shows as a caption,
+  in a transcript under the narration, and is what Read aloud speaks.
+- Added sequence diagrams (`type: "sequence"`) and `build: true`, which
+  reveals bullets, table rows, or sequence messages one beat at a time.
+- New settings: `repoTrail.slides.motion` (`full`, `reduced`, `off`) and
+  `repoTrail.slides.captions`.
 
 ## 0.13.0 - 2026-11-11
 

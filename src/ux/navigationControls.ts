@@ -33,29 +33,41 @@ export function emptyLibraryControls(): NavigationControl[] {
 /**
  * Back and Next, the only text buttons in the tour toolbar. Their tooltips
  * name the stop they go to when the caller passes the neighbouring titles.
+ * On a slide with beats they step through the beats first.
  */
 export function primaryStepNavigationControls(
   index: number,
   total: number,
   neighbors: { previous?: string; next?: string } = {},
+  beats: { position: number; count: number } = { position: 0, count: 0 },
 ): NavigationControl[] {
   const hasStops = Number.isFinite(index) && Number.isFinite(total) && total > 0 && index >= 0;
   const atFirstStop = !hasStops || index <= 0;
   const atLastStop = !hasStops || index >= total - 1;
+  const beatBehind = hasStops && beats.position > 0;
+  const beatAhead = hasStops && beats.position < beats.count;
 
   return [
     {
       id: "back",
       label: "← Back",
-      tooltip: !atFirstStop && neighbors.previous ? `Previous stop: ${neighbors.previous}` : "Previous stop",
-      disabled: atFirstStop,
+      tooltip: beatBehind
+        ? `Previous beat (${beats.position - 1} of ${beats.count})`
+        : !atFirstStop && neighbors.previous
+          ? `Previous stop: ${neighbors.previous}`
+          : "Previous stop",
+      disabled: atFirstStop && !beatBehind,
       className: "nav-step-button",
     },
     {
       id: "next",
       label: "Next →",
-      tooltip: !atLastStop && neighbors.next ? `Next stop: ${neighbors.next}` : "Next stop",
-      disabled: atLastStop,
+      tooltip: beatAhead
+        ? `Next beat (${beats.position + 1} of ${beats.count})`
+        : !atLastStop && neighbors.next
+          ? `Next stop: ${neighbors.next}`
+          : "Next stop",
+      disabled: atLastStop && !beatAhead,
       className: "nav-step-button",
     },
   ];

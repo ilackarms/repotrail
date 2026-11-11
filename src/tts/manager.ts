@@ -1,6 +1,7 @@
 import * as childProcess from "node:child_process";
 import * as vscode from "vscode";
 import { TourController } from "../ux/tourController";
+import { narrationAt } from "../engine/slides/timeline";
 import { narrationTargetKey } from "./playbackPolicy";
 import { humanizeForSpeech } from "./speechText";
 import {
@@ -66,8 +67,9 @@ export class TtsManager implements vscode.Disposable {
   speakCurrent(): void {
     const snap = this.controller.snapshot();
     if (!snap.current) return;
-    this.observedTargetKey = narrationTargetKey(this.controller.activeTourId, snap.current);
-    this.dispatch(humanizeForSpeech(`${snap.current.title}. ${snap.current.explanation}`));
+    this.observedTargetKey = narrationTargetKey(this.controller.activeTourId, snap.current, snap.beat);
+    // On a slide, each beat speaks its own `say`; position 0 speaks the stop.
+    this.dispatch(humanizeForSpeech(narrationAt(snap.current, snap.beat)));
   }
 
   /** Full stop: halt host-side work AND tell the webview to stop narration + reset
@@ -102,7 +104,7 @@ export class TtsManager implements vscode.Disposable {
   private onChange(): void {
     const provider = currentProvider();
     const snap = this.controller.snapshot();
-    const targetKey = narrationTargetKey(this.controller.activeTourId, snap.current);
+    const targetKey = narrationTargetKey(this.controller.activeTourId, snap.current, snap.beat);
     if (provider === "off" || !snap.current) {
       this.cancel();
       this.observedTargetKey = targetKey;

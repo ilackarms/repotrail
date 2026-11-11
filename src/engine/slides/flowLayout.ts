@@ -10,6 +10,8 @@
 import type { SlideFlowBlock, SlideFlowNode } from "../types";
 
 export type FlowFont = "label" | "sub" | "edge" | "group";
+/** Other text an element shows during the slide (from beats' `set`). */
+export type TextVariants = ReadonlyMap<string, { label: string[]; sub: string[] }>;
 export type TextMeasure = (text: string, font: FlowFont) => number;
 
 export interface FlowPoint {
@@ -103,7 +105,7 @@ interface DagreModule {
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const dagre = require("@dagrejs/dagre") as DagreModule;
 
-export function layoutFlow(block: SlideFlowBlock, measure: TextMeasure): FlowLayout {
+export function layoutFlow(block: SlideFlowBlock, measure: TextMeasure, variants: TextVariants = new Map()): FlowLayout {
   const m = FLOW_METRICS;
   const graph = new dagre.graphlib.Graph({ compound: true, multigraph: true });
   graph.setGraph({
@@ -118,7 +120,7 @@ export function layoutFlow(block: SlideFlowBlock, measure: TextMeasure): FlowLay
 
   const sized = new Map<string, { width: number; height: number; labelLines: string[]; subLines: string[]; textDy: number; textDx: number }>();
   for (const node of block.nodes) {
-    const size = nodeSize(node, measure);
+    const size = nodeSize(node, measure, variants.get(node.id));
     sized.set(node.id, size);
     graph.setNode(node.id, { width: size.width, height: size.height });
   }
@@ -134,10 +136,12 @@ export function layoutFlow(block: SlideFlowBlock, measure: TextMeasure): FlowLay
   const edgeLabels = new Map<string, { width: number; height: number; lines: string[] }>();
   for (const edge of block.edges) {
     const label: Record<string, unknown> = {};
-    if (edge.label) {
-      const lines = wrap(edge.label, "edge", m.maxEdgeLabelWidth, measure, 2);
-      const width = Math.ceil(Math.max(...lines.map((l) => measure(l, "edge")))) + 12;
-      const height = lines.length * m.edgeLine + 6;
+    const texts = [edge.label, ...(variants.get(edge.id)?.label ?? [])].filter((t): t is string => Boolean(t));
+    if (texts.length > 0) {
+      const wrapped = texts.map((t) => wrap(t, "edge", m.maxEdgeLabelWidth, measure, 2));
+      const lines = edge.label ? wrapped[0] : [];
+      const width = Math.ceil(Math.max(...wrapped.flat().map((l) => measure(l, "edge")))) + 12;
+      const height = Math.max(...wrapped.map((w) => w.length)) * m.edgeLine + 6;
       edgeLabels.set(edge.id, { width, height, lines });
       Object.assign(label, { width, height, labelpos: "c" });
     }
@@ -187,12 +191,24 @@ export function layoutFlow(block: SlideFlowBlock, measure: TextMeasure): FlowLay
   return normalizeOrigin({ width: 0, height: 0, nodes, edges, groups }, m.margin);
 }
 
-function nodeSize(node: SlideFlowNode, measure: TextMeasure) {
+/** A node's box, sized for the longest label and sub it shows during the slide. */
+export function nodeSize(
+  node: Pick<SlideFlowNode, "label" | "sub" | "shape">,
+  measure: TextMeasure,
+  variants?: { label: string[]; sub: string[] },
+) {
   const m = FLOW_METRICS;
   const labelLines = wrap(node.label, "label", m.maxTextWidth, measure, 2);
   const subLines = node.sub ? wrap(node.sub, "sub", m.maxTextWidth, measure, 2) : [];
-  const textWidth = Math.max(...labelLines.map((l) => measure(l, "label")), ...subLines.map((l) => measure(l, "sub")));
-  const textHeight = labelLines.length * m.labelLine + (subLines.length > 0 ? 3 + subLines.length * m.subLine : 0);
+  const allLabels = [labelLines, ...(variants?.label ?? []).map((t) => wrap(t, "label", m.maxTextWidth, measure, 2))];
+  const allSubs = [subLines, ...(variants?.sub ?? []).map((t) => wrap(t, "sub", m.maxTextWidth, measure, 2))];
+  const textWidth = Math.max(
+    ...allLabels.flat().map((l) => measure(l, "label")),
+    ...allSubs.flat().map((l) => measure(l, "sub")),
+  );
+  const maxLabelLines = Math.max(...allLabels.map((l) => l.length));
+  const maxSubLines = Math.max(...allSubs.map((l) => l.length));
+  const textHeight = maxLabelLines * m.labelLine + (maxSubLines > 0 ? 3 + maxSubLines * m.subLine : 0);
   let width = Math.max(m.minWidth, Math.ceil(textWidth) + 2 * m.padX);
   let height = textHeight + 2 * m.padY;
   let textDy = 0;

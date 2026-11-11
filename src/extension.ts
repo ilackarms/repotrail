@@ -88,6 +88,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     {
       next: () => void controller.next(),
       back: () => void controller.back(),
+      nextStop: () => void controller.nextStop(),
       openSource: () => void controller.openCurrentSource(),
     },
     log,
@@ -205,6 +206,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("repoTrail.copySelectionReference", () => copySelectionReference()),
     vscode.commands.registerCommand("repoTrail.next", () => controller.next()),
     vscode.commands.registerCommand("repoTrail.back", () => controller.back()),
+    vscode.commands.registerCommand("repoTrail.nextStop", () => controller.nextStop()),
     vscode.commands.registerCommand("repoTrail.showStep", (index?: number) => {
       if (typeof index === "number") void controller.showStep(index);
     }),

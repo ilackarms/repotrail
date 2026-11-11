@@ -22,6 +22,10 @@ import type {
   SlideFlowNode,
   SlideLayout,
   SlideNodeShape,
+  SlideSequenceBlock,
+  SlideSequenceMessage,
+  SlideSequenceNote,
+  SlideSequenceParticipant,
   SlideTableRow,
   SlideTone,
   TourSlide,
@@ -35,6 +39,8 @@ export const SLIDE_LIMITS = {
   nodes: 40,
   edges: 80,
   groups: 12,
+  participants: 8,
+  messages: 40,
   beats: 40,
   codeLines: 120,
   text: 4000,
@@ -100,7 +106,12 @@ export function normalizeSlide(value: unknown): TourSlide | undefined {
   if (subtitle) slide.subtitle = subtitle;
 
   const beats = normalizeBeats(raw.beats, ctx);
-  if (beats.length > 0) slide.beats = beats;
+  if (beats.length > 0) {
+    slide.beats = beats;
+    for (const block of blocks) {
+      if (block.build) ctx.warn(`Block "${block.id}": \`build\` is ignored because the slide has \`beats\`.`);
+    }
+  }
   if (ctx.warnings.length > 0) slide.warnings = ctx.warnings;
   return slide;
 }
@@ -183,7 +194,7 @@ function normalizeBlock(value: unknown, index: number, ctx: SlideContext): Slide
     return undefined;
   }
   const type = value.type;
-  const known = ["text", "bullets", "table", "code", "callout", "flow"];
+  const known = ["text", "bullets", "table", "code", "callout", "flow", "sequence"];
   if (typeof type !== "string" || !known.includes(type)) {
     ctx.warn(`${where}: unknown type ${describe(type)}. This RepoTrail version shows ${known.join(", ")}.`);
     return undefined;
@@ -200,7 +211,10 @@ function normalizeBlock(value: unknown, index: number, ctx: SlideContext): Slide
     if (typeof value.span === "number" && value.span > 0 && value.span <= 12) base.span = value.span;
     else ctx.warn(`${where}: span must be a number from 1 to 12.`);
   }
-  if (value.build === true) base.build = true;
+  if (value.build === true) {
+    if (type === "bullets" || type === "table" || type === "sequence") base.build = true;
+    else ctx.warn(`${where}: \`build\` works on bullets, tables and sequences, not ${type}.`);
+  }
 
   switch (type) {
     case "text": {
@@ -248,6 +262,8 @@ function normalizeBlock(value: unknown, index: number, ctx: SlideContext): Slide
       return normalizeTable(value, base, where, ctx);
     case "flow":
       return normalizeFlow(value, base, where, ctx);
+    case "sequence":
+      return normalizeSequence(value, base, where, ctx);
   }
   return undefined;
 }
@@ -454,6 +470,89 @@ function normalizeFlow(
   });
 
   return { ...base, type: "flow", direction, nodes, edges, groups };
+}
+
+function normalizeSequence(
+  value: Raw,
+  base: BlockBase,
+  where: string,
+  ctx: SlideContext,
+): SlideSequenceBlock | undefined {
+  const rawParticipants = Array.isArray(value.participants) ? value.participants : [];
+  if (rawParticipants.length === 0) return missing(ctx, where, "participants");
+  if (rawParticipants.length > SLIDE_LIMITS.participants) {
+    ctx.warn(`${where}: only the first ${SLIDE_LIMITS.participants} participants are shown.`);
+  }
+  const participants: SlideSequenceParticipant[] = [];
+  rawParticipants.slice(0, SLIDE_LIMITS.participants).forEach((raw, i) => {
+    const what = `${where} participant ${i + 1}`;
+    const obj: Raw = typeof raw === "string" ? { id: raw } : isObject(raw) ? raw : {};
+    if (typeof obj.id !== "string" || !ID_PATTERN.test(obj.id.trim())) {
+      ctx.warn(`${what} needs an id (1-64 characters, no spaces or colons) so messages can point at it.`);
+      return;
+    }
+    const before = ctx.warnings.length;
+    const id = ctx.claim(obj.id, obj.id.trim(), what);
+    if (ctx.warnings.length > before) return;
+    let shape: SlideNodeShape = "box";
+    if (obj.shape !== undefined) {
+      if (SHAPES.includes(obj.shape as SlideNodeShape)) shape = obj.shape as SlideNodeShape;
+      else ctx.warn(`${what}: unknown shape ${describe(obj.shape)}; using "box".`);
+    }
+    const participant: SlideSequenceParticipant = {
+      id,
+      label: ctx.text(obj.label, `${what} label`, SLIDE_LIMITS.label) ?? id,
+      shape,
+    };
+    const sub = ctx.text(obj.sub, `${what} sub`, SLIDE_LIMITS.label);
+    if (sub) participant.sub = sub;
+    const tone = ctx.tone(obj.tone, what);
+    if (tone) participant.tone = tone;
+    participants.push(participant);
+  });
+  if (participants.length === 0) return missing(ctx, where, "participants");
+  const ids = new Set(participants.map((p) => p.id));
+
+  const rawMessages = Array.isArray(value.messages) ? value.messages : [];
+  if (value.messages !== undefined && !Array.isArray(value.messages)) ctx.warn(`${where}: \`messages\` must be an array.`);
+  if (rawMessages.length > SLIDE_LIMITS.messages) ctx.warn(`${where}: only the first ${SLIDE_LIMITS.messages} messages are shown.`);
+  const messages: Array<SlideSequenceMessage | SlideSequenceNote> = [];
+  rawMessages.slice(0, SLIDE_LIMITS.messages).forEach((raw, i) => {
+    const what = `${where} message ${i + 1}`;
+    const fallback = `${base.id}.${i + 1}`;
+    if (isObject(raw) && raw.note !== undefined) {
+      const note = ctx.text(raw.note, `${what} note`, SLIDE_LIMITS.label * 2);
+      const over = (Array.isArray(raw.over) ? raw.over : [raw.over]).filter((p): p is string => typeof p === "string" && ids.has(p));
+      if (!note || over.length === 0) {
+        ctx.warn(`${what}: a note needs \`note\` text and \`over\` naming at least one participant.`);
+        return;
+      }
+      const item: SlideSequenceNote = { id: ctx.claim(raw.id, fallback, what), note, over };
+      const tone = ctx.tone(raw.tone, what);
+      if (tone) item.tone = tone;
+      messages.push(item);
+      return;
+    }
+    const parsed = parseEdge(raw);
+    if (!parsed) {
+      ctx.warn(`${what} must be "a -> b: label", { from, to, label }, or { note, over }.`);
+      return;
+    }
+    const unknown = [parsed.from, parsed.to].filter((end) => !ids.has(end));
+    if (unknown.length > 0) {
+      ctx.warn(`${what}: ${unknown.map((u) => `"${u}"`).join(" and ")} ${unknown.length === 1 ? "isn't a participant" : "aren't participants"}.`);
+      return;
+    }
+    const message: SlideSequenceMessage = { id: ctx.claim(parsed.id, fallback, what), from: parsed.from, to: parsed.to };
+    const label = ctx.text(parsed.label, `${what} label`, SLIDE_LIMITS.label);
+    if (label) message.label = label;
+    if (parsed.style === "dashed" || (isObject(raw) && raw.reply === true)) message.reply = true;
+    const tone = ctx.tone(parsed.tone, what);
+    if (tone) message.tone = tone;
+    messages.push(message);
+  });
+
+  return { ...base, type: "sequence", participants, messages };
 }
 
 interface ParsedEdge {

@@ -58,3 +58,14 @@ test("disables the play button when text to speech is off", () => {
   assert.equal(off.disabled, true);
   assert.match(off.tooltip, /Narration settings/);
 });
+
+test("on a slide, Back and Next step through beats before stops", () => {
+  const [backAtStart, nextAtStart] = primaryStepNavigationControls(0, 1, {}, { position: 0, count: 3 });
+  assert.equal(backAtStart.disabled, true);
+  assert.equal(nextAtStart.disabled, false);
+  assert.equal(nextAtStart.tooltip, "Next beat (1 of 3)");
+  const [back, next] = primaryStepNavigationControls(0, 1, {}, { position: 3, count: 3 });
+  assert.equal(back.disabled, false);
+  assert.equal(back.tooltip, "Previous beat (2 of 3)");
+  assert.equal(next.disabled, true);
+});

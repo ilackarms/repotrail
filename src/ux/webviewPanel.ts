@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
+import { slideBeats } from "../engine/slides/timeline";
 import { formatStepPath, type TourStep } from "../engine/types";
 import { RepoTourSummary } from "../storage/repoTours";
 import { TTS_DEFAULTS } from "../tts/config";
@@ -271,6 +272,19 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     const explanation = current?.explanation ?? "";
     const fileLabel = current ? formatStepPath(current) : "";
     const currentViewLabel = current ? stopViewLabel(current) : "";
+    const beatCount = snap.positions - 1;
+    const beatChip = beatCount > 0 ? `Beat ${snap.beat} / ${beatCount}` : "";
+    // A slide's beats read as a transcript under the narration: said, saying, to come.
+    const beats = current?.slide ? slideBeats(current.slide) : [];
+    const transcript = beats.some((beat) => beat.say)
+      ? `<ol class="beat-transcript">${beats
+          .map((beat, i) =>
+            beat.say
+              ? `<li value="${i + 1}" class="${i + 1 < snap.beat ? "past" : i + 1 === snap.beat ? "current" : "future"}">${renderNarrationMarkdown(beat.say)}</li>`
+              : "",
+          )
+          .join("")}</ol>`
+      : "";
 
     const escape = (s: string) =>
       s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -354,7 +368,9 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     };
 
     const neighbors = { previous: plan?.steps[index - 1]?.title, next: plan?.steps[index + 1]?.title };
-    const primaryStepButtons = primaryStepNavigationControls(index, total, neighbors).map(renderNavButton).join("");
+    const primaryStepButtons = primaryStepNavigationControls(index, total, neighbors, { position: snap.beat, count: beatCount })
+      .map(renderNavButton)
+      .join("");
     const narration = narrationControl(ttsProvider);
     const playButton = `<button id="playPause" class="icon-button"${narration.disabled ? " disabled" : ""} title="${escape(narration.tooltip)}" aria-label="${escape(narration.label)}">${ICONS.play}</button>`;
     const menuButton = `<button id="menuButton" class="icon-button" title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="false" aria-controls="tourMenu">${ICONS.menu}</button>`;
@@ -462,6 +478,16 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   .narration code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.92em; padding: 1px 4px; border-radius: 3px; background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.15)); }
   .narration pre { padding: 6px 8px; border-radius: 3px; background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.15)); overflow-x: auto; }
   .narration pre code { padding: 0; background: none; }
+  .narration.said { opacity: 0.75; }
+  .beat-transcript { margin: -6px 0 16px; padding-left: 22px; line-height: 1.5; }
+  .beat-transcript li { margin: 0 0 6px; padding-left: 2px; transition: opacity 0.2s ease; }
+  .beat-transcript li p { margin: 0; }
+  .beat-transcript li::marker { color: var(--vscode-descriptionForeground); }
+  .beat-transcript li.past { opacity: 0.75; }
+  .beat-transcript li.current { font-weight: 600; }
+  .beat-transcript li.current::marker { color: var(--vscode-textLink-foreground, var(--vscode-focusBorder)); }
+  .beat-transcript li.future { opacity: 0.4; }
+  .beat-transcript code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.92em; padding: 1px 4px; border-radius: 3px; background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.15)); }
   .controls { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
   button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 6px 10px; cursor: pointer; border-radius: 2px; font-size: 12px; line-height: 1.2; }
   button:hover { background: var(--vscode-button-hoverBackground); }
@@ -522,6 +548,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           <span class="step-count">Step ${index + 1} of ${total}</span>
           <span class="file-chip" title="${escape(fileLabel)}">${escape(fileLabel)}</span>
           ${currentViewLabel ? `<span class="view-chip">${escape(currentViewLabel)}</span>` : ""}
+          ${beatChip ? `<span class="view-chip">${escape(beatChip)}</span>` : ""}
         </div>
         <div class="progress" title="${index + 1} of ${total}"><div class="progress-fill" style="width:${progressPct}%"></div></div>
         <div class="nav-toolbar" role="toolbar" aria-label="Tour controls">
@@ -538,7 +565,8 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       <main class="tour-main">
         ${driftBadge}
         ${bridgeBlock}
-        <div class="explanation narration">${renderNarrationMarkdown(explanation)}</div>
+        <div class="explanation narration${snap.beat > 0 ? " said" : ""}">${renderNarrationMarkdown(explanation)}</div>
+        ${transcript}
       </main>
       <footer class="ask-dock">
         <input id="q" class="follow-up" placeholder="Ask a follow-up about this stop…" aria-label="Follow-up question" title="Press Enter to copy a follow-up prompt for your agent (voice: ${escape(ttsProvider)})" />
@@ -1171,6 +1199,7 @@ function renderSignature(
           current.root ?? "",
           current.workspaceFolder ?? "",
           current.file,
+          String(snap.beat),
           current.title,
           current.explanation,
           current.viewMode ?? "",

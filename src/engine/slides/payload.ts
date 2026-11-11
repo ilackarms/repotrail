@@ -10,7 +10,15 @@ export interface SlideViewPayload {
   total: number;
   /** Display path of the slide's source, when it has one. */
   source?: string;
+  /** 0 before any beat; k after beat k. */
+  position: number;
+  motion: SlideMotion;
+  /** Show the current beat's narration on the slide. */
+  captions: boolean;
 }
+
+/** `full` animates; `reduced` only fades; `off` changes instantly. */
+export type SlideMotion = "full" | "reduced" | "off";
 
 export type SlideHostMessage = { type: "slide"; payload: SlideViewPayload };
 
@@ -18,4 +26,5 @@ export type SlideWebviewMessage =
   | { type: "ready" }
   | { type: "next" }
   | { type: "back" }
+  | { type: "nextStop" }
   | { type: "openSource" };

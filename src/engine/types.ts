@@ -226,13 +226,47 @@ export interface SlideFlowBlock extends SlideBlockBase {
   groups: SlideFlowGroup[];
 }
 
+export interface SlideSequenceParticipant {
+  id: string;
+  label: string;
+  sub?: string;
+  shape: SlideNodeShape;
+  tone?: SlideTone;
+}
+
+export interface SlideSequenceMessage {
+  /** Defaults to `<block>.<n>`, counting messages and notes together. */
+  id: string;
+  from: string;
+  to: string;
+  label?: string;
+  /** Drawn dashed, as a response. */
+  reply?: boolean;
+  tone?: SlideTone;
+}
+
+export interface SlideSequenceNote {
+  id: string;
+  note: string;
+  /** Participants the note spans. */
+  over: string[];
+  tone?: SlideTone;
+}
+
+export interface SlideSequenceBlock extends SlideBlockBase {
+  type: "sequence";
+  participants: SlideSequenceParticipant[];
+  messages: Array<SlideSequenceMessage | SlideSequenceNote>;
+}
+
 export type SlideBlock =
   | SlideTextBlock
   | SlideBulletsBlock
   | SlideTableBlock
   | SlideCodeBlock
   | SlideCalloutBlock
-  | SlideFlowBlock;
+  | SlideFlowBlock
+  | SlideSequenceBlock;
 
 export interface SlideElementPatch {
   label?: string;
@@ -248,7 +282,10 @@ export interface SlideFlowEffect {
   reverse?: boolean;
 }
 
-/** One build step. Rendering of beats arrives with slide animation. */
+/**
+ * One build step. `show`, `hide` and `set` carry forward; `focus` and
+ * `highlight` last one beat; `flow` and `pulse` play once on entering it.
+ */
 export interface SlideBeat {
   say?: string;
   show?: string[];

@@ -1,6 +1,6 @@
 # Slides: animated diagrams in RepoTrail tours
 
-Status: phase 0 (static slides) is implemented; beats don't animate yet.
+Status: phases 0 (static slides) and 1 (beats and motion) are implemented.
 Target: RepoTrail 0.14+.
 
 ## Why
@@ -192,9 +192,12 @@ in a design doc. For real source code, use a code stop.
 }
 ```
 
-Message ids default to `push.1`, `push.2`, and so on. A message from a
-participant to itself draws a self-loop. With `build`, each message gets one
-beat that draws its arrow, and the latest message is spotlighted.
+Messages are strings (`"a -> b: label"`, with `-->` for a reply drawn
+dashed), objects (`{ from, to, label?, reply?, tone? }`), or notes
+(`{ note, over: [participants] }`). Message and note ids default to `push.1`,
+`push.2`, and so on, counting both. A message from a participant to itself
+draws a self-loop. With `build`, each message or note gets one beat that draws
+it and highlights it.
 
 ### Element ids
 
@@ -231,7 +234,7 @@ Ids are unique within a slide. Defaults when an id is omitted:
 | `set` | Change `label`, `sub`, `badge` or `tone` of an element. | stays |
 | `focus` | Spotlight these elements and dim the others. | this beat |
 | `highlight` | Accent ring on these elements, without dimming the others. | this beat |
-| `flow` | Send a token along edges: `"a->b"` or `{ edge, label?, tone?, reverse? }`. | one-shot |
+| `flow` | Send a token along edges: `"a->b"` or `{ edge, label?, tone?, reverse? }`. A flow that starts where the previous one ended waits for it, so a path plays as a chain; any other flow starts with the previous one. | one-shot |
 | `pulse` | One ripple on elements. | one-shot |
 
 **Structure accumulates; attention is per beat.** `show`, `hide` and `set`
@@ -272,6 +275,9 @@ keeps tours small and consistent, and nothing in them is executable.
 Setting `repoTrail.slides.motion` is `full` (default), `reduced` (fades only)
 or `off` (instant). `prefers-reduced-motion` forces `reduced`.
 
+Layout reserves room for every label a beat's `set` swaps in, so changing
+text never moves anything either.
+
 ## Playback
 
 ### Where slides render
@@ -287,10 +293,11 @@ canvas makes content density predictable for the agent and lets the lint CLI
 check overflow. Colors come from VS Code theme variables, so light, dark and
 high-contrast themes all work.
 
-Panel chrome: beat dots (`●●○○`), "Open source" when the slide has a source,
-and an optional caption strip showing the current `say` (always on in present
-mode). Clicking a node or code block with a `ref` opens that file beside the
-panel.
+Panel chrome: beat dots (`●●○○`) and the slide's source path in the footer,
+and a caption strip showing the current `say` (setting
+`repoTrail.slides.captions`, on by default; always on in present mode, phase
+4). Later: clicking a node or code block with a `ref` opens that file beside
+the panel.
 
 ### Navigation
 
@@ -499,7 +506,9 @@ animator; `flow`, `pulse`, `focus` and `highlight`; `sequence` blocks;
 `build`; panel keys; beat dots; the sidebar transcript; beat-aware TTS; live
 reload that keeps the beat; the motion setting.
 *Done when* the whole PR #244 storyboard plays, forward and backward, with no
-layout jumps.
+layout jumps. **Done.** The fixture is the full 16-stop storyboard; in the
+preview, stepping all 14 slides through their 60 positions moves no element.
+Still to check by hand: the panel and sidebar inside VS Code.
 
 **Phase 2: the authoring API.** SKILL.md section, harness README,
 `tour.schema.json` with `jsonValidation`, the `design-review` kind, Agent setup

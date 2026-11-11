@@ -5,6 +5,7 @@ import type { SlideHostMessage, SlideViewPayload, SlideWebviewMessage } from "..
 export interface SlidePanelHandlers {
   next(): void;
   back(): void;
+  nextStop(): void;
   openSource(): void;
 }
 
@@ -34,9 +35,12 @@ export class SlidePanel {
       this.panel.title = title;
       if (!this.panel.visible || this.panel.viewColumn !== column) this.panel.reveal(column, false);
     }
+    const fresh = this.pending?.payload.index !== payload.index || this.pending.payload.slide !== payload.slide;
     this.post({ type: "slide", payload });
-    for (const warning of payload.slide.warnings ?? []) {
-      this.log.appendLine(`[slides] stop ${payload.index + 1} "${payload.title}": ${warning}`);
+    if (fresh) {
+      for (const warning of payload.slide.warnings ?? []) {
+        this.log.appendLine(`[slides] stop ${payload.index + 1} "${payload.title}": ${warning}`);
+      }
     }
     return this.panel.viewColumn;
   }
@@ -66,6 +70,9 @@ export class SlidePanel {
           break;
         case "back":
           this.handlers.back();
+          break;
+        case "nextStop":
+          this.handlers.nextStop();
           break;
         case "openSource":
           this.handlers.openSource();

@@ -64,6 +64,8 @@ interface StepEditorOptions {
   allSteps?: TourStep[];
   currentIndex?: number;
   plan?: TourPlan;
+  /** Position on a slide stop: 0 before any beat, k after beat k. */
+  beat?: number;
 }
 
 interface PreparedStep {
@@ -132,9 +134,22 @@ export async function executeStep(
  */
 async function showStepSlide(step: TourStep, slide: TourSlide, opts?: StepEditorOptions): Promise<ExecuteResult> {
   await closeRepoTrailDiffTabs();
+  if (!postSlide(step, slide, opts)) return { drift: "ok" };
+  logger?.appendLine(
+    `[editor] slide "${step.title}"` + (slide.warnings?.length ? ` [${slide.warnings.length} warnings]` : ""),
+  );
+  return step.file && step.range ? checkStepDrift(step, opts?.plan) : { drift: "ok" };
+}
+
+/** Move the slide already on screen to another beat. */
+export function showSlideBeat(step: TourStep, opts?: StepEditorOptions): void {
+  if (step.slide) postSlide(step, step.slide, opts);
+}
+
+function postSlide(step: TourStep, slide: TourSlide, opts?: StepEditorOptions): boolean {
   if (!slidePanel) {
     logger?.appendLine(`[editor] slide "${step.title}" skipped: the Slides panel isn't available`);
-    return { drift: "ok" };
+    return false;
   }
   let source: string | undefined;
   if (step.file) {
@@ -144,6 +159,8 @@ async function showStepSlide(step: TourStep, slide: TourSlide, opts?: StepEditor
       source += startLine === endLine ? `:${startLine}` : `:${startLine}-${endLine}`;
     }
   }
+  const config = vscode.workspace.getConfiguration("repoTrail");
+  const motion = config.get<string>("slides.motion", "full");
   const column = slidePanel.show(
     {
       title: step.title,
@@ -151,14 +168,14 @@ async function showStepSlide(step: TourStep, slide: TourSlide, opts?: StepEditor
       index: opts?.currentIndex ?? 0,
       total: opts?.allSteps?.length ?? 1,
       source,
+      position: opts?.beat ?? 0,
+      motion: motion === "reduced" || motion === "off" ? motion : "full",
+      captions: config.get<boolean>("slides.captions", true),
     },
     reusablePrimaryViewColumn() ?? vscode.ViewColumn.Active,
   );
   if (column) tourPrimaryViewColumn = column;
-  logger?.appendLine(
-    `[editor] slide "${step.title}"` + (slide.warnings?.length ? ` [${slide.warnings.length} warnings]` : ""),
-  );
-  return step.file && step.range ? checkStepDrift(step, opts?.plan) : { drift: "ok" };
+  return true;
 }
 
 export async function openStepSource(
