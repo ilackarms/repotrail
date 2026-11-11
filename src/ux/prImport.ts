@@ -493,6 +493,9 @@ async function ensureCommits(plan: TourPlan, pr: PrRef, clone: CloneFolder, ctx:
           await fetchPullRequest(folder, clone.remote, pr.number, { shas, signal: controller.signal });
           missing = await missingRefs();
         }
+      } catch (err) {
+        if (controller.signal.aborted) throw new Cancelled();
+        throw err;
       } finally {
         sub.dispose();
       }
