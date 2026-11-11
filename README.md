@@ -88,16 +88,17 @@ The preferred envelope is `repoTrailTour: 2` with `plan.roots` aliases and
 per-step `root` values for multi-root tours. Older `workspaceFolder` steps still
 work.
 
-In a single-folder window, a root alias (or legacy `workspaceFolder`) that names
-no open folder resolves to the one open folder, so a tour written in
-`app-pr-12/` plays in a clone named `app/`. Multi-root windows keep strict
-matching, except that a tour imported from a pull request binds unmatched
-aliases to the clone it was imported into.
+In a single-folder window, a tour that names one root (one alias, or one legacy
+`workspaceFolder`) resolves it to the open folder when the name matches
+nothing, so a tour written in `app-pr-12/` plays in a clone named `app/`. Tours
+that name several roots, and multi-root windows, keep strict matching. A tour
+imported from a pull request binds every stop to the clone it was imported
+into.
 
-A diff stop that sets both `baseRef` and `headRef` doesn't depend on what is
-checked out. If its file isn't in the working tree (for example a file the
-change adds, in a clone on `main`), RepoTrail reads the file at `headRef` from
-git instead.
+A diff stop whose `baseRef` and `headRef` are commit SHAs doesn't depend on
+what is checked out: RepoTrail uses the working-tree file only when it matches
+`headRef`, and otherwise reads the file at `headRef` from git (for example a
+file the change adds, in a clone on `main`).
 
 ## Share A Tour On A Pull Request
 
@@ -119,9 +120,11 @@ comment on the PR; the extension never posts to GitHub itself. The comment has:
   save the tour there, and open VS Code;
 - a collapsed `json` block with the tour.
 
-Local absolute paths are removed from the tour before it is copied. If the
-comment would pass GitHub's 65,536-character limit, RepoTrail compacts the JSON,
-and if that is still too long it refuses and says so.
+Before copying, RepoTrail removes local absolute paths from the tour and drops
+captured anchors (reviewers capture their own). If the comment would pass
+GitHub's 65,536-character limit, RepoTrail compacts the JSON, and if that is
+still too long it refuses and says so. The setup prompt finds the comment by a
+hidden marker, and only trusts comments from the PR's author or a collaborator.
 
 ### The review link
 
@@ -133,7 +136,8 @@ vscode://repotrail.repotrail/review?pr=<owner>/<repo>/<number>[&comment=<id>][&h
   comment exists; RepoTrail searches the PR's comments for tours.
 - `comment` limits the search to one issue comment.
 - `head` is the 40-character commit the tour was written for. Copy Tour as PR
-  Comment sets it when every diff stop shares one `headRef`.
+  Comment sets it when every diff stop shares one `headRef`, and tours written
+  for that head are preferred.
 
 GitHub drops `vscode://` links from comments, so the clickable form goes through
 `https://vscode.dev/redirect?url=<the link, URL-encoded>`, which redirects the
@@ -156,22 +160,29 @@ folder's remote; enter the number):
    rate limit runs out (private repositories need it).
 3. A comment holds a tour when one of its fenced `json` blocks parses as a
    RepoTrail envelope (it has a `repoTrailTour` key). With several, pick one by
-   title, author, and date.
+   title, poster, and date; tours from the PR's author and collaborators are
+   listed first. Opening a tour posted by anyone else asks first, since anyone
+   can comment on a public pull request.
 4. RepoTrail uses an open folder whose git remote points at the PR's repository.
    With none open, it offers **Copy setup prompt** (the agent prompt above, for
    this PR and comment) or **Open Folder…**, which reopens the window on a clone
    and then offers to continue.
-5. If commits the tour needs are missing, RepoTrail asks before running
-   `git fetch --no-tags <remote> pull/<n>/head`, then fetches any base commit
-   that is still missing. Nothing is checked out and no branch is created.
-6. The tour plays from memory. **Save to .repotrail/** writes the comment's JSON
-   into the clone; RepoTrail never saves it on its own. If the tour was written
-   for an older commit than the link or the PR's current head, RepoTrail says so
-   and still plays it.
+5. RepoTrail checks the commit SHAs the tour names (up to 64). If any are
+   missing, it asks before running `git fetch --no-tags <remote> pull/<n>/head`,
+   then fetches each SHA that is still missing. Nothing is checked out and no
+   branch is created. If a fetch fails, RepoTrail says so and still opens the
+   tour.
+6. The tour plays from memory, with every stop bound to the chosen clone.
+   **Save to .repotrail/** writes the comment's JSON into the clone; RepoTrail
+   never saves it on its own.
+7. RepoTrail warns when stops show a commit other than the PR's current head,
+   compare against a base other than the PR's merge base, or compare against
+   your working tree, and when the link's `head` is older than the PR's.
 
 Comment JSON is only parsed as a tour. Nothing from a comment is run, step paths
-go through the usual workspace-relative checks, and refs must pass the same
-validation as other git-backed stops.
+go through the usual workspace-relative checks, refs must pass the same
+validation as other git-backed stops, and tour text shown in notifications can't
+form links.
 
 ## Features
 
@@ -215,7 +226,7 @@ validation as other git-backed stops.
   you open a review link or run an import command. There are no background or
   startup checks.
 - RepoTrail reads git objects to render diffs. Its only git write is
-  `git fetch --no-tags <remote> pull/<n>/head` (and missing base commits) while
+  `git fetch --no-tags <remote> pull/<n>/head` (and still-missing tour commits) while
   importing a PR tour, and it asks first every time. It runs git through
   `execFile` with fixed arguments, never a shell.
 - Review links are treated as untrusted. RepoTrail accepts only strict
@@ -288,5 +299,6 @@ page, so exports configured for Command narration start with System speech.
 - PR tours work with github.com only, and RepoTrail looks for them in a pull
   request's issue comments (not the description or review comments). It doesn't
   clone repositories or check out the PR; open a clone first, or use the setup
-  prompt.
+  prompt. Remotes that use an SSH host alias (such as `git@github-work:org/repo`)
+  aren't recognized as GitHub.
 - Open VSX publishing is not currently part of the release flow.
