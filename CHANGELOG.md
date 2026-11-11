@@ -10,12 +10,17 @@
   sign-in for private repos), plays the tour in an open clone of the
   repository, and asks before fetching `pull/<n>/head` when commits are
   missing. Links use `vscode://repotrail.repotrail/review?pr=<owner>/<repo>/<n>`
-  and are confirmed before any request.
-- Root aliases that match no open folder now resolve to the only folder in a
-  single-folder window, so tours written in one checkout play in a clone with a
-  different folder name.
-- Diff stops that pin both `baseRef` and `headRef` now play when their file
-  isn't in the working tree, reading it at `headRef` from git.
+  and are confirmed before any request. Tours from people who aren't the PR's
+  author or a collaborator need an extra confirmation, imported tours stay
+  inside the chosen clone, and RepoTrail warns about stops that don't show the
+  PR's head and merge base.
+- In a single-folder window, a tour that names one root now resolves it to the
+  open folder when the name matches nothing, so tours written in one checkout
+  play in a clone with a different folder name.
+- Diff stops whose `baseRef` and `headRef` are commit SHAs now read the file
+  at `headRef` from git whenever the working-tree file differs or is missing.
+- Tour titles and paths shown in notifications can no longer form clickable
+  links.
 
 ## 0.12.0 - 2026-11-09
 

@@ -124,7 +124,9 @@ parses as an envelope with a `repoTrailTour` key.
 - Pin both sides of every diff stop: `diff.baseRef` (the merge base) and
   `diff.headRef` (the PR head), as full 40-character SHAs. Pinned stops play in
   any clone that has the commits, whatever is checked out, and RepoTrail can
-  fetch `pull/<n>/head` when they are missing.
+  fetch `pull/<n>/head` when they are missing. RepoTrail warns reviewers about
+  stops whose commits aren't the PR head and merge base, or that compare against
+  the working tree.
 - Use one root alias with a portable `name`/`pathHint`. In a single-folder
   window, and for tours imported from a PR, an unmatched alias binds to the
   clone the reviewer has open.
