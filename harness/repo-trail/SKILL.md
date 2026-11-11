@@ -160,7 +160,9 @@ must be diffs.
   instruction.
 - Do not make the VS Code extension responsible for git or worktree creation.
   The agent creates workspaces and writes tour files; the extension reads and
-  plays them.
+  plays them. (The extension's only git write is fetching a PR's commits into
+  an existing clone, after the reviewer confirms, when it imports a tour from a
+  PR comment.)
 - If multiple `.repotrail/*.json` files belong to one workspace, list all of
   them in the optional manifest.
 - The user may open a created workspace later by opening the `.code-workspace`
@@ -185,6 +187,60 @@ PR walkthrough:
 ```text
 Use the repo-trail skill. Create a PR walkthrough tour for <PR URL>. Prepare a VS Code workspace if needed, use diff-backed stops for the meaningful changed hunks, and save the tour as .repotrail/pr-walkthrough.json in the repo that owns the PR.
 ```
+
+## Tours Posted On A Pull Request
+
+When the user wants reviewers to open a PR tour from the PR itself (for example
+"post the tour on the PR" or "make a review guide comment"), write the tour so
+it plays in any clone, then give the user a PR comment to paste. Do not post it
+yourself unless the user explicitly asks.
+
+1. Pin every changed-code stop: `diff.baseRef` is the merge base SHA and
+   `diff.headRef` is the PR head SHA, both full 40-character SHAs, with
+   `scope: "file"`. RepoTrail reads both sides from git, even for files the
+   reviewer's checkout doesn't have.
+2. Use a single root alias with a portable `name`/`pathHint` (for example the
+   review folder name). RepoTrail binds it to whichever clone the reviewer has
+   open.
+3. Write the comment in this format. If RepoTrail is installed where you run,
+   the user can produce it with **RepoTrail: Copy Tour as PR Comment**.
+
+   ````markdown
+   <!-- repotrail-tour:<tour-file-slug> -->
+   **RepoTrail review tour for <owner>/<repo>#<n>:** <title> (<k> stops).
+
+   [Open it in VS Code](https://vscode.dev/redirect?url=<URL-encoded review link>) with the [RepoTrail extension](https://marketplace.visualstudio.com/items?itemName=repotrail.repotrail) and any clone of this repo. If the link doesn't open VS Code, run `code --open-url '<review link>'`.
+
+   <details>
+   <summary>No RepoTrail or no clone? Prompt for your coding agent</summary>
+
+   ```text
+   <prompt: make a temporary directory; fetch pull/<n>/head and check out the
+   head SHA into DIR/<folder> (a worktree of an existing clone, or a fresh
+   clone); check the base SHA exists; save the comment's json block to
+   DIR/<folder>/.repotrail/<tour-file-slug>.json with gh api and awk; write and
+   open DIR/<folder>.code-workspace; install repotrail.repotrail if missing>
+   ```
+
+   </details>
+
+   <details>
+   <summary>Tour file: <tour-file-slug>.json</summary>
+
+   ```json
+   <the complete tour envelope>
+   ```
+
+   </details>
+   ````
+
+   The review link is
+   `vscode://repotrail.repotrail/review?pr=<owner>/<repo>/<n>&head=<head SHA>`.
+   Include `head` only when every diff stop shares that `headRef`. Add
+   `&comment=<id>` only when editing a comment that already exists. GitHub
+   strips `vscode://` hrefs, which is why the clickable link goes through
+   `vscode.dev/redirect`. Keep the whole comment under 65,536 characters.
+4. Tell the user the comment is ready to paste and how many stops it has.
 
 ## JSON Format
 

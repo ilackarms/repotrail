@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Added PR review tours. `RepoTrail: Copy Tour as PR Comment` copies a GitHub
+  comment with an Open in VS Code link, an agent setup prompt for reviewers
+  without the extension, and the tour JSON. Reviewers open it from the link,
+  `RepoTrail: Import Tour from GitHub PR`, or `RepoTrail: Find Tours on a PR`:
+  RepoTrail reads the PR's comments from api.github.com (with VS Code's GitHub
+  sign-in for private repos), plays the tour in an open clone of the
+  repository, and asks before fetching `pull/<n>/head` when commits are
+  missing. Links use `vscode://repotrail.repotrail/review?pr=<owner>/<repo>/<n>`
+  and are confirmed before any request.
+- Root aliases that match no open folder now resolve to the only folder in a
+  single-folder window, so tours written in one checkout play in a clone with a
+  different folder name.
+- Diff stops that pin both `baseRef` and `headRef` now play when their file
+  isn't in the working tree, reading it at `headRef` from git.
+
 ## 0.12.0 - 2026-11-09
 
 - Made diff stops navigable with Cmd/Ctrl+click. When the right side matches

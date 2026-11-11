@@ -25,6 +25,10 @@ You can use it two ways:
 RepoTrail refreshes its sidebar library from the filesystem. Open the tour and
 navigate locally in VS Code.
 
+A tour can also travel in a GitHub pull request comment. Reviewers open it with
+one link into any clone of the repository; see
+[Share A Tour On A Pull Request](#share-a-tour-on-a-pull-request).
+
 The extension does not ship a built-in LLM provider and does not send source
 code to a hosted service by itself.
 
@@ -84,6 +88,91 @@ The preferred envelope is `repoTrailTour: 2` with `plan.roots` aliases and
 per-step `root` values for multi-root tours. Older `workspaceFolder` steps still
 work.
 
+In a single-folder window, a root alias (or legacy `workspaceFolder`) that names
+no open folder resolves to the one open folder, so a tour written in
+`app-pr-12/` plays in a clone named `app/`. Multi-root windows keep strict
+matching, except that a tour imported from a pull request binds unmatched
+aliases to the clone it was imported into.
+
+A diff stop that sets both `baseRef` and `headRef` doesn't depend on what is
+checked out. If its file isn't in the working tree (for example a file the
+change adds, in a clone on `main`), RepoTrail reads the file at `headRef` from
+git instead.
+
+## Share A Tour On A Pull Request
+
+The author posts the tour as a fenced `json` block in a PR comment. Reviewers
+click one link and RepoTrail loads the tour from GitHub into a clone they already
+have. No agent is needed on the reviewer's side.
+
+### Post a tour
+
+Run `RepoTrail: Copy Tour as PR Comment`, pick the active tour or one from
+`.repotrail/`, and enter the PR as `owner/repo#123` (prefilled from the folder's
+GitHub remote). RepoTrail copies markdown to the clipboard. Paste it into a
+comment on the PR; the extension never posts to GitHub itself. The comment has:
+
+- a one-line intro;
+- an **Open it in VS Code** link, plus the raw link for `code --open-url`;
+- a collapsed setup prompt for reviewers without the extension or a clone,
+  which has their coding agent check out the PR into a temporary directory,
+  save the tour there, and open VS Code;
+- a collapsed `json` block with the tour.
+
+Local absolute paths are removed from the tour before it is copied. If the
+comment would pass GitHub's 65,536-character limit, RepoTrail compacts the JSON,
+and if that is still too long it refuses and says so.
+
+### The review link
+
+```text
+vscode://repotrail.repotrail/review?pr=<owner>/<repo>/<number>[&comment=<id>][&head=<sha>]
+```
+
+- `pr` is required. Linking by PR means the link can be written before the
+  comment exists; RepoTrail searches the PR's comments for tours.
+- `comment` limits the search to one issue comment.
+- `head` is the 40-character commit the tour was written for. Copy Tour as PR
+  Comment sets it when every diff stop shares one `headRef`.
+
+GitHub drops `vscode://` links from comments, so the clickable form goes through
+`https://vscode.dev/redirect?url=<the link, URL-encoded>`, which redirects the
+browser to the `vscode://` link. The handler accepts any scheme the editor
+registers (`vscode`, `vscode-insiders`, ...); for other editors, change the
+scheme and use their `--open-url`.
+
+### Open a tour
+
+From a link, or with `RepoTrail: Import Tour from GitHub PR` (paste a PR or
+comment URL) or `RepoTrail: Find Tours on a PR` (the repo comes from the open
+folder's remote; enter the number):
+
+1. A link first shows VS Code's own "open this URI?" prompt, then RepoTrail's,
+   which names the repository, PR, comment, and expected head. Nothing is
+   requested before you confirm.
+2. RepoTrail reads the PR and its issue comments from `api.github.com`. It uses
+   your existing VS Code GitHub sign-in when there is one, tries anonymously
+   otherwise, and offers to sign in when GitHub answers 401/404 or the anonymous
+   rate limit runs out (private repositories need it).
+3. A comment holds a tour when one of its fenced `json` blocks parses as a
+   RepoTrail envelope (it has a `repoTrailTour` key). With several, pick one by
+   title, author, and date.
+4. RepoTrail uses an open folder whose git remote points at the PR's repository.
+   With none open, it offers **Copy setup prompt** (the agent prompt above, for
+   this PR and comment) or **Open Folder…**, which reopens the window on a clone
+   and then offers to continue.
+5. If commits the tour needs are missing, RepoTrail asks before running
+   `git fetch --no-tags <remote> pull/<n>/head`, then fetches any base commit
+   that is still missing. Nothing is checked out and no branch is created.
+6. The tour plays from memory. **Save to .repotrail/** writes the comment's JSON
+   into the clone; RepoTrail never saves it on its own. If the tour was written
+   for an older commit than the link or the PR's current head, RepoTrail says so
+   and still plays it.
+
+Comment JSON is only parsed as a tour. Nothing from a comment is run, step paths
+go through the usual workspace-relative checks, and refs must pass the same
+validation as other git-backed stops.
+
 ## Features
 
 - Full-route tours for architecture, PR/diff walkthroughs, file walkthroughs,
@@ -106,6 +195,8 @@ work.
   ElevenLabs, or OpenAI TTS.
 - Repository tour library backed by `.repotrail/*.json` across every open
   workspace root.
+- PR review tours: copy a tour as a GitHub PR comment, and open one from a
+  review link or a PR URL into any clone, fetching the PR's commits on request.
 - Automatic reload when the active tour JSON changes, with the current stop
   preserved when possible.
 - Agent-created VS Code workspace flow backed by
@@ -119,6 +210,17 @@ work.
 
 - RepoTrail has no local network listener. Tour authoring happens through files
   in `.repotrail/`.
+- RepoTrail calls the network in two cases, both started by you: hosted TTS (see
+  below), and reading a pull request and its comments from `api.github.com` when
+  you open a review link or run an import command. There are no background or
+  startup checks.
+- RepoTrail reads git objects to render diffs. Its only git write is
+  `git fetch --no-tags <remote> pull/<n>/head` (and missing base commits) while
+  importing a PR tour, and it asks first every time. It runs git through
+  `execFile` with fixed arguments, never a shell.
+- Review links are treated as untrusted. RepoTrail accepts only strict
+  owner/repo, number, comment-id, and 40-character SHA values, and confirms the
+  repository, PR, and comment before any request.
 - Tour step files must be workspace-relative and cannot escape their selected
   workspace folder.
 - Hosted TTS providers are opt-in and require your own API key. Keys are stored
@@ -139,6 +241,12 @@ See [PRIVACY.md](PRIVACY.md) for the longer policy.
 - `RepoTrail: Import Tour` - open a one-off JSON file stored outside an open
   project's `.repotrail/` directory. Repo-local tours are discovered
   automatically.
+- `RepoTrail: Import Tour from GitHub PR` - load a tour from a PR or comment URL
+  into an open clone.
+- `RepoTrail: Find Tours on a PR` - search a PR of the open folder's GitHub
+  repository for tours.
+- `RepoTrail: Copy Tour as PR Comment` - copy the markdown for a PR comment with
+  the review link, an agent setup prompt, and the tour JSON.
 - `RepoTrail: Rename Tour` - change the visible tour title without renaming
   the `.repotrail/*.json` file.
 - `RepoTrail: Save Tour to Repo (.repotrail/)`.
@@ -176,5 +284,9 @@ page, so exports configured for Command narration start with System speech.
 - RepoTrail plays tours; it does not generate them. Use an external agent or
   write the JSON file yourself.
 - RepoTrail is read-only. It navigates and explains code; it does not refactor
-  files.
+  files. The only repository write is the confirmed PR fetch described above.
+- PR tours work with github.com only, and RepoTrail looks for them in a pull
+  request's issue comments (not the description or review comments). It doesn't
+  clone repositories or check out the PR; open a clone first, or use the setup
+  prompt.
 - Open VSX publishing is not currently part of the release flow.

@@ -1021,7 +1021,7 @@ async function importTour(controller: TourController, log: vscode.OutputChannel)
 
 /**
  * Write the active tour into the repo's .repotrail/ folder as JSON. The user
- * then chooses whether/when to `git commit` it — we never touch git. Once
+ * then chooses whether/when to `git commit` it — saving never touches git. Once
  * committed, teammates see it in their Start tab.
  */
 async function saveTourToRepo(controller: TourController, log: vscode.OutputChannel): Promise<void> {
