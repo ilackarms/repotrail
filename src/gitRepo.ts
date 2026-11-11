@@ -31,6 +31,18 @@ export async function hasCommit(folder: string, ref: string): Promise<boolean> {
   }
 }
 
+/** `git merge-base <a> <b>` for two full SHAs; undefined when either is missing. */
+export async function mergeBase(folder: string, a: string, b: string): Promise<string | undefined> {
+  if (!/^[0-9a-f]{40}$/i.test(a) || !/^[0-9a-f]{40}$/i.test(b)) return undefined;
+  try {
+    const { stdout } = await git(["-C", folder, "merge-base", a, b], 20_000);
+    const sha = stdout.trim().toLowerCase();
+    return /^[0-9a-f]{40}$/.test(sha) ? sha : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function pullRequestFetchArgs(remote: string, prNumber: number, shas: string[] = []): string[] {
   if (!REMOTE_NAME_PATTERN.test(remote)) throw new Error(`"${remote}" isn't a usable git remote name.`);
   if (!Number.isSafeInteger(prNumber) || prNumber < 1) throw new Error("Invalid pull request number.");

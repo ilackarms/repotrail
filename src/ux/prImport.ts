@@ -3,8 +3,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { slugForFilename } from "../engine/tourSerialize";
 import type { TourPlan } from "../engine/types";
-import { normalizeGitRef } from "../gitBlob";
-import { fetchPullRequest, hasCommit, listRemotes, pullRequestFetchArgs } from "../gitRepo";
+import { fetchPullRequest, hasCommit, listRemotes, mergeBase, pullRequestFetchArgs } from "../gitRepo";
 import {
   commentBelongsTo,
   getIssueComment,
@@ -26,13 +25,18 @@ import {
   sameRepo,
 } from "../github/prRef";
 import {
+  awkFenceIndexFor,
   composePrComment,
   composeSetupPrompt,
   diffRefs,
   GITHUB_COMMENT_LIMIT,
+  isTrustedPoster,
+  posterRole,
+  rankTourCandidates,
   sharedHeadRef,
   short,
-  staleHeadMessage,
+  TourCandidateInfo,
+  tourRefWarnings,
 } from "../github/prTour";
 import { parseGitHubRemote } from "../github/remotes";
 import { findToursInMarkdown, FoundTour } from "../github/tourComments";
@@ -62,7 +66,7 @@ interface ImportOptions {
   preferredFolder?: string;
 }
 
-interface Candidate {
+interface Candidate extends TourCandidateInfo {
   tour: FoundTour;
   comment: GitHubComment;
 }
@@ -76,6 +80,8 @@ class Cancelled extends Error {}
 
 const PENDING_IMPORT_KEY = "repoTrail.pendingPrImport";
 const PENDING_IMPORT_TTL_MS = 15 * 60 * 1000;
+/** Imports check and fetch at most this many distinct commits. */
+const MAX_IMPORT_COMMITS = 64;
 const SIGN_IN = "Sign in to GitHub";
 
 export async function handleReviewUri(uri: vscode.Uri, ctx: PrImportContext): Promise<void> {
@@ -150,16 +156,31 @@ export async function importTourFromPr(
 
     const { pull, comments } = await withGitHub(label, (token) =>
       vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: `RepoTrail: reading ${label} from GitHub…` },
-        () => fetchPullAndComments(request, token),
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `RepoTrail: reading ${label} from GitHub…`,
+          cancellable: true,
+        },
+        (_progress, cancel) => {
+          const abort = new AbortController();
+          const sub = cancel.onCancellationRequested(() => abort.abort());
+          return fetchPullAndComments(request, token, abort.signal).finally(() => sub.dispose());
+        },
       ),
     );
 
-    const candidates = comments.flatMap((comment) =>
-      findToursInMarkdown(comment.body).map((tour) => ({ tour, comment })),
+    const found: Candidate[] = comments.flatMap((comment) =>
+      findToursInMarkdown(comment.body).map((tour) => ({
+        tour,
+        comment,
+        plan: tour.plan,
+        author: comment.author,
+        authorAssociation: comment.authorAssociation,
+        createdAt: comment.createdAt,
+      })),
     );
-    ctx.log.appendLine(`[pr-import] ${comments.length} comment(s), ${candidates.length} tour(s)`);
-    if (candidates.length === 0) {
+    ctx.log.appendLine(`[pr-import] ${comments.length} comment(s), ${found.length} tour(s)`);
+    if (found.length === 0) {
       vscode.window.showInformationMessage(
         request.commentId
           ? `RepoTrail: comment ${request.commentId} on ${label} has no RepoTrail tour (a fenced json block with "repoTrailTour").`
@@ -167,30 +188,34 @@ export async function importTourFromPr(
       );
       return;
     }
-    const picked = await pickCandidate(candidates, label);
+    const candidates = rankTourCandidates(found, { prAuthor: pull.author, linkHead: request.head });
+    const picked = await pickCandidate(candidates, label, pull.author);
     if (!picked) return;
+    if (!(await confirmPoster(picked, pull, label))) return;
     const plan = picked.tour.plan;
-    const tourHead = sharedHeadRef(plan);
 
     const clone = await pickCloneFolder(request, pull, options.preferredFolder);
     if (!clone) {
       await offerNoCloneActions(request, pull, picked, ctx);
       return;
     }
-    ctx.log.appendLine(`[pr-import] using ${clone.folder.uri.fsPath} (remote ${clone.remote})`);
+    ctx.log.appendLine(
+      `[pr-import] using ${clone.folder.uri.fsPath} (remote ${clone.remote}); tour by ${picked.author} (${picked.authorAssociation})`,
+    );
 
     await ensureCommits(plan, pr, clone, ctx);
+    const base = await mergeBase(clone.folder.uri.fsPath, pull.baseSha, pull.headSha);
 
     await ctx.controller.loadPlan(plan, undefined, undefined, { importFolder: clone.folder.uri.fsPath });
     await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
     ctx.log.appendLine(`[pr-import] loaded "${plan.title}" (${plan.steps.length} stops)`);
 
-    const stale = staleHeadMessage(plan, { expected: request.head, current: pull.headSha });
-    if (stale) {
-      ctx.log.appendLine(`[pr-import] ${stale}`);
-      void vscode.window.showWarningMessage(`RepoTrail: ${plainMessageText(stale, 400)}`);
+    const warnings = tourRefWarnings(plan, { prHead: pull.headSha, mergeBase: base, linkHead: request.head });
+    if (warnings.length > 0) {
+      ctx.log.appendLine(`[pr-import] ${warnings.join(" ")}`);
+      void vscode.window.showWarningMessage(`RepoTrail: ${plainMessageText(warnings.join(" "), 600)}`);
     }
-    void offerSave(picked, plan, clone.folder, label, ctx, tourHead);
+    void offerSave(picked, plan, clone.folder, label, ctx);
   } catch (err) {
     if (err instanceof Cancelled) return;
     ctx.log.appendLine(`[pr-import] failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
@@ -292,14 +317,28 @@ async function confirmLink(request: PrImportRequest): Promise<boolean> {
 async function fetchPullAndComments(
   request: PrImportRequest,
   token: string | undefined,
+  signal: AbortSignal,
 ): Promise<{ pull: GitHubPull; comments: GitHubComment[] }> {
-  const pull = await getPull(request.pr, { token });
+  const options = { token, signal };
+  try {
+    return await fetchPullAndCommentsWith(request, options);
+  } catch (err) {
+    if (signal.aborted) throw new Cancelled();
+    throw err;
+  }
+}
+
+async function fetchPullAndCommentsWith(
+  request: PrImportRequest,
+  options: { token: string | undefined; signal: AbortSignal },
+): Promise<{ pull: GitHubPull; comments: GitHubComment[] }> {
+  const pull = await getPull(request.pr, options);
   const [owner, repo] = pull.baseRepo.split("/");
   const canonical = owner && repo ? { owner, repo } : request.pr;
   if (!request.commentId) {
-    return { pull, comments: await listIssueComments({ ...canonical, number: request.pr.number }, { token }) };
+    return { pull, comments: await listIssueComments({ ...canonical, number: request.pr.number }, options) };
   }
-  const comment = await getIssueComment(canonical, request.commentId, { token });
+  const comment = await getIssueComment(canonical, request.commentId, options);
   if (!commentBelongsTo(comment, `${canonical.owner}/${canonical.repo}`, request.pr.number)) {
     throw new Error(`Comment ${request.commentId} isn't on ${formatPrRef(request.pr)}.`);
   }
@@ -333,22 +372,41 @@ async function withGitHub<T>(label: string, run: (token: string | undefined) => 
   }
 }
 
-async function pickCandidate(candidates: Candidate[], label: string): Promise<Candidate | undefined> {
+async function pickCandidate(candidates: Candidate[], label: string, prAuthor: string): Promise<Candidate | undefined> {
   if (candidates.length === 1) return candidates[0];
-  const items = [...candidates]
-    .sort((a, b) => b.comment.createdAt.localeCompare(a.comment.createdAt))
-    .map((candidate) => ({
-      label: candidate.tour.plan.title,
-      description: `@${candidate.comment.author} · ${formatDate(candidate.comment.createdAt)}`,
-      detail: `${candidate.tour.plan.steps.length} stops · comment ${candidate.comment.id}`,
-      candidate,
-    }));
+  const items = candidates.map((candidate) => ({
+    label: candidate.plan.title,
+    description: `@${candidate.author} (${posterRole(candidate, prAuthor)}) · ${formatDate(candidate.createdAt)}`,
+    detail: `${candidate.plan.steps.length} stops · comment ${candidate.comment.id}`,
+    candidate,
+  }));
   const pick = await vscode.window.showQuickPick(items, {
     title: `RepoTrail tours on ${label}`,
-    placeHolder: "Choose a tour",
+    placeHolder: "Choose a tour (the PR author's and collaborators' tours are listed first)",
     matchOnDescription: true,
   });
   return pick?.candidate;
+}
+
+/**
+ * Anyone can comment on a public pull request. Ask before loading a tour from
+ * someone who is neither the PR's author nor a collaborator.
+ */
+async function confirmPoster(picked: Candidate, pull: GitHubPull, label: string): Promise<boolean> {
+  if (isTrustedPoster(picked, pull.author)) return true;
+  const pick = await vscode.window.showWarningMessage(
+    `Open a tour posted by @${picked.author}?`,
+    {
+      modal: true,
+      detail: [
+        `@${picked.author} isn't the author of ${label} or a collaborator on the repository.`,
+        "",
+        "Anyone can comment on a public pull request. A tour's stops show whichever commits it names, which may not be this pull request's changes.",
+      ].join("\n"),
+    },
+    "Open Tour",
+  );
+  return pick === "Open Tour";
 }
 
 async function pickCloneFolder(
@@ -401,11 +459,7 @@ async function offerNoCloneActions(
       pr,
       plan: picked.tour.plan,
       headSha: isFullSha(tourHead) ? tourHead : pull.headSha,
-      source: {
-        commentId: picked.comment.id,
-        commentUrl: picked.comment.htmlUrl,
-        jsonFenceIndex: picked.tour.jsonFenceIndex,
-      },
+      source: setupSource(picked),
     });
     await vscode.env.clipboard.writeText(prompt);
     ctx.log.appendLine(`[pr-import] copied setup prompt for ${formatPrRef(pr)}`);
@@ -433,27 +487,38 @@ async function offerNoCloneActions(
   }
 }
 
+/** Point the setup prompt at the comment if awk can extract the tour from it, else embed the JSON. */
+function setupSource(picked: Candidate) {
+  const commentUrl = picked.comment.htmlUrl;
+  const awkFenceIndex = awkFenceIndexFor(picked.comment.body, picked.tour.json);
+  return awkFenceIndex
+    ? { commentId: picked.comment.id, commentUrl, awkFenceIndex }
+    : { commentId: picked.comment.id, commentUrl, json: picked.tour.json };
+}
+
 /**
- * Check every diff ref with `git cat-file -e`. If any are missing, ask, then
- * fetch `pull/<n>/head` and, if a full-SHA ref is still missing, those SHAs.
+ * Check the tour's commit SHAs with `git cat-file -e`. If any are missing, ask,
+ * then fetch `pull/<n>/head` and, one at a time, any SHA still missing. Fetch
+ * failures are reported and the tour still loads; cancelling stops the import.
+ * Refs that aren't full SHAs are never checked or fetched here; the ref
+ * warnings after loading call them out.
  */
 async function ensureCommits(plan: TourPlan, pr: PrRef, clone: CloneFolder, ctx: PrImportContext): Promise<void> {
   const folder = clone.folder.uri.fsPath;
-  const refs = diffRefs(plan).filter((ref) => {
-    try {
-      normalizeGitRef(ref);
-      return true;
-    } catch {
-      ctx.log.appendLine(`[pr-import] skipped invalid git ref ${JSON.stringify(ref)}`);
-      return false;
-    }
-  });
-  const missingRefs = async () => {
-    const missing: string[] = [];
-    for (const ref of refs) if (!(await hasCommit(folder, ref))) missing.push(ref);
-    return missing;
-  };
-  let missing = await missingRefs();
+  const shas = [...new Set(diffRefs(plan).filter((ref) => isFullSha(ref)).map((ref) => ref.toLowerCase()))];
+  if (shas.length === 0) return;
+  if (shas.length > MAX_IMPORT_COMMITS) {
+    ctx.log.appendLine(`[pr-import] ${shas.length} distinct commits; checking none`);
+    void vscode.window.showWarningMessage(
+      `RepoTrail: this tour names ${shas.length} different commits, more than the ${MAX_IMPORT_COMMITS} RepoTrail checks or fetches. Stops whose commits are missing won't open.`,
+    );
+    return;
+  }
+  const missingShas = (token?: vscode.CancellationToken) => findMissing(folder, shas, token);
+  let missing = await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: "RepoTrail: checking the tour's commits…", cancellable: true },
+    (_progress, token) => missingShas(token),
+  );
   if (missing.length === 0) return;
   ctx.log.appendLine(`[pr-import] missing commits: ${missing.join(", ")}`);
 
@@ -466,7 +531,7 @@ async function ensureCommits(plan: TourPlan, pr: PrRef, clone: CloneFolder, ctx:
         `The tour needs commits that aren't in this clone: ${missing.map(short).join(", ")}.`,
         "",
         `RepoTrail will run:\n${command}`,
-        "and then fetch any diff base commit that is still missing.",
+        `and then fetch, from ${clone.remote}, any of those commits that is still missing.`,
         "",
         "This downloads objects and updates FETCH_HEAD. It doesn't create branches or change your checkout.",
       ].join("\n"),
@@ -480,23 +545,30 @@ async function ensureCommits(plan: TourPlan, pr: PrRef, clone: CloneFolder, ctx:
     return;
   }
 
+  const failures: string[] = [];
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: `RepoTrail: ${command}`, cancellable: true },
     async (_progress, token) => {
       const controller = new AbortController();
       const sub = token.onCancellationRequested(() => controller.abort());
-      try {
-        await fetchPullRequest(folder, clone.remote, pr.number, { signal: controller.signal });
-        missing = await missingRefs();
-        const shas = missing.filter((ref) => isFullSha(ref)).map((ref) => ref.toLowerCase());
-        if (shas.length > 0) {
-          ctx.log.appendLine(`[pr-import] fetching still-missing commits ${shas.join(", ")}`);
-          await fetchPullRequest(folder, clone.remote, pr.number, { shas, signal: controller.signal });
-          missing = await missingRefs();
+      const attempt = async (shasToFetch?: string[]) => {
+        try {
+          await fetchPullRequest(folder, clone.remote, pr.number, { shas: shasToFetch, signal: controller.signal });
+        } catch (err) {
+          if (controller.signal.aborted) throw new Cancelled();
+          const what = shasToFetch ? shasToFetch.map(short).join(", ") : `pull/${pr.number}/head`;
+          failures.push(`${what}: ${message(err)}`);
+          ctx.log.appendLine(`[pr-import] fetch of ${what} failed: ${message(err)}`);
         }
-      } catch (err) {
-        if (controller.signal.aborted) throw new Cancelled();
-        throw err;
+      };
+      try {
+        await attempt();
+        missing = await missingShas(token);
+        for (const sha of missing) {
+          await attempt([sha]);
+          if (token.isCancellationRequested) throw new Cancelled();
+        }
+        missing = await missingShas(token);
       } finally {
         sub.dispose();
       }
@@ -504,10 +576,20 @@ async function ensureCommits(plan: TourPlan, pr: PrRef, clone: CloneFolder, ctx:
   );
   if (missing.length > 0) {
     ctx.log.appendLine(`[pr-import] still missing after fetch: ${missing.join(", ")}`);
+    const reason = failures.length > 0 ? ` Git said: ${plainMessageText(failures[0], 200)}` : "";
     void vscode.window.showWarningMessage(
-      `RepoTrail: still missing ${missing.map(short).join(", ")} after fetching; those diff stops won't open.`,
+      `RepoTrail: still missing ${missing.map(short).join(", ")} after fetching; those diff stops won't open.${reason}`,
     );
   }
+}
+
+async function findMissing(folder: string, shas: string[], token?: vscode.CancellationToken): Promise<string[]> {
+  const missing: string[] = [];
+  for (const sha of shas) {
+    if (token?.isCancellationRequested) throw new Cancelled();
+    if (!(await hasCommit(folder, sha))) missing.push(sha);
+  }
+  return missing;
 }
 
 async function offerSave(
@@ -516,11 +598,14 @@ async function offerSave(
   folder: vscode.WorkspaceFolder,
   label: string,
   ctx: PrImportContext,
-  tourHead: string | undefined,
 ): Promise<void> {
-  const headNote = tourHead ? ` at ${plainMessageText(short(tourHead), 40)}` : "";
+  const tourHead = sharedHeadRef(plan);
+  const headNote = tourHead ? ` at ${short(tourHead)}` : "";
   const pick = await vscode.window.showInformationMessage(
-    `RepoTrail: playing "${plainMessageText(plan.title, 120)}" from ${label}${headNote} (${plan.steps.length} stops).`,
+    plainMessageText(
+      `RepoTrail: playing "${plan.title}" from ${label}${headNote} (${plan.steps.length} stops), posted by @${picked.author}.`,
+      300,
+    ),
     `Save to ${REPO_TOURS_DIR}/`,
   );
   if (pick !== `Save to ${REPO_TOURS_DIR}/`) return;
