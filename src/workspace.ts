@@ -93,52 +93,50 @@ export function resolveTourRootRef(ref?: TourRootRef): vscode.WorkspaceFolder | 
 }
 
 /**
- * Resolve the folder a step reads from. In a single-folder window a root alias
- * or legacy workspaceFolder that names no open folder falls back to that one
- * folder, so a tour written in `app-pr-12/` still plays in a clone named `app/`.
- * Multi-root windows keep strict matching; see resolveTourPlanRoots for the
- * import binding.
+ * Resolve the folder a step reads from. In a single-folder window, a tour that
+ * names only one root (one alias, or one legacy workspaceFolder) falls back to
+ * that folder when the name matches nothing, so a tour written in `app-pr-12/`
+ * still plays in a clone named `app/`. Tours naming several roots keep strict
+ * matching, so one repo's stops never open another repo's paths. Multi-root
+ * windows keep strict matching; see resolveTourPlanRoots for the import binding.
  */
 export function resolveStepWorkspaceFolder(step: Pick<TourStep, "workspaceFolder" | "root">, plan?: TourPlan): vscode.WorkspaceFolder | null {
-  if (step.workspaceFolder) return resolveWorkspaceFolderRef(step.workspaceFolder) ?? soleWorkspaceFolder();
-  if (step.root) return resolveTourRootRef(plan?.roots?.[step.root]) ?? soleWorkspaceFolder();
+  if (step.workspaceFolder) return resolveWorkspaceFolderRef(step.workspaceFolder) ?? singleRootFallback(plan);
+  if (step.root) return resolveTourRootRef(plan?.roots?.[step.root]) ?? singleRootFallback(plan);
   return resolveWorkspaceFolderRef();
 }
 
 export interface TourRootBindingOptions {
   /**
    * Absolute path of the open folder the tour was imported into, such as the
-   * clone picked for a GitHub PR tour. In a multi-root window, steps whose
-   * root alias (or legacy workspaceFolder) names no open folder bind to it, as
-   * do steps with neither. Steps that already resolve keep their folder.
+   * clone picked for a GitHub PR tour. Every step binds to it, whatever its
+   * root alias or workspaceFolder says: an imported tour can't reach into
+   * other open folders.
    */
   importFolder?: string;
 }
 
 /**
- * Pin multi-root steps to concrete workspace folder identities. Single-folder
- * windows need no rewrite: resolveStepWorkspaceFolder falls back to the only
- * folder.
+ * Pin steps to concrete workspace folder identities: all of them to the import
+ * folder when there is one, otherwise multi-root steps whose alias resolves.
+ * Single-folder windows otherwise need no rewrite; resolveStepWorkspaceFolder
+ * handles their fallback.
  */
 export function resolveTourPlanRoots(plan: TourPlan, options: TourRootBindingOptions = {}): TourPlan {
   const folders = currentWorkspaceFolders();
-  if (folders.length < 2) return plan;
   const importFolder = options.importFolder
     ? folders.find((f) => sameFsPath(f.uri.fsPath, options.importFolder as string)) ?? null
     : null;
-  if (!plan.roots && !importFolder) return plan;
+  if (importFolder) {
+    const identity = workspaceFolderIdentity(importFolder, folders);
+    return { ...plan, steps: plan.steps.map((step) => ({ ...step, workspaceFolder: identity })) };
+  }
+  if (folders.length < 2 || !plan.roots) return plan;
 
   let changed = false;
   const steps = plan.steps.map((step) => {
-    let folder: vscode.WorkspaceFolder | null;
-    if (step.workspaceFolder) {
-      if (!importFolder || resolveWorkspaceFolderRef(step.workspaceFolder)) return step;
-      folder = importFolder;
-    } else if (step.root) {
-      folder = resolveTourRootRef(plan.roots?.[step.root]) ?? importFolder;
-    } else {
-      folder = importFolder;
-    }
+    if (!step.root || step.workspaceFolder) return step;
+    const folder = resolveTourRootRef(plan.roots?.[step.root]);
     if (!folder) return step;
     changed = true;
     return { ...step, workspaceFolder: workspaceFolderIdentity(folder, folders) };
@@ -170,9 +168,16 @@ export function relativePathInWorkspace(
     : { file };
 }
 
-function soleWorkspaceFolder(): vscode.WorkspaceFolder | null {
+/** The only open folder, when the plan names at most one root. */
+function singleRootFallback(plan?: TourPlan): vscode.WorkspaceFolder | null {
   const folders = currentWorkspaceFolders();
-  return folders.length === 1 ? folders[0] : null;
+  if (folders.length !== 1 || !plan) return null;
+  const roots = new Set<string>();
+  for (const step of plan.steps) {
+    if (step.root) roots.add(`root:${step.root}`);
+    else if (step.workspaceFolder) roots.add(`folder:${step.workspaceFolder}`);
+  }
+  return roots.size <= 1 ? folders[0] : null;
 }
 
 function workspaceFoldersHash(folders: readonly vscode.WorkspaceFolder[]): string {

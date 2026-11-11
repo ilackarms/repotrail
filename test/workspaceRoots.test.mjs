@@ -56,13 +56,45 @@ test("binds unresolved aliases to the import folder in a multi-root window", () 
   );
 });
 
-test("keeps aliases that resolve in a multi-root window even with an import folder", () => {
-  setWorkspaceFolders(["/work/clones/agentdesktop", "/tmp/review/agentdesktop-pr-237"]);
-  const plan = resolveTourPlanRoots(prTour(), { importFolder: "/work/clones/agentdesktop" });
-  assert.equal(
-    resolveStepUri(plan.steps[0], plan)?.fsPath,
-    "/tmp/review/agentdesktop-pr-237/crates/controller/src/fleet_limits.rs",
+test("binds every step of an imported tour to the import folder, even aliases that match another folder", () => {
+  setWorkspaceFolders(["/work/clones/agentdesktop", "/work/private-notes"]);
+  const tour = prTour();
+  tour.roots.notes = { name: "private-notes" };
+  tour.steps.push({ ...tour.steps[0], root: "notes", file: ".env" });
+  tour.steps.push({ ...tour.steps[0], root: undefined, workspaceFolder: "/work/private-notes", file: "id_rsa" });
+  const plan = resolveTourPlanRoots(tour, { importFolder: "/work/clones/agentdesktop" });
+  assert.deepEqual(
+    plan.steps.map((step) => resolveStepUri(step, plan)?.fsPath),
+    [
+      "/work/clones/agentdesktop/crates/controller/src/fleet_limits.rs",
+      "/work/clones/agentdesktop/.env",
+      "/work/clones/agentdesktop/id_rsa",
+    ],
   );
+});
+
+test("binds an imported tour with several aliases in a single-folder window", () => {
+  setWorkspaceFolders(["/work/clones/agentdesktop"]);
+  const tour = prTour();
+  tour.roots.web = { name: "web" };
+  tour.steps.push({ ...tour.steps[0], root: "web", file: "index.ts" });
+  const plan = resolveTourPlanRoots(tour, { importFolder: "/work/clones/agentdesktop" });
+  assert.equal(resolveStepUri(plan.steps[1], plan)?.fsPath, "/work/clones/agentdesktop/index.ts");
+});
+
+test("doesn't send a second root's stops into the only open folder", () => {
+  setWorkspaceFolders(["/work/api"]);
+  const tour = {
+    ...prTour(),
+    roots: { api: { name: "api" }, web: { name: "web" } },
+  };
+  tour.steps = [
+    { ...tour.steps[0], root: "api", file: "src/server.ts" },
+    { ...tour.steps[0], root: "web", file: "src/server.ts" },
+  ];
+  const plan = resolveTourPlanRoots(tour);
+  assert.equal(resolveStepUri(plan.steps[0], plan)?.fsPath, "/work/api/src/server.ts");
+  assert.equal(resolveStepUri(plan.steps[1], plan), null);
 });
 
 test("binds steps without a root to the import folder instead of the first folder", () => {
