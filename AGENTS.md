@@ -43,8 +43,13 @@ Layers stay separated:
    REST client. It must not import `vscode`. `src/ux/prImport.ts` owns the
    prompts; `src/gitRepo.ts` owns the remote listing, commit checks, and the
    confirmed PR fetch (the only git write).
-6. `harness/repo-trail/SKILL.md` is the generic authoring skill.
-7. `harness/README.md` documents the JSON file contract for external agents.
+6. `src/webview/` is browser-only code bundled for webviews. The slide
+   runtime (`src/webview/slides/`) renders slide stops in the RepoTrail Slides
+   panel; `src/ux/slidePanel.ts` owns that panel and only `editorActions.ts`
+   drives it. Webview code may import `src/engine/` and pure UI helpers, never
+   `vscode`.
+7. `harness/repo-trail/SKILL.md` is the generic authoring skill.
+8. `harness/README.md` documents the JSON file contract for external agents.
 
 ## Product Rule
 

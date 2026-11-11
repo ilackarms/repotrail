@@ -4,7 +4,14 @@ import type { RepoTourSource } from "../storage/repoTours";
 import { newTourId, repoTourProgressId } from "../storage/tourStore";
 import type { TourRecord } from "../storage/tourStore";
 import { currentWorkspaceStorageRoot, resolveTourPlanRoots, TourRootBindingOptions } from "../workspace";
-import { checkStepDrift, clearHighlights, executeStep, openStepSource, resetTourEditorLayout } from "./editorActions";
+import {
+  checkStepDrift,
+  clearHighlights,
+  closeSlidePanel,
+  executeStep,
+  openStepSource,
+  resetTourEditorLayout,
+} from "./editorActions";
 import { reconcileTourUpdate } from "./tourProgress";
 
 /**
@@ -206,6 +213,7 @@ export class TourController {
     this.driftByIndex.clear();
     this.seen = new Set();
     resetTourEditorLayout();
+    closeSlidePanel();
     this.setActiveContext(false);
     clearHighlights();
     this.onChangeEmitter.fire();

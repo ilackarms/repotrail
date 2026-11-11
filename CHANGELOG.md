@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Tours can include slide stops: a step with a `slide` object shows a 16:9
+  slide in a RepoTrail Slides tab in the editor area instead of opening a file.
+  Slides hold text, bullets, tables, code snippets, callouts, and flow diagrams
+  with automatic layout, in `stack`, `columns`, or `title` layouts. Slide and
+  code stops take turns in the same editor column, and →, ←, Space, PageUp and
+  PageDown in the slide move through the tour. A slide's optional `file` and
+  `range` name its source, which Open source file opens. Problems in slide
+  JSON show on the slide and in Output ▸ RepoTrail. Tours get a new
+  `design-review` kind. Beats are read and checked but don't animate yet.
+
 ## 0.13.0 - 2026-11-11
 
 - Compacted the tour panel. Back and Next share one toolbar row with a

@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
-import { formatStepPath } from "../engine/types";
+import { formatStepPath, type TourStep } from "../engine/types";
 import { RepoTourSummary } from "../storage/repoTours";
 import { TTS_DEFAULTS } from "../tts/config";
 import {
@@ -270,7 +270,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     const title = current?.title ?? "No active tour";
     const explanation = current?.explanation ?? "";
     const fileLabel = current ? formatStepPath(current) : "";
-    const currentViewLabel = current?.diff ? viewModeLabel(current.viewMode ?? "diff") : "";
+    const currentViewLabel = current ? stopViewLabel(current) : "";
 
     const escape = (s: string) =>
       s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -284,7 +284,8 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         .map((s, i) => {
           const stepPath = formatStepPath(s);
           const loc = s.range ? `${stepPath}:${s.range.startLine}` : stepPath;
-          const viewLabel = s.diff ? ` · ${viewModeLabel(s.viewMode ?? "diff")}` : "";
+          const stopLabel = stopViewLabel(s);
+          const viewLabel = stopLabel ? ` · ${stopLabel}` : "";
           const drift = snap.drift[i];
           const driftIcon = drift === "missing" ? "⚠" : drift === "relocated" ? "↪" : "";
           const driftTitle =
@@ -1137,6 +1138,12 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
 </body>
 </html>`;
   }
+}
+
+/** Short label for how a stop is shown; empty for plain code stops. */
+function stopViewLabel(step: TourStep): string {
+  if (step.slide) return step.file ? "Slide" : "";
+  return step.diff ? viewModeLabel(step.viewMode ?? "diff") : "";
 }
 
 function viewModeLabel(mode: string): string {

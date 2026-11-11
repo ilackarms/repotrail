@@ -149,6 +149,7 @@ export function resolveStepUri(
   step: Pick<TourStep, "file" | "workspaceFolder" | "root">,
   plan?: TourPlan,
 ): vscode.Uri | null {
+  if (!step.file) return null; // a slide stop with no source
   const folder = resolveStepWorkspaceFolder(step, plan);
   if (!folder) return null;
   const file = normalizeWorkspaceFile(step.file);

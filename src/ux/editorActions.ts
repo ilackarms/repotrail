@@ -1,11 +1,12 @@
 import * as vscode from "vscode";
 import { GitDiffSide, materializeStepDiff } from "../diffMaterialize";
-import { DriftStatus, formatStepPath, TourPlan, TourStep, TourStepViewMode } from "../engine/types";
+import { DriftStatus, formatStepPath, TourPlan, TourSlide, TourStep, TourStepViewMode } from "../engine/types";
 import { readGitBlobText } from "../gitBlob";
 import { normalizeWorkspaceFile, resolveStepUri, resolveStepWorkspaceFolder } from "../workspace";
 import { mapDiffPositionToSource, sameDocumentText } from "./diffPositionMap";
 import { diffRevealTargetForRange } from "./diffReveal";
 import { plainMessageText } from "./messageText";
+import type { SlidePanel } from "./slidePanel";
 
 /**
  * Executes a TourStep's declarative actions against the editor.
@@ -83,10 +84,22 @@ export function resetTourEditorLayout(): void {
   tourPrimaryViewColumn = undefined;
 }
 
+let slidePanel: SlidePanel | null = null;
+
+export function setSlidePanel(panel: SlidePanel): void {
+  slidePanel = panel;
+}
+
+/** Close the RepoTrail Slides panel, if it is open. */
+export function closeSlidePanel(): void {
+  slidePanel?.close();
+}
+
 export async function executeStep(
   step: TourStep,
   opts?: StepEditorOptions,
 ): Promise<ExecuteResult> {
+  if (step.slide) return showStepSlide(step, step.slide, opts);
   if (!step.file) return { drift: "ok" };
   // Close the previous stop's diff first: its cleanup drops virtual documents
   // no tab shows, which must not include the one prepareStep may create.
@@ -110,6 +123,42 @@ export async function executeStep(
   );
 
   return { drift: prepared.drift, capturedAnchor: prepared.capturedAnchor };
+}
+
+/**
+ * Show a slide stop in the Slides panel, in the column the tour's editors use,
+ * so code stops and slides take turns in one place. The slide's source file is
+ * only checked for drift here; "Open source" opens it.
+ */
+async function showStepSlide(step: TourStep, slide: TourSlide, opts?: StepEditorOptions): Promise<ExecuteResult> {
+  await closeRepoTrailDiffTabs();
+  if (!slidePanel) {
+    logger?.appendLine(`[editor] slide "${step.title}" skipped: the Slides panel isn't available`);
+    return { drift: "ok" };
+  }
+  let source: string | undefined;
+  if (step.file) {
+    source = formatStepPath(step);
+    if (step.range) {
+      const { startLine, endLine } = step.range;
+      source += startLine === endLine ? `:${startLine}` : `:${startLine}-${endLine}`;
+    }
+  }
+  const column = slidePanel.show(
+    {
+      title: step.title,
+      slide,
+      index: opts?.currentIndex ?? 0,
+      total: opts?.allSteps?.length ?? 1,
+      source,
+    },
+    reusablePrimaryViewColumn() ?? vscode.ViewColumn.Active,
+  );
+  if (column) tourPrimaryViewColumn = column;
+  logger?.appendLine(
+    `[editor] slide "${step.title}"` + (slide.warnings?.length ? ` [${slide.warnings.length} warnings]` : ""),
+  );
+  return step.file && step.range ? checkStepDrift(step, opts?.plan) : { drift: "ok" };
 }
 
 export async function openStepSource(
@@ -234,8 +283,8 @@ async function openStepRevision(
   const folder = resolveStepWorkspaceFolder(step, plan);
   if (!folder) return null;
   const sides = [
-    { ref: diff.headRef, file: diff.headFile ?? step.file },
-    { ref: diff.baseRef, file: diff.baseFile ?? step.file },
+    { ref: diff.headRef, file: diff.headFile ?? step.file ?? "" },
+    { ref: diff.baseRef, file: diff.baseFile ?? step.file ?? "" },
   ];
   for (const side of sides) {
     try {
@@ -539,7 +588,7 @@ function virtualDiffUri(
   source: { sourceUri: vscode.Uri; lineOffset?: number },
 ): vscode.Uri {
   ensureDiffProvider();
-  const ext = extensionForFile(step.file);
+  const ext = extensionForFile(step.file ?? "");
   const slug = sanitizePathPart(`${step.title}-${label}`) || "step";
   const uri = vscode.Uri.from({
     scheme: DIFF_SCHEME,

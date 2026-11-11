@@ -1,0 +1,169 @@
+{
+  "repoTrailTour": 2,
+  "exportedAt": "2026-11-11T00:00:00.000Z",
+  "plan": {
+    "kind": "design-review",
+    "title": "Fleet configuration API: design review",
+    "summary": "Slides from the storyboard for agentdesktop-dev/agentdesktop#244, mixed with a code stop, to check how slides look and play.",
+    "roots": {
+      "agentdesktop": { "name": "agentdesktop", "pathHint": "agentdesktop" }
+    },
+    "steps": [
+      {
+        "title": "Fleet configuration API",
+        "explanation": "This design adds a database mode for the fleet configuration: admins change it through the API and UI, and every change becomes a numbered revision with an author.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 1, "startColumn": 1, "endLine": 27, "endColumn": 1 },
+        "slide": {
+          "layout": "title",
+          "eyebrow": "Design review · #244",
+          "subtitle": "A6.0: a write path with revisions and authors, the first part of two-admin approval",
+          "blocks": [
+            {
+              "type": "flow",
+              "nodes": [
+                { "id": "a60", "label": "A6.0", "sub": "write path, revisions", "tone": "accent" },
+                { "id": "a61", "label": "A6.1", "sub": "second admin approves", "tone": "muted" }
+              ],
+              "edges": ["a60 -> a61: builds on"]
+            }
+          ]
+        }
+      },
+      {
+        "title": "How the fleet config reaches devices today",
+        "explanation": "The controller watches one file, validates each change, and pushes the result to every connected device. The revision number never changes, which is the problem this design starts with.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 29, "startColumn": 1, "endLine": 61, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "Current state",
+          "blocks": [
+            {
+              "type": "flow",
+              "id": "today",
+              "direction": "LR",
+              "groups": [{ "id": "ctrl", "label": "Controller" }],
+              "nodes": [
+                { "id": "file", "label": "daemon.yaml", "sub": "daemonConfig.path", "shape": "file" },
+                { "id": "watch", "label": "daemon_config::watch", "sub": "parse_daemon", "group": "ctrl" },
+                { "id": "store", "label": "DaemonConfigStore", "sub": "watch channel", "shape": "store", "group": "ctrl", "badge": "rev 1" },
+                { "id": "svc", "label": "FleetAgentService", "sub": "connect stream", "group": "ctrl" },
+                { "id": "status", "label": "device_config_status", "shape": "store", "group": "ctrl" },
+                { "id": "dev", "label": "Devices", "shape": "device" }
+              ],
+              "edges": [
+                "file -> watch: file change",
+                "watch -> store: publish",
+                "store -> svc",
+                "svc -> dev: DaemonConfig {rev 1}",
+                "dev --> svc: ConfigStatus",
+                "svc -> status"
+              ]
+            },
+            {
+              "type": "callout",
+              "tone": "risk",
+              "title": "Every push is revision 1",
+              "md": "`daemonConfig.revision` is fixed and defaults to 1, and Helm never sets it. An edit publishes new content under the same revision, so \"revision 1 applied\" doesn't say *which* content a device applied."
+            }
+          ],
+          "beats": [
+            { "say": "A file edit wakes the watcher.", "flow": ["file->watch"] },
+            { "say": "The store publishes, and every device gets the same revision number as before.", "flow": ["watch->store", "store->svc", "svc->dev"], "focus": ["store", "dev"] }
+          ]
+        }
+      },
+      {
+        "title": "Today's watcher publishes under one revision",
+        "explanation": "The watcher reloads the file and publishes it with the `revision` it was started with. Nothing here can tell two different files apart.",
+        "root": "agentdesktop",
+        "file": "crates/controller/src/daemon_config.rs",
+        "range": { "startLine": 119, "startColumn": 1, "endLine": 133, "endColumn": 1 },
+        "viewMode": "code"
+      },
+      {
+        "title": "Two sources, one revision table",
+        "explanation": "The configured source decides who can write new revisions. Both write the same table, so switching modes is a config change and a restart.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 84, "startColumn": 1, "endLine": 102, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "Sources",
+          "blocks": [
+            {
+              "type": "table",
+              "id": "sources",
+              "columns": ["", "File", "Database"],
+              "rows": [
+                { "id": "config", "cells": ["`controller.yaml`", "`daemonConfig: { path, revision }`", "`daemonConfig: { database: { seedPath } }`"] },
+                { "id": "writes", "cells": ["Writes revisions", "the file watcher", "`PUT /api/v1/daemon-config`"] },
+                { "id": "api", "cells": ["API and UI", "read-only; `PUT` returns 405", "read and write"], "tone": "accent" },
+                { "id": "when", "cells": ["Use it when", "the config is in Git and changes go through PR review", "there's no GitOps pipeline, e.g. a VM install"] }
+              ],
+              "build": true
+            },
+            {
+              "type": "callout",
+              "tone": "decision",
+              "md": "`path` and `database` are mutually exclusive: setting both, or neither, fails at startup with a precise message instead of a vague serde error."
+            }
+          ]
+        }
+      },
+      {
+        "title": "Two saves, one revision 9",
+        "explanation": "Revisions only go up. A save inserts `base_revision + 1`, and only if its base is still the latest revision.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 153, "startColumn": 1, "endLine": 166, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "Revisions",
+          "layout": "columns",
+          "blocks": [
+            {
+              "type": "flow",
+              "id": "race",
+              "title": "Same base, same moment",
+              "span": 1.1,
+              "direction": "LR",
+              "nodes": [
+                { "id": "alice", "label": "Admin A", "shape": "actor" },
+                { "id": "bob", "label": "Admin B", "shape": "actor" },
+                { "id": "db", "label": "daemon_config_revisions", "sub": "latest: 8", "shape": "store", "badge": "rev 8" }
+              ],
+              "edges": [
+                { "id": "a", "from": "alice", "to": "db", "label": "PUT base 8" },
+                { "id": "b", "from": "bob", "to": "db", "label": "PUT base 8" }
+              ]
+            },
+            {
+              "type": "code",
+              "id": "sql",
+              "title": "Conditional insert",
+              "language": "sql",
+              "code": "INSERT INTO daemon_config_revisions\n  (revision, yaml, sha256, ...)\nSELECT $next, $yaml, $sha256, ...\nWHERE COALESCE(\n  (SELECT MAX(revision)\n   FROM daemon_config_revisions), 0\n) = $base"
+            },
+            {
+              "type": "bullets",
+              "id": "outcome",
+              "column": 2,
+              "title": "Outcome",
+              "items": [
+                { "text": "A's insert lands: **revision 9**", "tone": "good" },
+                { "text": "B's `WHERE` no longer matches, or the primary key rejects it: **409**", "tone": "bad" },
+                "Works the same on SQLite and Postgres, with no advisory locks"
+              ]
+            }
+          ],
+          "beats": [
+            { "say": "Both admins loaded revision 8 and both press Save.", "flow": ["a", "b"] },
+            { "say": "A's insert lands first. Revision 9 is now the latest.", "set": { "db": { "badge": "rev 9", "tone": "good" } }, "focus": ["alice", "a", "db", "outcome.1"] },
+            { "say": "B's WHERE clause no longer matches, so nothing is inserted and B gets a 409.", "set": { "bob": { "tone": "bad" } }, "focus": ["bob", "b", "sql:L4-7", "outcome.2"] }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -47,10 +47,10 @@ export async function materializeStepDiff(
   let beforeGit: GitDiffSide | undefined;
   if (diff.baseRef) {
     if (!folder) {
-      vscode.window.showErrorMessage(`RepoTrail: cannot resolve workspace folder for git diff ${plainMessageText(step.file)}.`);
+      vscode.window.showErrorMessage(`RepoTrail: cannot resolve workspace folder for git diff ${plainMessageText(step.file ?? "")}.`);
       return null;
     }
-    const baseFile = normalizeWorkspaceFile(diff.baseFile ?? step.file);
+    const baseFile = normalizeWorkspaceFile(diff.baseFile ?? step.file ?? "");
     try {
       const base = await readGitBlobText(folder.uri.fsPath, diff.baseRef, baseFile);
       beforeText = base.text;
@@ -77,10 +77,10 @@ export async function materializeStepDiff(
   let afterGit: GitDiffSide | undefined;
   if (diff.headRef) {
     if (!folder) {
-      vscode.window.showErrorMessage(`RepoTrail: cannot resolve workspace folder for git diff ${plainMessageText(step.file)}.`);
+      vscode.window.showErrorMessage(`RepoTrail: cannot resolve workspace folder for git diff ${plainMessageText(step.file ?? "")}.`);
       return null;
     }
-    const headFile = normalizeWorkspaceFile(diff.headFile ?? step.file);
+    const headFile = normalizeWorkspaceFile(diff.headFile ?? step.file ?? "");
     try {
       const head = await readGitBlobText(folder.uri.fsPath, diff.headRef, headFile);
       afterText = head.text;
@@ -152,7 +152,7 @@ function reportMaterializeError(
 ): void {
   const detail = err instanceof Error ? err.message : String(err);
   logger?.appendLine(`[diff] failed to materialize ${side} for ${step.file}: ${detail}`);
-  vscode.window.showErrorMessage(`RepoTrail: could not read ${side} ref for ${plainMessageText(step.file)}.`);
+  vscode.window.showErrorMessage(`RepoTrail: could not read ${side} ref for ${plainMessageText(step.file ?? "")}.`);
 }
 
 function clamp(value: number, min: number, max: number): number {

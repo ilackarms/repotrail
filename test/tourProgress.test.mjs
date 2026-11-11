@@ -115,3 +115,18 @@ test("honors an explicit anchor change from the source file", () => {
   assert.equal(result.steps[0].anchor, "const newAnchor = true;");
   assert.equal(result.editorRefreshNeeded, true);
 });
+
+test("re-shows a slide stop when the agent rewrites its slide", () => {
+  const slide = (md) => ({ title: "Today", explanation: "x", actions: ["showNarration"], slide: { layout: "stack", blocks: [{ type: "text", id: "b1", md }] } });
+  const previous = [slide("one"), step("Code", "a.ts")];
+  assert.deepEqual(progress(previous, 0, [0], [slide("one"), step("Code", "a.ts")]), {
+    index: 0,
+    seen: [0],
+    editorRefreshNeeded: false,
+  });
+  assert.deepEqual(progress(previous, 0, [0], [slide("two"), step("Code", "a.ts")]), {
+    index: 0,
+    seen: [0],
+    editorRefreshNeeded: true,
+  });
+});

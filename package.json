@@ -332,7 +332,7 @@
     ]
   },
   "scripts": {
-    "typecheck": "tsc -p ./ --noEmit",
+    "typecheck": "tsc -p ./ --noEmit && tsc -p tsconfig.webview.json",
     "test": "sh -c 'rm -rf out-test && tsc -p ./ --outDir out-test && node --test test/*.test.mjs; status=$?; rm -rf out-test; exit $status'",
     "compile": "node esbuild.mjs",
     "watch": "tsc -watch -p ./ --noEmit",
@@ -347,5 +347,8 @@
     "@vscode/vsce": "^3.9.1",
     "esbuild": "^0.28.0",
     "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "3.1.3"
   }
 }

@@ -35,7 +35,8 @@ import {
   TTS_SECRET_KEYS,
 } from "./tts/config";
 import { TourCodeLensProvider } from "./ux/codeLensProvider";
-import { setEditorLogger } from "./ux/editorActions";
+import { setEditorLogger, setSlidePanel } from "./ux/editorActions";
+import { SlidePanel } from "./ux/slidePanel";
 import { formatSelectionReference, selectedFullLineRange } from "./ux/selectionReference";
 import { TourController } from "./ux/tourController";
 import { reconcileTourUpdate } from "./ux/tourProgress";
@@ -82,6 +83,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   const controller = new TourController();
+  const slidePanel = new SlidePanel(
+    context.extensionUri,
+    {
+      next: () => void controller.next(),
+      back: () => void controller.back(),
+      openSource: () => void controller.openCurrentSource(),
+    },
+    log,
+  );
+  setSlidePanel(slidePanel);
+  context.subscriptions.push({ dispose: () => slidePanel.close() });
   let persistQueue = Promise.resolve();
   controller.setPersistFn((record) => {
     persistQueue = persistQueue
@@ -823,6 +835,16 @@ async function buildAnimatedTourFrame(
   index: number,
   log: vscode.OutputChannel,
 ): Promise<AnimatedTourFrame> {
+  if (step.slide) {
+    return {
+      index,
+      title: step.title,
+      location: stepLocationLabel(step),
+      explanation: step.explanation,
+      viewLabel: "Slide",
+      warnings: ["Slides aren't in the HTML export yet. Open the tour in VS Code to see this one."],
+    };
+  }
   const warnings: string[] = [];
   const code = await snapshotStepCode(step, plan, warnings, log);
   const shouldRenderDiff = Boolean(step.diff && step.viewMode !== "code");

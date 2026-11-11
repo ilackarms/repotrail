@@ -20,3 +20,6 @@ node_modules/**
 **/*.map
 **/*.ts
 !out/**/*.d.ts
+docs/design/**
+scripts/**
+tsconfig.webview.json
