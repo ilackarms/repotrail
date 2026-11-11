@@ -5,10 +5,12 @@ import { RepoTourSummary } from "../storage/repoTours";
 import { TTS_DEFAULTS } from "../tts/config";
 import {
   emptyLibraryControls,
+  narrationControl,
   NavigationControl,
   primaryStepNavigationControls,
-  utilityNavigationControls,
+  stepMenuItems,
 } from "./navigationControls";
+import { renderNarrationMarkdown } from "./narrationMarkdown";
 import { TourController } from "./tourController";
 import { RenderSignature, shouldDeferRenderForTts, WebviewTtsState } from "./renderPolicy";
 
@@ -24,6 +26,14 @@ type WebviewSink = (msg: { type: string; text?: string }) => void;
  * `tts.cancel`. Set `retainContextWhenHidden: true` so playback (and the cached
  * Kokoro model) survive the user collapsing the sidebar mid-utterance.
  */
+/** Inline icons for the toolbar (webviews can't load VS Code's codicon font). */
+const ICONS = {
+  play: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4.5 2.9v10.2c0 .45.48.72.86.48l8.1-5.1a.56.56 0 0 0 0-.96l-8.1-5.1a.56.56 0 0 0-.86.48z"/></svg>',
+  pause: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4 2.5h2.75v11H4zm5.25 0H12v11H9.25z"/></svg>',
+  loading: '<svg class="spin" viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M8 2a6 6 0 1 1-6 6"/></svg>',
+  menu: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 3.25h12v1.5H2zm0 4h12v1.5H2zm0 4h12v1.5H2z"/></svg>',
+};
+
 export class TourViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "repoTrail.tour";
 
@@ -302,11 +312,10 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         })
         .join("");
       return `
-        <details id="routePanel" class="route-panel" open>
+        <details id="routePanel" class="route-panel">
           <summary>
             <span class="route-summary-row">
               <span>Route · ${total} stop${total === 1 ? "" : "s"}</span>
-              <span class="route-current">current ${index + 1}/${total}</span>
             </span>
           </summary>
           <ol class="stops">${rows}</ol>
@@ -343,8 +352,20 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       return `<button id="${escape(control.id)}"${classAttr}${disabledAttr} title="${escape(control.tooltip)}">${escape(control.label)}</button>`;
     };
 
-    const primaryStepButtons = primaryStepNavigationControls(index, total).map(renderNavButton).join("");
-    const utilityButtons = utilityNavigationControls(ttsProvider).map(renderNavButton).join("");
+    const neighbors = { previous: plan?.steps[index - 1]?.title, next: plan?.steps[index + 1]?.title };
+    const primaryStepButtons = primaryStepNavigationControls(index, total, neighbors).map(renderNavButton).join("");
+    const narration = narrationControl(ttsProvider);
+    const playButton = `<button id="playPause" class="icon-button"${narration.disabled ? " disabled" : ""} title="${escape(narration.tooltip)}" aria-label="${escape(narration.label)}">${ICONS.play}</button>`;
+    const menuButton = `<button id="menuButton" class="icon-button" title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="false" aria-controls="tourMenu">${ICONS.menu}</button>`;
+    const menuItems = stepMenuItems()
+      .map((item) =>
+        (item.separatorBefore ? `<div class="menu-separator" role="separator"></div>` : "") +
+        `<button id="${escape(item.id)}" class="menu-item${item.destructive ? " destructive" : ""}" role="menuitem" tabindex="-1">` +
+        `<span class="menu-label">${escape(item.label)}</span>` +
+        (item.shortcut ? `<span class="menu-shortcut">${escape(item.shortcut)}</span>` : "") +
+        `</button>`,
+      )
+      .join("");
     const emptyLibraryButtons = emptyLibraryControls().map(renderNavButton).join("");
 
     const emptyState = plan
@@ -405,25 +426,42 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   .step-count { flex-shrink: 0; font-variant-numeric: tabular-nums; }
   .file-chip { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .view-chip { flex-shrink: 0; color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); border-radius: 2px; padding: 1px 5px; }
-  .nav-heading { display: grid; grid-template-columns: minmax(0, 1fr) 146px; align-items: start; gap: 8px; margin-bottom: 8px; }
-  .nav-title-block { min-width: 0; }
-  /* Titles wrap rather than truncate: in a thin sidebar the name is the most
-     useful text on screen. Back/Next never sit below the title, so a long
-     title can grow the heading without moving them between steps. */
-  .nav-title { min-height: 38px; margin: 0; overflow-wrap: anywhere; }
-  .nav-step-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; width: 146px; }
+  /* One toolbar row: Back and Next on the left, narration and the menu as
+     icons on the right. It sits above the title, so a long title can wrap
+     without moving the buttons between steps. */
+  .nav-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .nav-step-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; flex: 0 1 220px; min-width: 0; }
   .nav-step-button { width: 100%; min-height: 28px; padding-left: 0; padding-right: 0; text-align: center; }
-  .nav-utilities { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
-  .nav-utilities #playPause { min-width: 96px; }
-  @media (max-width: 360px) {
-    .nav-heading { grid-template-columns: minmax(0, 1fr); }
-    .nav-step-actions { width: 100%; order: -1; }
-    .nav-title { min-height: 0; }
-  }
+  .nav-icons { display: flex; gap: 2px; margin-left: auto; flex-shrink: 0; }
+  .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border-radius: 4px; background: transparent; color: var(--vscode-icon-foreground, var(--vscode-foreground)); }
+  .icon-button:hover { background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31)); }
+  .icon-button:disabled:hover { background: transparent; }
+  .icon-button[aria-expanded="true"], .icon-button.active { background: var(--vscode-toolbar-activeBackground, var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31))); }
+  .icon-button svg { width: 16px; height: 16px; }
+  .spin { animation: rt-spin 0.9s linear infinite; transform-origin: 50% 50%; }
+  @keyframes rt-spin { to { transform: rotate(360deg); } }
+  /* Titles wrap rather than truncate: in a thin sidebar the name is the most
+     useful text on screen. */
+  .nav-title { margin: 0; overflow-wrap: anywhere; }
+  .ask-dock { flex: 0 0 auto; padding: 8px 12px; border-top: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-sideBar-background, var(--vscode-editor-background)); }
+  .menu { position: fixed; z-index: 30; box-sizing: border-box; min-width: 200px; max-width: calc(100vw - 16px); padding: 4px 0; border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border, transparent)); border-radius: 5px; background: var(--vscode-menu-background, var(--vscode-editorWidget-background)); color: var(--vscode-menu-foreground, var(--vscode-foreground)); box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36)); }
+  .menu-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; padding: 4px 12px; border-radius: 0; background: transparent; color: inherit; text-align: left; font-size: 13px; line-height: 1.5; white-space: nowrap; }
+  .menu-item:hover, .menu-item:focus { outline: none; background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground)); color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground)); }
+  .menu-item.destructive:not(:hover):not(:focus) { color: var(--vscode-errorForeground); }
+  .menu-shortcut { color: var(--vscode-descriptionForeground); font-size: 12px; }
+  .menu-item:hover .menu-shortcut, .menu-item:focus .menu-shortcut { color: inherit; opacity: 0.8; }
+  .menu-separator { height: 1px; margin: 4px 0; background: var(--vscode-menu-separatorBackground, var(--vscode-panel-border, rgba(127, 127, 127, 0.35))); }
   .tour-main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 12px 14px; }
   .explanation { white-space: pre-wrap; line-height: 1.5; margin-bottom: 16px; }
+  .narration { white-space: normal; }
+  .narration p, .narration ul, .narration ol, .narration pre { margin: 0 0 10px; }
+  .narration ul, .narration ol { padding-left: 18px; }
+  .narration li { margin: 2px 0; }
+  .narration .md-heading { font-weight: 600; margin-top: 4px; }
+  .narration code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.92em; padding: 1px 4px; border-radius: 3px; background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.15)); }
+  .narration pre { padding: 6px 8px; border-radius: 3px; background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.15)); overflow-x: auto; }
+  .narration pre code { padding: 0; background: none; }
   .controls { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
-  .nav-dock .follow-up { margin: 8px 0 4px; }
   button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 6px 10px; cursor: pointer; border-radius: 2px; font-size: 12px; line-height: 1.2; }
   button:hover { background: var(--vscode-button-hoverBackground); }
   button:focus-visible, input:focus-visible, summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
@@ -449,7 +487,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   .bridge-prompt { white-space: pre-wrap; word-break: break-word; margin: 0 0 6px 0; font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; line-height: 1.4; max-height: 180px; overflow: auto; }
   button.link { background: none; border: none; color: var(--vscode-textLink-foreground); padding: 0; cursor: pointer; font-size: 11px; }
   button.link:hover { text-decoration: underline; background: none; }
-  .route-panel { margin-top: 8px; border: 1px solid var(--vscode-panel-border, transparent); border-radius: 3px; background: var(--vscode-editorWidget-background, var(--vscode-sideBarSectionHeader-background, transparent)); }
+  .route-panel { margin-top: 10px; border: 1px solid var(--vscode-panel-border, transparent); border-radius: 3px; background: var(--vscode-editorWidget-background, var(--vscode-sideBarSectionHeader-background, transparent)); }
   .route-panel summary { padding: 6px 8px; cursor: pointer; color: var(--vscode-foreground); font-size: 12px; user-select: none; }
   .route-panel summary::marker { color: var(--vscode-descriptionForeground); }
   .route-summary-row { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; width: calc(100% - 16px); min-width: 0; vertical-align: top; }
@@ -485,27 +523,27 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           ${currentViewLabel ? `<span class="view-chip">${escape(currentViewLabel)}</span>` : ""}
         </div>
         <div class="progress" title="${index + 1} of ${total}"><div class="progress-fill" style="width:${progressPct}%"></div></div>
-        <div class="nav-heading">
-          <div class="nav-title-block">
-            <h2 class="nav-title" title="${escape(title)}">${escape(title)}</h2>
-          </div>
-          <div class="nav-step-actions" aria-label="Step navigation">
+        <div class="nav-toolbar" role="toolbar" aria-label="Tour controls">
+          <div class="nav-step-actions">
             ${primaryStepButtons}
           </div>
+          <div class="nav-icons">
+            ${playButton}${menuButton}
+          </div>
         </div>
-        <div class="nav-utilities" aria-label="Tour tools">
-          ${utilityButtons}
-        </div>
-        <input id="q" class="follow-up" placeholder="Follow-up question — Enter to copy prompt" />
-        <div class="meta">Voice: ${escape(ttsProvider)} · <a href="#" id="openTtsSettings">settings</a> · Deepen/follow-up copy prompts for your agent.</div>
+        <h2 class="nav-title" title="${escape(title)}">${escape(title)}</h2>
         ${overview}
       </section>
       <main class="tour-main">
         ${driftBadge}
         ${bridgeBlock}
-        <div class="explanation">${escape(explanation)}</div>
+        <div class="explanation narration">${renderNarrationMarkdown(explanation)}</div>
       </main>
+      <footer class="ask-dock">
+        <input id="q" class="follow-up" placeholder="Ask a follow-up about this stop…" aria-label="Follow-up question" title="Press Enter to copy a follow-up prompt for your agent (voice: ${escape(ttsProvider)})" />
+      </footer>
     </div>
+    <div id="tourMenu" class="menu" role="menu" aria-label="Tour actions" hidden>${menuItems}</div>
   ` : `${emptyState}${repoTourList}`}
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
@@ -526,10 +564,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     on("stop", "stop");
     on("exportTour", "exportTour");
     on("dismissBridge", "dismissBridge");
-    document.getElementById("openTtsSettings")?.addEventListener("click", (e) => {
-      e.preventDefault();
-      send({ type: "openTtsSettings" });
-    });
+    on("openTtsSettings", "openTtsSettings");
     document.querySelectorAll(".stop").forEach((el) => {
       el.addEventListener("click", () => {
         const i = parseInt(el.getAttribute("data-index"), 10);
@@ -538,10 +573,10 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     });
     const routePanel = document.getElementById("routePanel");
     if (routePanel) {
-      const state = readState();
-      if (state.routeCollapsed) routePanel.removeAttribute("open");
+      // The route starts collapsed; opening it is remembered for this panel.
+      if (readState().routeOpen) routePanel.setAttribute("open", "");
       routePanel.addEventListener("toggle", () => {
-        writeState({ routeCollapsed: !routePanel.open });
+        writeState({ routeOpen: routePanel.open });
         if (routePanel.open) {
           const list = document.querySelector(".stops");
           const active = document.querySelector(".stop.active");
@@ -578,6 +613,60 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         rootPath: b.getAttribute("data-root"),
       }));
     });
+    // ---- ☰ menu ---------------------------------------------------------------
+    const menuButton = document.getElementById("menuButton");
+    const menu = document.getElementById("tourMenu");
+    const menuEntries = menu ? [...menu.querySelectorAll(".menu-item")] : [];
+    function openMenu(focusFirst) {
+      if (!menu || !menuButton) return;
+      hideTooltip();
+      menu.hidden = false;
+      const anchor = menuButton.getBoundingClientRect();
+      const box = menu.getBoundingClientRect();
+      const left = Math.max(8, Math.min(window.innerWidth - box.width - 8, anchor.right - box.width));
+      let top = anchor.bottom + 4;
+      if (top + box.height > window.innerHeight - 8) top = Math.max(8, anchor.top - box.height - 4);
+      menu.style.left = left + "px";
+      menu.style.top = top + "px";
+      menuButton.setAttribute("aria-expanded", "true");
+      if (focusFirst) menuEntries[0]?.focus();
+    }
+    function closeMenu(restoreFocus) {
+      if (!menu || menu.hidden) return;
+      menu.hidden = true;
+      menuButton?.setAttribute("aria-expanded", "false");
+      if (restoreFocus) menuButton?.focus();
+    }
+    menuButton?.addEventListener("click", (e) => {
+      if (menu?.hidden) openMenu(e.detail === 0);
+      else closeMenu(false);
+    });
+    menuButton?.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        openMenu(true);
+      }
+    });
+    menu?.addEventListener("keydown", (e) => {
+      const at = menuEntries.indexOf(document.activeElement);
+      const focusAt = (i) => menuEntries[(i + menuEntries.length) % menuEntries.length]?.focus();
+      if (e.key === "ArrowDown") { e.preventDefault(); focusAt(at + 1); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); focusAt(at - 1); }
+      else if (e.key === "Home") { e.preventDefault(); focusAt(0); }
+      else if (e.key === "End") { e.preventDefault(); focusAt(-1); }
+      else if (e.key === "Escape") { e.preventDefault(); closeMenu(true); }
+      else if (e.key === "Tab") closeMenu(false);
+    });
+    menu?.addEventListener("click", (e) => {
+      if (e.target.closest(".menu-item")) closeMenu(false);
+    });
+    document.addEventListener("mousedown", (e) => {
+      if (!menu || menu.hidden || menu.contains(e.target) || menuButton?.contains(e.target)) return;
+      closeMenu(false);
+    });
+    window.addEventListener("blur", () => closeMenu(false));
+    window.addEventListener("resize", () => closeMenu(false));
+
     const tooltip = document.createElement("div");
     tooltip.id = "buttonTooltip";
     tooltip.className = "button-tooltip";
@@ -702,20 +791,20 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     let mode = null;     // 'synth' | 'audio'
     let state = "idle";  // idle | preparing | playing | paused
 
+    const ICONS = ${JSON.stringify(ICONS).replace(/<\//g, "<\\/")};
     function setState(s) {
       state = s;
       send({ type: "tts.state", state: s });
       if (!btn) return;
-      btn.textContent =
-        s === "preparing" ? "⏳ Loading voice…" :
-        s === "playing" ? "⏸️ Pause" :
-        s === "paused" ? "▶️ Resume" : "🔊 Speak";
-      setButtonTooltip(btn,
+      btn.innerHTML = s === "preparing" ? ICONS.loading : s === "playing" ? ICONS.pause : ICONS.play;
+      btn.classList.toggle("active", s === "playing" || s === "preparing");
+      const label =
         s === "preparing" ? "Stop loading this stop's narration" :
         s === "playing" ? "Pause this stop's narration" :
         s === "paused" ? "Resume this stop's narration" :
-        "Read this stop aloud",
-      );
+        "Read this stop aloud";
+      btn.setAttribute("aria-label", label);
+      setButtonTooltip(btn, label);
     }
 
     function getAudioContext() {

@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   emptyLibraryControls,
+  narrationControl,
   primaryStepNavigationControls,
-  utilityNavigationControls,
+  stepMenuItems,
 } from "../out-test/ux/navigationControls.js";
 
 test("keeps the empty library focused on agent setup", () => {
@@ -30,14 +31,30 @@ test("disables only the unavailable primary navigation direction", () => {
   assert.equal(primaryStepNavigationControls(2, 3)[1].disabled, true);
 });
 
-test("keeps utility actions out of the primary Back and Next slots", () => {
-  assert.deepEqual(
-    utilityNavigationControls("system").map(({ id }) => id),
-    ["revealCurrent", "openCurrentSource", "deeper", "stop", "playPause", "exportTour"],
-  );
+test("names the neighbouring stops in the Back and Next tooltips", () => {
+  const [back, next] = primaryStepNavigationControls(1, 3, { previous: "Limits", next: "Startup" });
+  assert.equal(back.tooltip, "Previous stop: Limits");
+  assert.equal(next.tooltip, "Next stop: Startup");
+  const [first] = primaryStepNavigationControls(0, 3, { next: "Startup" });
+  assert.equal(first.tooltip, "Previous stop");
 });
 
-test("disables Speak when text to speech is off", () => {
-  const speak = utilityNavigationControls("off").find(({ id }) => id === "playPause");
-  assert.equal(speak?.disabled, true);
+test("moves the step tools into the menu, with Stop last and set apart", () => {
+  const items = stepMenuItems("darwin");
+  assert.deepEqual(
+    items.map(({ id }) => id),
+    ["revealCurrent", "openCurrentSource", "deeper", "exportTour", "openTtsSettings", "stop"],
+  );
+  const stop = items.at(-1);
+  assert.equal(stop.separatorBefore, true);
+  assert.equal(stop.destructive, true);
+  assert.equal(items.find(({ id }) => id === "openCurrentSource").shortcut, "⌥⌘O");
+  assert.equal(stepMenuItems("linux").find(({ id }) => id === "openCurrentSource").shortcut, "Alt+O");
+});
+
+test("disables the play button when text to speech is off", () => {
+  assert.equal(narrationControl("system").disabled, false);
+  const off = narrationControl("off");
+  assert.equal(off.disabled, true);
+  assert.match(off.tooltip, /Narration settings/);
 });
