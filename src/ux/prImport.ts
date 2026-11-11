@@ -38,6 +38,7 @@ import { parseGitHubRemote } from "../github/remotes";
 import { findToursInMarkdown, FoundTour } from "../github/tourComments";
 import { listRepoTours, readRepoTour, REPO_TOURS_DIR } from "../storage/repoTours";
 import { currentWorkspaceFolders, workspaceFolderInfos } from "../workspace";
+import { plainMessageText } from "./messageText";
 import type { TourController } from "./tourController";
 
 /**
@@ -83,7 +84,7 @@ export async function handleReviewUri(uri: vscode.Uri, ctx: PrImportContext): Pr
     request = parseReviewLink(uri.path, uri.query);
   } catch (err) {
     ctx.log.appendLine(`[pr-import] rejected link ${uri.toString(true)}: ${message(err)}`);
-    vscode.window.showErrorMessage(`RepoTrail: ignored an invalid review link. ${message(err)}`);
+    vscode.window.showErrorMessage(`RepoTrail: ignored an invalid review link. ${plainMessageText(message(err))}`);
     return;
   }
   await importTourFromPr(request, ctx, { fromLink: true });
@@ -187,13 +188,13 @@ export async function importTourFromPr(
     const stale = staleHeadMessage(plan, { expected: request.head, current: pull.headSha });
     if (stale) {
       ctx.log.appendLine(`[pr-import] ${stale}`);
-      void vscode.window.showWarningMessage(`RepoTrail: ${stale}`);
+      void vscode.window.showWarningMessage(`RepoTrail: ${plainMessageText(stale, 400)}`);
     }
     void offerSave(picked, plan, clone.folder, label, ctx, tourHead);
   } catch (err) {
     if (err instanceof Cancelled) return;
     ctx.log.appendLine(`[pr-import] failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
-    vscode.window.showErrorMessage(`RepoTrail: couldn't import a tour from ${label}. ${message(err)}`);
+    vscode.window.showErrorMessage(`RepoTrail: couldn't import a tour from ${label}. ${plainMessageText(message(err))}`);
   }
 }
 
@@ -517,9 +518,9 @@ async function offerSave(
   ctx: PrImportContext,
   tourHead: string | undefined,
 ): Promise<void> {
-  const headNote = tourHead ? ` at ${short(tourHead)}` : "";
+  const headNote = tourHead ? ` at ${plainMessageText(short(tourHead), 40)}` : "";
   const pick = await vscode.window.showInformationMessage(
-    `RepoTrail: playing "${plan.title}" from ${label}${headNote} (${plan.steps.length} stops).`,
+    `RepoTrail: playing "${plainMessageText(plan.title, 120)}" from ${label}${headNote} (${plan.steps.length} stops).`,
     `Save to ${REPO_TOURS_DIR}/`,
   );
   if (pick !== `Save to ${REPO_TOURS_DIR}/`) return;
@@ -540,7 +541,7 @@ async function offerSave(
     vscode.window.setStatusBarMessage(`RepoTrail: saved ${REPO_TOURS_DIR}/${path.basename(file)}.`, 4000);
   } catch (err) {
     ctx.log.appendLine(`[pr-import] save failed: ${message(err)}`);
-    vscode.window.showErrorMessage(`RepoTrail: couldn't save the tour. ${message(err)}`);
+    vscode.window.showErrorMessage(`RepoTrail: couldn't save the tour. ${plainMessageText(message(err))}`);
   }
 }
 

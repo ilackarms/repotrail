@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { TourPlan, TourStep, TourStepDiffScope } from "./engine/types";
 import { readGitBlobText } from "./gitBlob";
+import { plainMessageText } from "./ux/messageText";
 import { normalizeWorkspaceFile, resolveStepWorkspaceFolder } from "./workspace";
 
 export interface MaterializedStepDiff {
@@ -46,7 +47,7 @@ export async function materializeStepDiff(
   let beforeGit: GitDiffSide | undefined;
   if (diff.baseRef) {
     if (!folder) {
-      vscode.window.showErrorMessage(`RepoTrail: cannot resolve workspace folder for git diff ${step.file}.`);
+      vscode.window.showErrorMessage(`RepoTrail: cannot resolve workspace folder for git diff ${plainMessageText(step.file)}.`);
       return null;
     }
     const baseFile = normalizeWorkspaceFile(diff.baseFile ?? step.file);
@@ -65,7 +66,7 @@ export async function materializeStepDiff(
 
   if (beforeText === undefined) {
     vscode.window.showErrorMessage(
-      `RepoTrail: diff step "${step.title}" needs diff.baseRef or diff.beforeText.`,
+      `RepoTrail: diff step "${plainMessageText(step.title)}" needs diff.baseRef or diff.beforeText.`,
     );
     return null;
   }
@@ -76,7 +77,7 @@ export async function materializeStepDiff(
   let afterGit: GitDiffSide | undefined;
   if (diff.headRef) {
     if (!folder) {
-      vscode.window.showErrorMessage(`RepoTrail: cannot resolve workspace folder for git diff ${step.file}.`);
+      vscode.window.showErrorMessage(`RepoTrail: cannot resolve workspace folder for git diff ${plainMessageText(step.file)}.`);
       return null;
     }
     const headFile = normalizeWorkspaceFile(diff.headFile ?? step.file);
@@ -151,7 +152,7 @@ function reportMaterializeError(
 ): void {
   const detail = err instanceof Error ? err.message : String(err);
   logger?.appendLine(`[diff] failed to materialize ${side} for ${step.file}: ${detail}`);
-  vscode.window.showErrorMessage(`RepoTrail: could not read ${side} ref for ${step.file}.`);
+  vscode.window.showErrorMessage(`RepoTrail: could not read ${side} ref for ${plainMessageText(step.file)}.`);
 }
 
 function clamp(value: number, min: number, max: number): number {
