@@ -36,6 +36,7 @@ import {
 } from "./tts/config";
 import { TourCodeLensProvider } from "./ux/codeLensProvider";
 import { setEditorLogger } from "./ux/editorActions";
+import { deleteTourCommand } from "./ux/tourDelete";
 import { commentOnPr } from "./ux/prComments";
 import { onDidFindLateCheckout, setPullRequestReviewLogger, stopShowsReviewCheckout } from "./ux/pullRequestReview";
 import { formatSelectionReference, selectedFullLineRange } from "./ux/selectionReference";
@@ -100,6 +101,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         log.appendLine(`[store] persist failed: ${err instanceof Error ? err.message : String(err)}`);
       });
   });
+  // Queued behind pending saves, so a save can't bring a deleted record back.
+  const forgetProgress = (workspaceRoot: string, id: string): Promise<void> => {
+    persistQueue = persistQueue
+      .then(async () => {
+        if (!(await deleteTour(workspaceRoot, id))) log.appendLine(`[store] couldn't delete progress record ${id}`);
+      })
+      .catch((err) => {
+        log.appendLine(`[store] forget failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    return persistQueue;
+  };
 
   const viewProvider = new TourViewProvider(context.extensionUri, controller, log);
   viewProvider.setRepoTourLoader(async () => {
@@ -127,14 +139,46 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (reloadTimer) clearTimeout(reloadTimer);
     reloadTimer = setTimeout(() => {
       reloadTimer = null;
-      void reloadActiveRepoTour(controller, uri, log, generation, () => reloadGeneration);
+      void reloadActiveRepoTour(controller, uri, log, generation, () => reloadGeneration, forgetProgress);
     }, 150);
+  };
+  const activeRepoTourUri = (): vscode.Uri | null => {
+    const source = controller.activeRepoTourSource;
+    return source ? vscode.Uri.file(path.join(source.rootPath, REPO_TOURS_DIR, path.basename(source.file))) : null;
+  };
+  // Deleting or moving the whole .repotrail folder reports one event for the
+  // folder, not one per tour file, so the folder is watched too.
+  const repoTourDirWatcher = vscode.workspace.createFileSystemWatcher(`**/${REPO_TOURS_DIR}`);
+  let windowFocused = vscode.window.state.focused;
+  const repoTourDirDeleted = (uri: vscode.Uri) => {
+    viewProvider.refresh();
+    const active = activeRepoTourUri();
+    if (active && path.resolve(path.dirname(active.fsPath)) === path.resolve(uri.fsPath)) scheduleRepoTourReload(active);
   };
   context.subscriptions.push(
     repoTourWatcher,
     repoTourWatcher.onDidCreate(scheduleRepoTourReload),
     repoTourWatcher.onDidChange(scheduleRepoTourReload),
     repoTourWatcher.onDidDelete(scheduleRepoTourReload),
+    repoTourDirWatcher,
+    repoTourDirWatcher.onDidCreate(refreshRepoTours),
+    repoTourDirWatcher.onDidDelete(repoTourDirDeleted),
+    // Safety net for events the watchers miss: on focus, drop an active tour
+    // whose file is gone and redraw a library that changed.
+    vscode.window.onDidChangeWindowState((state) => {
+      const gainedFocus = state.focused && !windowFocused;
+      windowFocused = state.focused;
+      if (!gainedFocus) return;
+      const active = activeRepoTourUri();
+      if (active) {
+        void Promise.resolve(vscode.workspace.fs.stat(active)).then(
+          () => undefined,
+          () => scheduleRepoTourReload(active),
+        );
+      } else {
+        void viewProvider.refreshIfLibraryChanged();
+      }
+    }),
     vscode.workspace.onDidChangeWorkspaceFolders(refreshRepoTours),
     { dispose: () => reloadTimer && clearTimeout(reloadTimer) },
   );
@@ -234,6 +278,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
     }),
     vscode.commands.registerCommand("repoTrail.renameTour", (arg?: RenameTourArg) => renameTour(arg, controller, viewProvider, log)),
+    vscode.commands.registerCommand("repoTrail.deleteTour", (arg?: RenameTourArg) =>
+      deleteTourCommand(arg, {
+        controller,
+        log,
+        roots: repoTourRoots,
+        refresh: () => viewProvider.refresh(),
+        forgetProgress,
+      }),
+    ),
     vscode.commands.registerCommand("repoTrail.deeper", () => copyDeepenPrompt(controller, viewProvider, log)),
     vscode.commands.registerCommand(
       "repoTrail.followUp",
@@ -474,6 +527,7 @@ async function reloadActiveRepoTour(
   log: vscode.OutputChannel,
   generation: number,
   currentGeneration: () => number,
+  forgetProgress: (workspaceRoot: string, id: string) => Promise<void>,
 ): Promise<void> {
   const source = controller.activeRepoTourSource;
   if (!source || !sameRepoTourUri(source, uri)) return;
@@ -488,8 +542,9 @@ async function reloadActiveRepoTour(
       if (generation !== currentGeneration()) return;
       if (!sameRepoTourSource(controller.activeRepoTourSource, source)) return;
       const progressId = controller.activeTourId;
+      const storageRoot = controller.activeWorkspaceRoot ?? currentWorkspaceStorageRoot();
       controller.stop({ forgetRepoSource: true });
-      if (progressId) await deleteTour(currentWorkspaceStorageRoot(), progressId);
+      if (progressId) await forgetProgress(storageRoot, progressId);
       vscode.window.showInformationMessage("RepoTrail: the active tour file was deleted.");
       log.appendLine(`[repo-tour] active source deleted: ${uri.fsPath}`);
     }
