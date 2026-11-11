@@ -13,6 +13,8 @@ export interface GitHubComment {
   id: string;
   body: string;
   author: string;
+  /** GitHub's author_association, e.g. OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, NONE. */
+  authorAssociation: string;
   createdAt: string;
   htmlUrl: string;
   /** API URL of the issue or pull request the comment belongs to. */
@@ -23,6 +25,8 @@ export interface GitHubPull {
   number: number;
   title: string;
   state: string;
+  /** Login of the pull request's author. */
+  author: string;
   headSha: string;
   baseSha: string;
   /** Canonical `owner/repo` of the base repository. */
@@ -34,6 +38,8 @@ export interface GitHubClientOptions {
   token?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  /** Aborts in-flight requests, e.g. when the user cancels the progress notification. */
+  signal?: AbortSignal;
 }
 
 export class GitHubApiError extends Error {
@@ -54,6 +60,7 @@ export async function getPull(pr: PrRef, options: GitHubClientOptions): Promise<
   const head = asRecord(obj.head);
   const base = asRecord(obj.base);
   const baseRepo = asRecord(base.repo);
+  const user = asRecord(obj.user);
   if (typeof head.sha !== "string" || typeof base.sha !== "string") {
     throw new GitHubApiError("GitHub returned an unexpected pull request response.", 200);
   }
@@ -61,6 +68,7 @@ export async function getPull(pr: PrRef, options: GitHubClientOptions): Promise<
     number: typeof obj.number === "number" ? obj.number : pr.number,
     title: typeof obj.title === "string" ? obj.title : "",
     state: typeof obj.state === "string" ? obj.state : "",
+    author: typeof user.login === "string" ? user.login : "",
     headSha: head.sha.toLowerCase(),
     baseSha: base.sha.toLowerCase(),
     baseRepo: typeof baseRepo.full_name === "string" ? baseRepo.full_name : `${pr.owner}/${pr.repo}`,
@@ -84,6 +92,7 @@ export async function listIssueComments(pr: PrRef, options: GitHubClientOptions)
   const comments: GitHubComment[] = [];
   let url: string | null = `${GITHUB_API_ORIGIN}${repoPath(pr)}/issues/${pr.number}/comments?per_page=100`;
   for (let page = 0; url && page < MAX_COMMENT_PAGES; page++) {
+    if (options.signal?.aborted) throw new GitHubApiError("Cancelled.", 0);
     const res = await request(url, options);
     const raw = (await res.json()) as unknown;
     if (!Array.isArray(raw)) throw new GitHubApiError("GitHub returned an unexpected comments response.", res.status);
@@ -134,15 +143,21 @@ async function request(url: string, options: GitHubClientOptions): Promise<Respo
     "user-agent": "RepoTrail-VSCode",
   };
   if (options.token) headers.authorization = `Bearer ${options.token}`;
+  // AbortSignal.any isn't in the Node that VS Code 1.85 ships, so combine by hand.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 20_000);
+  const onAbort = () => controller.abort();
+  options.signal?.addEventListener("abort", onAbort, { once: true });
   let res: Response;
   try {
-    res = await fetchImpl(url, {
-      headers,
-      signal: AbortSignal.timeout(options.timeoutMs ?? 20_000),
-    });
+    res = await fetchImpl(url, { headers, signal: controller.signal });
   } catch (err) {
+    if (options.signal?.aborted) throw new GitHubApiError("Cancelled.", 0);
     const detail = err instanceof Error ? err.message : String(err);
     throw new GitHubApiError(`Could not reach api.github.com: ${detail}`, 0);
+  } finally {
+    clearTimeout(timer);
+    options.signal?.removeEventListener("abort", onAbort);
   }
   if (res.ok) return res;
   const rateLimited =
@@ -166,6 +181,7 @@ function toComment(value: unknown): GitHubComment | null {
     id: String(obj.id),
     body: typeof obj.body === "string" ? obj.body : "",
     author: typeof user.login === "string" ? user.login : "unknown",
+    authorAssociation: typeof obj.author_association === "string" ? obj.author_association : "NONE",
     createdAt: typeof obj.created_at === "string" ? obj.created_at : "",
     htmlUrl: typeof obj.html_url === "string" ? obj.html_url : "",
     issueUrl: typeof obj.issue_url === "string" ? obj.issue_url : "",
