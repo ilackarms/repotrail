@@ -52,6 +52,12 @@ test("moves the step tools into the menu, with Stop last and set apart", () => {
   assert.equal(stepMenuItems("linux").find(({ id }) => id === "openCurrentSource").shortcut, "Alt+O");
 });
 
+test("offers Comment on PR only for tours of a change", () => {
+  const ids = (options) => stepMenuItems("darwin", options).map(({ id }) => id);
+  assert.equal(ids().includes("commentOnPr"), false);
+  assert.deepEqual(ids({ prComments: true }).slice(0, 4), ["revealCurrent", "openCurrentSource", "commentOnPr", "deeper"]);
+});
+
 test("disables the play button when text to speech is off", () => {
   assert.equal(narrationControl("system").disabled, false);
   const off = narrationControl("off");

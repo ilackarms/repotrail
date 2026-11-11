@@ -22,6 +22,21 @@ If the tour needs commits your clone lacks, RepoTrail asks before running
 configured, which uses your normal git credentials. **Copy Tour as PR Comment**
 only writes to your clipboard; RepoTrail never posts to GitHub.
 
+Review comments go through the GitHub Pull Requests extension, if you have it
+installed. To decide whether a tour stop can show a commentable file,
+RepoTrail asks that extension, through its API, which pull request a folder has
+checked out. RepoTrail passes only the folder's location and nothing about your
+tour. The extension answers from its own state, and it may call GitHub to
+describe the repository, as it already does by itself.
+
+**Comment on PR** reopens the current stop when the PR is already checked out.
+Otherwise it waits for you to pick one of its buttons:
+
+- **Check Out PR** opens that extension's own checkout link. RepoTrail then asks
+  the extension every few seconds, for up to three minutes, whether the
+  checkout has landed, so that it can reopen the stop.
+- **Comment on GitHub** opens the pull request in your browser.
+
 ## Source Code Access
 
 RepoTrail itself does not send your source code to a hosted model. Tour
