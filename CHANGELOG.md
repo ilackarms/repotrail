@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.13.1 - 2026-11-11
 
 - Added PR comments from the trail, through the GitHub Pull Requests
   extension.
