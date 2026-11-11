@@ -48,8 +48,11 @@ Layers stay separated:
    panel; `src/ux/slidePanel.ts` owns that panel and only `editorActions.ts`
    drives it. Webview code may import `src/engine/` and pure UI helpers, never
    `vscode`.
-7. `harness/repo-trail/SKILL.md` is the generic authoring skill.
-8. `harness/README.md` documents the JSON file contract for external agents.
+7. `src/cli.ts` is the command line for agents (`out/cli.js lint` and
+   `render`). It uses `src/engine/` only and reads files and git directly;
+   it never imports `vscode`. Lint rules live in `src/engine/slides/lint.ts`.
+8. `harness/repo-trail/SKILL.md` is the generic authoring skill.
+9. `harness/README.md` documents the JSON file contract for external agents.
 
 ## Product Rule
 

@@ -116,7 +116,7 @@ export class SlidePanel {
 <link rel="stylesheet" href="${style}">
 <title>RepoTrail Slides</title>
 </head>
-<body>
+<body class="rt-panel">
 <div id="stage" tabindex="-1"></div>
 <script nonce="${nonce}" src="${script}"></script>
 </body>

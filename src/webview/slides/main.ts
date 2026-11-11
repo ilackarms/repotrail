@@ -7,6 +7,7 @@
  */
 
 import type { SlideHostMessage, SlideViewPayload, SlideWebviewMessage } from "../../engine/slides/payload";
+import { narrationAt, slideBeats } from "../../engine/slides/timeline";
 import { SlideView, slideKey } from "./animate";
 import { fitSlide, renderSlide, SLIDE_HEIGHT, SLIDE_WIDTH } from "./render";
 import "./slides.css";
@@ -22,6 +23,8 @@ const api: VsCodeApi | null = typeof acquireVsCodeApi === "function" ? acquireVs
 (window as unknown as { RepoTrailSlides: object }).RepoTrailSlides = {
   SlideView,
   slideKey,
+  slideBeats,
+  narrationAt,
   renderSlide,
   fitSlide,
   SLIDE_WIDTH,

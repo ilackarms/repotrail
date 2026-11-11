@@ -1,4 +1,4 @@
-import { TourPlan } from "./types";
+import { TourPlan, TourRange, TourSlide } from "./types";
 import {
   BROWSER_TTS_PROVIDERS,
   TTS_DEFAULTS,
@@ -38,6 +38,8 @@ export interface AnimatedTourFrame {
   viewLabel: string;
   code?: AnimatedTourCodeFrame;
   diff?: AnimatedTourDiffFrame;
+  /** A slide stop, played with the slide runtime. */
+  slide?: TourSlide;
   warnings: string[];
 }
 
@@ -46,6 +48,48 @@ export interface AnimatedTourHtmlInput {
   exportedAt: string;
   frames: AnimatedTourFrame[];
   tts?: AnimatedTourTtsDefaults;
+  /**
+   * The slide runtime (out/slides.js and out/slides.css), inlined so slide
+   * frames play in the exported page. The caller reads the files; this module
+   * stays pure.
+   */
+  slideRuntime?: { script: string; css: string };
+}
+
+export const ANIMATED_EXPORT_CONTEXT_LINES = 2;
+export const ANIMATED_EXPORT_MAX_CODE_LINES = 80;
+
+/**
+ * The code shown for a code stop: the range plus some context, capped in
+ * length. `lines` is the whole file.
+ */
+export function codeFrameFromLines(
+  lines: string[],
+  range: TourRange | undefined,
+  languageId: string | undefined,
+  eol = "\n",
+): { frame: AnimatedTourCodeFrame; warnings: string[] } {
+  if (lines.length === 0) return { frame: { text: "", startLine: 1, languageId }, warnings: [] };
+  const clampLine = (n: number, lo: number) => Math.max(lo, Math.min(lines.length - 1, n));
+  const focusStart = range ? clampLine(range.startLine - 1, 0) : 0;
+  const focusEnd = range ? clampLine(range.endLine - 1, focusStart) : 0;
+  const start = range ? Math.max(0, focusStart - ANIMATED_EXPORT_CONTEXT_LINES) : 0;
+  let end = range
+    ? Math.min(lines.length - 1, focusEnd + ANIMATED_EXPORT_CONTEXT_LINES)
+    : Math.min(lines.length - 1, ANIMATED_EXPORT_MAX_CODE_LINES - 1);
+  if (end - start + 1 > ANIMATED_EXPORT_MAX_CODE_LINES) end = start + ANIMATED_EXPORT_MAX_CODE_LINES - 1;
+  const truncated = start > 0 || end < lines.length - 1;
+  return {
+    frame: {
+      text: lines.slice(start, end + 1).join(eol),
+      startLine: start + 1,
+      highlightStartLine: range ? focusStart + 1 : undefined,
+      highlightEndLine: range ? focusEnd + 1 : undefined,
+      languageId,
+      truncated,
+    },
+    warnings: truncated ? ["Code snapshot was trimmed around the tour range."] : [],
+  };
 }
 
 export interface AnimatedTourTtsDefaults {
@@ -110,6 +154,7 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
 <title>${escapeHtml(input.plan.title || "RepoTrail tour")}</title>
+${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<\\/style")}</style>` : ""}
 <style>
   :root {
     color-scheme: dark;
@@ -130,6 +175,7 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
   }
 
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
 
   body {
     margin: 0;
@@ -558,6 +604,30 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
     color: var(--muted);
   }
 
+  .frame.is-slide { grid-template-columns: minmax(0, 2.4fr) minmax(260px, 0.8fr); }
+  .slide-surface { min-width: 0; }
+  .slide-box {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    --vscode-editor-background: var(--panel);
+    --vscode-editor-foreground: var(--text);
+    --vscode-descriptionForeground: var(--muted);
+    --vscode-editorWidget-background: #1d1d1c;
+    --vscode-editorWidget-border: var(--line);
+    --vscode-textCodeBlock-background: var(--code-bg);
+  }
+  .slide-box .rt-slide { transform-origin: 0 0; }
+  .beat-list { margin: 14px 0 0; padding-left: 20px; line-height: 1.45; }
+  .beat-list li { margin: 0 0 6px; color: var(--muted); }
+  .beat-list li.past { color: var(--text); opacity: 0.75; }
+  .beat-list li.current { color: var(--text); font-weight: 700; }
+  .beat-list li.current::marker { color: var(--accent); }
+  .beat-list li.future { opacity: 0.45; }
+
   @media (max-width: 900px) {
     .topbar { grid-template-columns: 1fr; }
     .controls { justify-content: flex-start; }
@@ -565,7 +635,7 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
     .layout { grid-template-columns: 1fr; }
     .rail { border-right: none; border-bottom: 1px solid var(--line); }
     .stop-list { grid-auto-flow: column; grid-auto-columns: minmax(220px, 1fr); overflow-x: auto; }
-    .frame { grid-template-columns: 1fr; }
+    .frame, .frame.is-slide { grid-template-columns: 1fr; }
     .code-body { max-height: 54vh; }
   }
 
@@ -652,7 +722,10 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
     <main class="stage">
       <div class="progress"><div id="progressFill" class="progress-fill"></div></div>
       <section id="frame" class="frame" aria-live="polite">
-        <section class="code-surface">
+        <section id="slideSurface" class="slide-surface" hidden>
+          <div id="slideBox" class="slide-box"></div>
+        </section>
+        <section id="codeSurface" class="code-surface">
           <div class="surface-head">
             <div id="surfaceTitle" class="surface-title"></div>
             <div id="surfaceMode" class="pill"></div>
@@ -668,6 +741,7 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
             <h2 id="stepTitle"></h2>
             <div id="location" class="location"></div>
             <div id="narration" class="narration"></div>
+            <ol id="beatList" class="beat-list" hidden></ol>
           </div>
           <div id="warnings" class="warnings"></div>
         </aside>
@@ -676,13 +750,17 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
   </div>
 </div>
 <script id="tour-data" type="application/json">${data}</script>
+${input.slideRuntime ? `<script>${input.slideRuntime.script.replace(/<\/script/gi, "<\\/script")}</script>` : ""}
 <script>
 (() => {
   const data = JSON.parse(document.getElementById("tour-data").textContent || "{}");
   const defaultTts = ${browserTtsDefaults};
   const browserTtsProviders = ${browserTtsProviders};
   const frames = Array.isArray(data.frames) ? data.frames : [];
+  const slides = window.RepoTrailSlides || null;
   let index = 0;
+  let beat = 0; // position on a slide stop: 0 before any beat
+  let slideView = null;
 
   const byId = (id) => document.getElementById(id);
   const setText = (id, value) => { const el = byId(id); if (el) el.textContent = value || ""; };
@@ -832,7 +910,78 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
   function currentSpeechText() {
     const frame = frames[index];
     if (!frame) return "";
+    if (frame.slide && slides && beat > 0) {
+      return humanizeForSpeech(slides.narrationAt({ title: frame.title, explanation: frame.explanation, slide: frame.slide, actions: [] }, beat));
+    }
     return humanizeForSpeech((frame.title || "") + ". " + (frame.explanation || ""));
+  }
+
+  function beatCount(frame) {
+    return frame && frame.slide && slides ? slides.slideBeats(frame.slide).length : 0;
+  }
+
+  /** Mount the current slide at the current beat, scaled to the slide box. */
+  function renderSlideFrame(frame) {
+    const box = byId("slideBox");
+    if (!box) return;
+    if (slideView) slideView.dispose();
+    slideView = null;
+    box.textContent = "";
+    if (!slides) {
+      const empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "This export doesn't include the slide runtime.";
+      box.appendChild(empty);
+      return;
+    }
+    slideView = new slides.SlideView({
+      title: frame.title || "",
+      slide: frame.slide,
+      index: index,
+      total: frames.length,
+      source: frame.location || undefined,
+      position: beat,
+      motion: "full",
+      captions: true,
+    });
+    box.appendChild(slideView.root);
+    slideView.mount();
+    placeSlide();
+  }
+
+  function placeSlide() {
+    const box = byId("slideBox");
+    if (!slideView || !box || !slides) return;
+    slideView.root.style.transform = "scale(" + box.clientWidth / slides.SLIDE_WIDTH + ")";
+  }
+
+  function renderBeats(frame) {
+    const list = byId("beatList");
+    if (!list) return;
+    list.textContent = "";
+    const beats = frame && frame.slide && slides ? slides.slideBeats(frame.slide) : [];
+    list.hidden = !beats.some((b) => b.say);
+    beats.forEach((b, i) => {
+      if (!b.say) return;
+      const li = document.createElement("li");
+      li.value = i + 1;
+      li.className = i + 1 < beat ? "past" : i + 1 === beat ? "current" : "future";
+      li.textContent = b.say;
+      list.appendChild(li);
+    });
+    const count = beatCount(frame);
+    setText("stepCount", (index + 1) + " / " + frames.length + (count ? " · beat " + beat + " / " + count : ""));
+  }
+
+  function writeHash() {
+    const hash = "#stop=" + (index + 1) + (beat ? "&beat=" + beat : "");
+    if (location.hash !== hash) history.replaceState(null, "", hash);
+  }
+
+  function readHash() {
+    const stop = /stop=([0-9]+)/.exec(location.hash);
+    const b = /beat=([0-9]+)/.exec(location.hash);
+    return { stop: stop ? Number(stop[1]) - 1 : 0, beat: b ? Number(b[1]) : 0 };
   }
 
   function startSpeech() {
@@ -1239,8 +1388,21 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
     if (fill) fill.style.width = progress + "%";
     updateSpeechButtons();
     renderRoute();
-    renderCode(frame);
+    const isSlide = Boolean(frame.slide);
+    if (frameEl) frameEl.classList.toggle("is-slide", isSlide);
+    const slideSurface = byId("slideSurface");
+    const codeSurface = byId("codeSurface");
+    if (slideSurface) slideSurface.hidden = !isSlide;
+    if (codeSurface) codeSurface.hidden = isSlide;
+    if (isSlide) renderSlideFrame(frame);
+    else {
+      if (slideView) slideView.dispose();
+      slideView = null;
+      renderCode(frame);
+    }
+    renderBeats(frame);
     renderWarnings(frame);
+    writeHash();
     if (frameEl) {
       frameEl.classList.remove("is-entering");
       void frameEl.offsetWidth;
@@ -1248,15 +1410,38 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
     }
   }
 
-  function go(next) {
+  function go(next, nextBeat = 0) {
     if (!frames.length) return;
     stopSpeech(true);
     index = Math.max(0, Math.min(frames.length - 1, next));
+    beat = Math.max(0, Math.min(beatCount(frames[index]), nextBeat));
     render();
   }
 
-  byId("prevBtn")?.addEventListener("click", () => go(index - 1));
-  byId("nextBtn")?.addEventListener("click", () => go(index + 1));
+  /** Move to a beat of the slide on screen; forward one beat animates. */
+  function setBeat(next) {
+    const animate = next === beat + 1;
+    stopSpeech(true);
+    beat = next;
+    if (slideView) slideView.goTo(beat, { animate: animate, motion: "full" });
+    renderBeats(frames[index]);
+    writeHash();
+  }
+
+  // Next steps through a slide's beats before the next stop; Back from a
+  // slide's first beat shows the previous slide finished, as in VS Code.
+  function forward() {
+    if (beat < beatCount(frames[index])) setBeat(beat + 1);
+    else if (index < frames.length - 1) go(index + 1, 0);
+  }
+
+  function backward() {
+    if (beat > 0) setBeat(beat - 1);
+    else if (index > 0) go(index - 1, beatCount(frames[index - 1]));
+  }
+
+  byId("prevBtn")?.addEventListener("click", backward);
+  byId("nextBtn")?.addEventListener("click", forward);
   speakBtn?.addEventListener("click", () => {
     if (speechState === "speaking") pauseSpeech();
     else if (speechState === "paused") resumeSpeech();
@@ -1277,10 +1462,20 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
     setTtsStatus("Hosted API keys cleared from this browser.");
   });
   window.addEventListener("keydown", (event) => {
-    if (event.key === "ArrowLeft") go(index - 1);
-    if (event.key === "ArrowRight") go(index + 1);
+    const target = event.target;
+    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) return;
+    if (event.key === "ArrowLeft" || event.key === "PageUp") backward();
+    if (event.key === "ArrowRight" || event.key === "PageDown") forward();
   });
+  window.addEventListener("hashchange", () => {
+    const target = readHash();
+    if (target.stop !== index || target.beat !== beat) go(target.stop, target.beat);
+  });
+  window.addEventListener("resize", placeSlide);
   syncTtsForm();
+  const start = readHash();
+  index = Math.max(0, Math.min(frames.length - 1, start.stop));
+  beat = Math.max(0, Math.min(beatCount(frames[index]), start.beat));
   render();
 })();
 </script>

@@ -17,6 +17,7 @@ import {
   TourStepDiff,
   TourStepViewMode,
 } from "./types";
+import { slideToMarkdown } from "./slides/markdown";
 import { normalizeSlide } from "./slides/normalize";
 
 const EXPORT_VERSION = 2;
@@ -248,11 +249,13 @@ export function planToMarkdown(plan: TourPlan, exportedAt: string): string {
       lines.push(step.explanation.trim());
       lines.push("");
     }
+    if (step.slide) lines.push(...slideToMarkdown(step.slide));
   });
   return lines.join("\n");
 }
 
-function stepLocation(step: TourStep): string {
+/** `path:line` or `path:start-end` for a stop; "Slide" for a slide with no source. */
+export function stepLocation(step: TourStep): string {
   const target = formatStepPath(step);
   if (step.slide && !step.file) return target;
   if (!step.range) return target;

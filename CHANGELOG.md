@@ -28,6 +28,13 @@
   slide tours and includes the path of the new JSON Schema,
   `harness/tour.schema.json`, which VS Code now uses to check
   `.repotrail/*.json` files.
+- Export Tour includes slides. Animated HTML plays them with their beats
+  (Next and Back step through beats, and `#stop=<n>&beat=<k>` opens any
+  position). Markdown writes diagrams as Mermaid, which GitHub renders.
+- The extension ships `out/cli.js` for agents: `lint` checks a tour against
+  the schema, beat ids, source files and the skill's text budgets, and
+  `render` writes the animated HTML player without VS Code. Agent setup
+  includes its path.
 
 ## 0.13.0 - 2026-11-11
 

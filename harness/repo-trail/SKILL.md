@@ -436,14 +436,33 @@ Checklist before you report the tour:
   fewer.
 - Text stays inside the budgets above.
 - Narration doesn't read out what's on the slide; it says why it matters.
-- The file validates against the RepoTrail JSON Schema. It ships with the
-  extension at `harness/tour.schema.json`, for example
-  `~/.vscode/extensions/repotrail.repotrail-<version>/harness/tour.schema.json`
-  (the Agent setup prompt gives the exact path). The schema is the complete
-  reference for accepted fields. VS Code also checks `.repotrail/*.json` files
-  against it. The schema can't check that beat ids exist, so check those
-  yourself. RepoTrail drops what it can't read and lists the problems on the
-  slide.
+- RepoTrail's linter passes with no errors:
+
+  ```bash
+  node <extension>/out/cli.js lint <project>/.repotrail/<slug>.json
+  ```
+
+  `<extension>` is the installed extension's folder, for example
+  `~/.vscode/extensions/repotrail.repotrail-<version>` (the Agent setup prompt
+  gives the exact path). Lint validates against the JSON Schema
+  (`<extension>/harness/tour.schema.json`, the complete reference for accepted
+  fields), checks every beat id, and checks that every `file` exists and every
+  range is inside it. Errors are things RepoTrail would drop: fix all of them.
+  Warnings are the text budgets above and diagrams that will render too small:
+  fix them unless you have a reason not to. Lint finds files relative to the
+  folder that holds `.repotrail/`; for other layouts or multi-root tours, pass
+  `--root <dir>` or `--root <alias>=<dir>`. If Node isn't available, validate
+  against the schema and check beat ids by hand.
+- If you can open a browser, look at the slides:
+
+  ```bash
+  node <extension>/out/cli.js render <project>/.repotrail/<slug>.json --out /tmp/<slug>.html
+  ```
+
+  Open `/tmp/<slug>.html#stop=<n>&beat=<k>` to see stop n after beat k (the
+  same player Export Tour writes), and check each slide at its last beat for
+  text that's cut, labels too small to read, or a diagram that doesn't say
+  what you meant.
 
 ## Workspace Orchestration Rules
 

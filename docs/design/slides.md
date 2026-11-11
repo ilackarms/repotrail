@@ -1,7 +1,7 @@
 # Slides: animated diagrams in RepoTrail tours
 
-Status: phases 0 (static slides), 1 (beats and motion) and 2 (the authoring
-API) are implemented.
+Status: phases 0 (static slides), 1 (beats and motion), 2 (the authoring
+API) and 3 (export and the agent loop) are implemented.
 Target: RepoTrail 0.14+.
 
 ## Why
@@ -345,14 +345,22 @@ most complete:
    service can use it), registered through `contributes.jsonValidation` for
    `**/.repotrail/*.json`. The agent can validate against it, and a person
    editing the tour gets squiggles and completion.
-2. **Lint.** `node <extensionPath>/out/cli.js lint <tour.json>` prints the
-   normalizer's warnings (unknown ids in beats, duplicate ids, `build` ignored,
-   unknown block types) and layout warnings (text overflow at 1280×720, more
-   than 12 nodes in a flow, more than 8 beats, long labels). **Agent setup**
-   already writes the prompt, so it fills in `<extensionPath>`.
+2. **Lint.** `node <extensionPath>/out/cli.js lint <tour.json>` reports
+   errors, with exit code 1, for what RepoTrail can't use as written:
+   - schema violations;
+   - everything the normalizer drops, unknown beat ids included;
+   - unreadable stops;
+   - missing files, and ranges past the end of a file.
+
+   It reports warnings for the skill's text budgets, beat and node counts, and
+   an estimate of how small each diagram renders (from the layout engines with
+   approximate text widths; under about 70% is flagged). The rules live in
+   `engine/slides/lint.ts`, so they're unit-tested. **Agent setup** fills in
+   `<extensionPath>`.
 3. **Render.** `node <extensionPath>/out/cli.js render <tour.json> --out
-   <dir>` writes the animated HTML export. An agent with a browser tool can
-   screenshot any position through `#stop=4&beat=2`.
+   <file.html>` writes the animated HTML export, reading code from disk and
+   diffs from `git show`. An agent with a browser tool can screenshot any
+   position through `#stop=4&beat=2`.
 
 The extension shows the same normalizer warnings in the panel and in the
 output channel. A bad beat is skipped with a warning; a bad slide still renders
@@ -366,10 +374,12 @@ what it can.
 - **Markdown export** writes title, bullets, tables and code as markdown, flow
   and sequence blocks as `mermaid` fences, and beat narration as a list. GitHub
   renders the result.
-- **PR comment.** Slides travel inside the tour JSON, which the comment already
-  stores compact. A 15-slide deck is about 25–40 KB, under the 65,536-character
-  limit, and the composer already enforces that limit. Slide stops need no
-  pinned refs. A slide's source anchor follows the pinned-diff rules.
+- **PR comment.** Slides travel inside the tour JSON. The 16-stop fixture makes
+  a 58,743-character comment with pretty JSON; the 20-stop agent-written deck
+  needs the compact fallback, at 41,143. The composer already enforces
+  GitHub's 65,536-character limit, and compact JSON leaves room for roughly 30
+  slides. Slide stops need no pinned refs; a slide's source follows the
+  pinned-diff rules.
 
 ## Safety
 
@@ -533,7 +543,19 @@ schema lives. Its main request is a checker for beat ids, which is phase 3's
 `render` commands, `#stop=&beat=` deep links, and a check of the PR comment
 round trip.
 *Done when* an agent can lint and screenshot its own deck, and a reviewer can
-open it from a PR comment.
+open it from a PR comment. **Done.**
+- **Lint:** both PR #244 decks lint with no errors. The agent-written one
+  gets 22 warnings, matching what the visual review found by eye: long
+  headlines and two diagrams around 64%.
+- **Render and deep links:** `render` output opens at any `#stop&beat`, and
+  Next/Back in the page follow the VS Code rules.
+- **Markdown:** all 20 mermaid diagrams from the two decks render with
+  Mermaid 11.
+- **PR comment:** both decks survive the round trip unchanged, code fences
+  inside slide text included.
+
+Not checked: the import from a real PR comment inside VS Code; that code path
+didn't change.
 
 **Phase 4: presenting.** Autoplay, present mode (maximize the editor group,
 captions on), `ref` click-through from nodes, and shared-element transitions:

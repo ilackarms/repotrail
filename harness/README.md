@@ -137,6 +137,26 @@ an error, and permissive elsewhere so older tours still pass. VS Code checks
 `.repotrail/*.json` files against it while RepoTrail is installed, and the
 Agent setup prompt includes its path so agents can validate what they write.
 
+## Command Line
+
+The extension ships `out/cli.js` for agents that can't see VS Code:
+
+```bash
+node <extension>/out/cli.js lint <tour.json> [--root <dir> | --root <alias>=<dir>]... [--json]
+node <extension>/out/cli.js render <tour.json> --out <file.html> [--root ...]...
+```
+
+- `lint` validates against the schema and reports what RepoTrail would drop
+  (unknown beat ids, unreadable stops, missing files, ranges past the end of a
+  file) as errors, with exit code 1. Text over the skill's budgets and
+  diagrams that will render too small are warnings.
+- `render` writes the same standalone HTML player as **Export Tour → Animated
+  HTML**, with slides, code read from disk, and diffs from `git show`. Open it
+  at `#stop=<n>&beat=<k>` to see any position.
+- Files resolve against the folder that holds the tour's `.repotrail/`
+  directory, or the current directory. `--root` overrides that, per alias if
+  needed. Neither command writes anything but `--out`.
+
 ## Pull Request Comments
 
 A tour for a GitHub pull request can also be posted as a PR comment, so
@@ -158,7 +178,10 @@ parses as an envelope with a `repoTrailTour` key.
   `https://vscode.dev/redirect?url=<encoded vscode:// link>` (GitHub strips
   `vscode://` hrefs), the raw link in a code span for `code --open-url`, a
   collapsed agent setup prompt, and a collapsed `json` block with the envelope.
-  Stay under GitHub's 65,536-character comment limit.
+  Stay under GitHub's 65,536-character comment limit. Slides are the heavy
+  part: a 16-stop design review is about 59,000 characters with pretty JSON.
+  RepoTrail switches to compact JSON when the pretty form doesn't fit, which
+  leaves room for roughly 30 slides.
 
 The review link:
 

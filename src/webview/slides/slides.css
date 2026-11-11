@@ -22,17 +22,18 @@
   --rt-mono: var(--vscode-editor-font-family, ui-monospace, Menlo, Consolas, monospace);
 }
 
-html,
-body {
+/* The Slides panel page. Pages that embed slides (exports, previews) style
+   themselves, so nothing here touches html or body otherwise. */
+body.rt-panel {
   margin: 0;
-  height: 100%;
+  height: 100vh;
   overflow: hidden;
   background: var(--rt-bg);
   color: var(--rt-fg);
   font-family: var(--rt-font);
 }
 
-#stage {
+.rt-panel #stage {
   position: fixed;
   inset: 0;
 }
