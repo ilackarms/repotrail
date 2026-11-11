@@ -57,7 +57,7 @@ export class TourCodeLensProvider implements vscode.CodeLensProvider {
           command: "repoTrail.deeper",
           tooltip: "Copy a 'deepen this step' prompt to your clipboard for your agent.",
         }),
-        new vscode.CodeLens(lensRange, { title: "$(stop-circle) Stop", command: "repoTrail.stop" }),
+        new vscode.CodeLens(lensRange, { title: "$(close) Close", command: "repoTrail.stop" }),
         new vscode.CodeLens(lensRange, { title: "$(book) Open narration", command: "repoTrail.openNarration" }),
         new vscode.CodeLens(lensRange, { title: ttsLensLabel(), command: "repoTrail.cycleTts" }),
       );

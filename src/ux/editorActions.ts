@@ -2,11 +2,13 @@ import * as vscode from "vscode";
 import { GitDiffSide, materializeStepDiff } from "../diffMaterialize";
 import { DriftStatus, formatStepPath, SlideRef, TourPlan, TourSlide, TourStep, TourStepViewMode } from "../engine/types";
 import { readGitBlobText } from "../gitBlob";
+import { formatPrRef, PrRef } from "../github/prRef";
 import { normalizeWorkspaceFile, resolveStepUri, resolveStepWorkspaceFolder } from "../workspace";
 import { mapDiffPositionToSource, sameDocumentText } from "./diffPositionMap";
 import { diffRevealTargetForRange } from "./diffReveal";
 import { plainMessageText } from "./messageText";
 import type { SlidePanel } from "./slidePanel";
+import { stopShowsReviewCheckout } from "./pullRequestReview";
 
 /**
  * Executes a TourStep's declarative actions against the editor.
@@ -66,10 +68,14 @@ interface StepEditorOptions {
   plan?: TourPlan;
   /** Position on a slide stop: 0 before any beat, k after beat k. */
   beat?: number;
+  /** The pull request the tour came from, when RepoTrail knows it. */
+  pullRequest?: PrRef;
 }
 
 interface PreparedStep {
   doc: vscode.TextDocument;
+  /** `doc` is the workspace file itself, not a copy read from git. */
+  isWorkingTree: boolean;
   range: vscode.Range;
   drift: DriftStatus;
   capturedAnchor?: string;
@@ -109,24 +115,30 @@ export async function executeStep(
 ): Promise<ExecuteResult> {
   if (step.slide) return showStepSlide(step, step.slide, opts);
   if (!step.file) return { drift: "ok" };
+  // With the tour's PR checked out in GitHub Pull Requests, the working tree is
+  // the code under review and the only side that extension comments on. Asked
+  // first, so a slow answer leaves the previous stop on screen meanwhile.
+  const reviewPr = await stopShowsReviewCheckout(step, opts?.plan, opts?.pullRequest);
   // Close the previous stop's diff first: its cleanup drops virtual documents
   // no tab shows, which must not include the one prepareStep may create.
   await closeRepoTrailDiffTabs();
-  const prepared = await prepareStep(step, opts);
+  const prepared = await prepareStep(step, opts, { preferWorkingTree: reviewPr !== undefined });
   if (!prepared) return { drift: "missing" };
+  const headFromWorkingTree = reviewPr !== undefined && prepared.isWorkingTree;
 
   const viewMode = effectiveViewMode(step);
   if (viewMode !== "diff") {
     await showSourceDocument(step, prepared.doc, prepared.range, opts, true);
   }
   if (step.diff && viewMode !== "code") {
-    await showStepDiff(step, prepared.doc, prepared.range, opts?.plan);
+    await showStepDiff(step, prepared.doc, prepared.range, opts?.plan, { headFromWorkingTree });
   }
 
   logger?.appendLine(
     `[editor] step "${step.title}" range L${prepared.range.start.line + 1}:${prepared.range.start.character + 1}-L${prepared.range.end.line + 1}:${prepared.range.end.character + 1}` +
       (step.range ? "" : " (defaulted — agent omitted range)") +
       (step.diff && viewMode !== "code" ? ` [diff: ${viewMode}]` : "") +
+      (headFromWorkingTree && reviewPr ? ` [new side: working tree, ${formatPrRef(reviewPr)} checked out]` : "") +
       (prepared.drift !== "ok" ? ` [drift: ${prepared.drift}]` : ""),
   );
 
@@ -294,6 +306,7 @@ async function prepareStep(
     return null;
   }
 
+  const isWorkingTree = doc.uri.toString() === uri.toString();
   let range = resolveRange(step, doc);
   let drift: DriftStatus = "ok";
   let capturedAnchor: string | undefined;
@@ -305,11 +318,62 @@ async function prepareStep(
       range = checked.range;
     } else {
       // First show of a ranged step — snapshot the anchor for future drift checks.
-      capturedAnchor = firstNonEmptyLine(doc, range);
+      const captured = await captureAnchor(step, opts?.plan, doc, range, {
+        workingTreeMayDiffer: isWorkingTree && documentOptions.preferWorkingTree === true,
+      });
+      capturedAnchor = captured.anchor;
+      if (captured.anchor && captured.fromHead) {
+        const checked = checkAnchor(doc, range, captured.anchor);
+        drift = checked.status;
+        range = checked.range;
+      }
     }
   }
 
-  return { doc, range, drift, capturedAnchor };
+  return { doc, isWorkingTree, range, drift, capturedAnchor };
+}
+
+/**
+ * The anchor for a ranged step that has none: the first non-empty line of its
+ * range. A pinned diff's range refers to the file at headRef, so when `doc` is
+ * the working tree and may differ from it (Open Current Source, or a PR
+ * checked out for review that has moved past the tour's commit), the line is
+ * read at headRef and `fromHead` says to look for it in `doc`.
+ */
+async function captureAnchor(
+  step: TourStep,
+  plan: TourPlan | undefined,
+  doc: vscode.TextDocument,
+  range: vscode.Range,
+  options: { workingTreeMayDiffer: boolean },
+): Promise<{ anchor?: string; fromHead: boolean }> {
+  if (options.workingTreeMayDiffer && isPinnedDiff(step) && step.range) {
+    const head = await readHeadText(step, plan);
+    // Without the headRef text, the working tree's lines at headRef's line
+    // numbers could be anything; capture nothing rather than a wrong anchor.
+    if (head === undefined) return { fromHead: false };
+    if (!sameDocumentText(head, doc.getText())) {
+      const lines = head.split(/\r?\n/);
+      const start = clamp(step.range.startLine - 1, 0, Math.max(0, lines.length - 1));
+      const end = clamp(step.range.endLine - 1, start, Math.max(0, lines.length - 1));
+      return { anchor: firstNonEmptyLineIn(lines, start, end), fromHead: true };
+    }
+  }
+  return { anchor: firstNonEmptyLine(doc, range), fromHead: false };
+}
+
+async function readHeadText(step: TourStep, plan: TourPlan | undefined): Promise<string | undefined> {
+  const diff = step.diff;
+  if (!diff?.headRef) return undefined;
+  const folder = resolveStepWorkspaceFolder(step, plan);
+  if (!folder) return undefined;
+  try {
+    const blob = await readGitBlobText(folder.uri.fsPath, diff.headRef, normalizeWorkspaceFile(diff.headFile ?? step.file ?? ""));
+    return blob.missing ? undefined : blob.text;
+  } catch (err) {
+    logger?.appendLine(`[editor] could not read ${formatStepPath(step)} at ${diff.headRef} for its anchor: ${String(err)}`);
+    return undefined;
+  }
 }
 
 /**
@@ -319,7 +383,8 @@ async function prepareStep(
  * is used only when its text matches headRef; otherwise (a different branch,
  * or a file the change adds) the file is read from git at headRef, or at
  * baseRef for a file the change deletes. `preferWorkingTree` keeps the real
- * file whenever it exists, for "Open Current Source".
+ * file whenever it exists, for "Open Current Source" and for a PR checked out
+ * for review.
  */
 async function openStepDocument(
   step: TourStep,
@@ -452,9 +517,10 @@ async function showStepDiff(
   doc: vscode.TextDocument,
   range: vscode.Range,
   plan?: TourPlan,
+  options: { headFromWorkingTree?: boolean } = {},
 ): Promise<void> {
   if (!step.diff) return;
-  const materialized = await materializeStepDiff(step, doc, range, plan, logger);
+  const materialized = await materializeStepDiff(step, doc, range, plan, logger, options);
   if (!materialized) return;
   ensureDiffProvider();
   // When the right side is exactly the workspace file, show the real file so
@@ -710,6 +776,14 @@ function firstNonEmptyLine(doc: vscode.TextDocument, range: vscode.Range): strin
   return undefined;
 }
 
+function firstNonEmptyLineIn(lines: string[], start: number, end: number): string | undefined {
+  for (let line = start; line <= end && line < lines.length; line++) {
+    const text = lines[line].trim();
+    if (text) return text.slice(0, MAX_ANCHOR_LEN);
+  }
+  return undefined;
+}
+
 /**
  * Compare the anchored line against `anchor`. If it matches, no drift. If not,
  * search the whole file for the anchor text and relocate to the nearest match
@@ -722,7 +796,9 @@ function checkAnchor(
   anchor: string,
 ): { status: DriftStatus; range: vscode.Range } {
   const startLine = clamp(range.start.line, 0, doc.lineCount - 1);
-  if (doc.lineAt(startLine).text.trim().slice(0, MAX_ANCHOR_LEN) === anchor) {
+  // Anchors are the range's first non-empty line, which a range may start
+  // just above.
+  if (firstNonEmptyLine(doc, range) === anchor) {
     return { status: "ok", range };
   }
   const matches: number[] = [];
@@ -753,6 +829,7 @@ function checkAnchor(
 export async function checkStepDrift(
   step: TourStep,
   plan?: TourPlan,
+  pullRequest?: PrRef,
 ): Promise<{ drift: DriftStatus; capturedAnchor?: string }> {
   if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) return { drift: "ok" };
   if (!step.file || !step.range) return { drift: "ok" };
@@ -763,14 +840,21 @@ export async function checkStepDrift(
     return { drift: "missing" };
   }
   if (!uri) return { drift: "missing" };
+  const underReview = (await stopShowsReviewCheckout(step, plan, pullRequest)) !== undefined;
   let doc: vscode.TextDocument;
   try {
-    doc = await openStepDocument(step, uri, plan);
+    doc = await openStepDocument(step, uri, plan, { preferWorkingTree: underReview });
   } catch {
     return { drift: "missing" };
   }
   const range = resolveRange(step, doc);
-  if (!step.anchor) return { drift: "ok", capturedAnchor: firstNonEmptyLine(doc, range) };
+  if (!step.anchor) {
+    const captured = await captureAnchor(step, plan, doc, range, {
+      workingTreeMayDiffer: underReview && doc.uri.toString() === uri.toString(),
+    });
+    const drift = captured.anchor && captured.fromHead ? checkAnchor(doc, range, captured.anchor).status : "ok";
+    return { drift, capturedAnchor: captured.anchor };
+  }
   return { drift: checkAnchor(doc, range, step.anchor).status };
 }
 

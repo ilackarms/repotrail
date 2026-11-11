@@ -76,6 +76,7 @@ interface CloneFolder {
   remote: string;
 }
 
+/** The user stopped the import; `message` says where, for the log. */
 class Cancelled extends Error {}
 
 const PENDING_IMPORT_KEY = "repoTrail.pendingPrImport";
@@ -93,6 +94,7 @@ export async function handleReviewUri(uri: vscode.Uri, ctx: PrImportContext): Pr
     vscode.window.showErrorMessage(`RepoTrail: ignored an invalid review link. ${plainMessageText(message(err))}`);
     return;
   }
+  ctx.log.appendLine(`[pr-import] review link received for ${formatPrRef(request.pr)}`);
   await importTourFromPr(request, ctx, { fromLink: true });
 }
 
@@ -149,7 +151,9 @@ export async function importTourFromPr(
   const { pr } = request;
   const label = formatPrRef(pr);
   try {
-    if (options.fromLink && !(await confirmLink(request))) return;
+    if (options.fromLink && !(await confirmLink(request, ctx.controller.snapshot().plan?.title))) {
+      throw new Cancelled("the link's confirmation was declined");
+    }
     ctx.log.appendLine(
       `[pr-import] ${label}${request.commentId ? ` comment ${request.commentId}` : ""}${request.head ? ` head ${request.head}` : ""}`,
     );
@@ -190,8 +194,8 @@ export async function importTourFromPr(
     }
     const candidates = rankTourCandidates(found, { prAuthor: pull.author, linkHead: request.head });
     const picked = await pickCandidate(candidates, label, pull.author);
-    if (!picked) return;
-    if (!(await confirmPoster(picked, pull, label))) return;
+    if (!picked) throw new Cancelled("no tour was picked");
+    if (!(await confirmPoster(picked, pull, label))) throw new Cancelled(`the tour by @${picked.author} was declined`);
     const plan = picked.tour.plan;
 
     const clone = await pickCloneFolder(request, pull, options.preferredFolder);
@@ -206,7 +210,7 @@ export async function importTourFromPr(
     await ensureCommits(plan, pr, clone, ctx);
     const base = await mergeBase(clone.folder.uri.fsPath, pull.baseSha, pull.headSha);
 
-    await ctx.controller.loadPlan(plan, undefined, undefined, { importFolder: clone.folder.uri.fsPath });
+    await ctx.controller.loadPlan(plan, undefined, undefined, { importFolder: clone.folder.uri.fsPath, pullRequest: pr });
     await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
     ctx.log.appendLine(`[pr-import] loaded "${plan.title}" (${plan.steps.length} stops)`);
 
@@ -217,7 +221,10 @@ export async function importTourFromPr(
     }
     void offerSave(picked, plan, clone.folder, label, ctx);
   } catch (err) {
-    if (err instanceof Cancelled) return;
+    if (err instanceof Cancelled) {
+      ctx.log.appendLine(`[pr-import] stopped: ${err.message || "cancelled"}`);
+      return;
+    }
     ctx.log.appendLine(`[pr-import] failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
     vscode.window.showErrorMessage(`RepoTrail: couldn't import a tour from ${label}. ${plainMessageText(message(err))}`);
   }
@@ -230,9 +237,14 @@ export async function resumePendingPrImport(ctx: PrImportContext): Promise<void>
   const folder = currentWorkspaceFolders().find((f) => samePath(f.uri.fsPath, pending.folder));
   if (Date.now() - pending.at > PENDING_IMPORT_TTL_MS) {
     await ctx.globalState.update(PENDING_IMPORT_KEY, undefined);
+    ctx.log.appendLine("[pr-import] dropped a pending import older than 15 minutes");
     return;
   }
-  if (!folder) return;
+  if (!folder) {
+    // Another window's import; that window picks it up.
+    ctx.log.appendLine(`[pr-import] a pending import is waiting for ${pending.folder}, which isn't open here`);
+    return;
+  }
   await ctx.globalState.update(PENDING_IMPORT_KEY, undefined);
   let request: PrImportRequest;
   try {
@@ -242,14 +254,20 @@ export async function resumePendingPrImport(ctx: PrImportContext): Promise<void>
       "/review",
       `pr=${pr.owner}/${pr.repo}/${pr.number}${commentId ? `&comment=${commentId}` : ""}${head ? `&head=${head}` : ""}`,
     );
-  } catch {
+  } catch (err) {
+    ctx.log.appendLine(`[pr-import] dropped an unreadable pending import: ${message(err)}`);
     return;
   }
   const pick = await vscode.window.showInformationMessage(
-    `RepoTrail: continue opening the tour from ${formatPrRef(request.pr)} in ${folder.name}?`,
+    `Continue opening the RepoTrail tour from ${formatPrRef(request.pr)}?`,
+    { modal: true, detail: `You opened ${folder.name} to play the tour from ${formatPrRef(request.pr)}.` },
     "Open Tour",
   );
-  if (pick === "Open Tour") await importTourFromPr(request, ctx, { preferredFolder: folder.uri.fsPath });
+  if (pick !== "Open Tour") {
+    ctx.log.appendLine(`[pr-import] stopped: continuing ${formatPrRef(request.pr)} in ${folder.name} was declined`);
+    return;
+  }
+  await importTourFromPr(request, ctx, { preferredFolder: folder.uri.fsPath });
 }
 
 /** "RepoTrail: Copy Tour as PR Comment". Copies markdown only; never posts. */
@@ -293,7 +311,7 @@ export async function copyTourAsPrComment(ctx: PrImportContext): Promise<void> {
   if (pick === "Open PR") await vscode.env.openExternal(vscode.Uri.parse(prHtmlUrl(pr)));
 }
 
-async function confirmLink(request: PrImportRequest): Promise<boolean> {
+async function confirmLink(request: PrImportRequest, openTourTitle?: string): Promise<boolean> {
   const { pr } = request;
   const lines = [
     `Repository: ${pr.owner}/${pr.repo}`,
@@ -301,6 +319,7 @@ async function confirmLink(request: PrImportRequest): Promise<boolean> {
     `Comment: ${request.commentId ?? "any comment on the pull request"}`,
   ];
   if (request.head) lines.push(`Expected head: ${request.head}`);
+  if (openTourTitle) lines.push("", `The tour it finds replaces the one you have open, "${plainMessageText(openTourTitle, 120)}".`);
   lines.push(
     "",
     "RepoTrail will read this pull request's comments from api.github.com and load the tour JSON it finds. Nothing in the comment is run, and tour file paths stay inside the folder you pick. Fetching missing commits asks separately.",
@@ -323,7 +342,7 @@ async function fetchPullAndComments(
   try {
     return await fetchPullAndCommentsWith(request, options);
   } catch (err) {
-    if (signal.aborted) throw new Cancelled();
+    if (signal.aborted) throw new Cancelled("reading GitHub was cancelled");
     throw err;
   }
 }
@@ -365,8 +384,13 @@ async function withGitHub<T>(label: string, run: (token: string | undefined) => 
     const reason = err.rateLimited
       ? "GitHub's anonymous rate limit is used up."
       : `GitHub didn't find ${label} without signing in; it may be private.`;
-    const pick = await vscode.window.showWarningMessage(`RepoTrail: ${reason}`, SIGN_IN);
-    if (pick !== SIGN_IN) throw new Cancelled();
+    // Modal: an import the user just started shouldn't hinge on a toast they can miss.
+    const pick = await vscode.window.showWarningMessage(
+      `RepoTrail needs your GitHub sign-in to read ${label}.`,
+      { modal: true, detail: `${reason} Sign in to read it with your GitHub account.` },
+      SIGN_IN,
+    );
+    if (pick !== SIGN_IN) throw new Cancelled("GitHub sign-in was declined");
     const signedIn = await vscode.authentication.getSession("github", ["repo"], { createIfNone: true });
     return run(signedIn.accessToken);
   }
@@ -384,6 +408,7 @@ async function pickCandidate(candidates: Candidate[], label: string, prAuthor: s
     title: `RepoTrail tours on ${label}`,
     placeHolder: "Choose a tour (the PR author's and collaborators' tours are listed first)",
     matchOnDescription: true,
+    ignoreFocusOut: true,
   });
   return pick?.candidate;
 }
@@ -435,9 +460,9 @@ async function pickCloneFolder(
       description: `${match.remote} · ${match.folder.uri.fsPath}`,
       match,
     })),
-    { title: `Open the tour in which clone of ${request.pr.owner}/${request.pr.repo}?`, placeHolder: "Folder" },
+    { title: `Open the tour in which clone of ${request.pr.owner}/${request.pr.repo}?`, placeHolder: "Folder", ignoreFocusOut: true },
   );
-  if (!pick) throw new Cancelled();
+  if (!pick) throw new Cancelled("no clone was picked");
   return pick.match;
 }
 
@@ -449,10 +474,21 @@ async function offerNoCloneActions(
 ): Promise<void> {
   const { pr } = request;
   const tourHead = sharedHeadRef(picked.tour.plan);
+  const open = currentWorkspaceFolders().map((folder) => folder.name);
+  ctx.log.appendLine(`[pr-import] no open folder is a clone of ${pr.owner}/${pr.repo}; open: ${open.join(", ") || "none"}`);
+  // Modal: the link may have opened in a window other than the one with the
+  // clone, and a toast there is easy to miss.
   const pick = await vscode.window.showWarningMessage(
-    `RepoTrail: no open folder is a clone of ${pr.owner}/${pr.repo}. Open one, or copy a prompt that has your coding agent check out the PR and open the tour.`,
-    "Copy setup prompt",
+    `No open folder in this window is a clone of ${pr.owner}/${pr.repo}.`,
+    {
+      modal: true,
+      detail: [
+        open.length > 0 ? `This window has ${open.join(", ")} open.` : "This window has no folder open.",
+        "Open a clone of the repository, or copy a prompt that has your coding agent check out the PR and open the tour.",
+      ].join(" "),
+    },
     "Open Folder…",
+    "Copy setup prompt",
   );
   if (pick === "Copy setup prompt") {
     const prompt = composeSetupPrompt({
@@ -481,10 +517,15 @@ async function offerNoCloneActions(
       openLabel: "Open Clone",
       title: `Open a clone of ${pr.owner}/${pr.repo}`,
     });
-    if (!folders?.[0]) return;
+    if (!folders?.[0]) {
+      ctx.log.appendLine("[pr-import] stopped: no folder was opened");
+      return;
+    }
     await ctx.globalState.update(PENDING_IMPORT_KEY, { request, folder: folders[0].fsPath, at: Date.now() });
     await vscode.commands.executeCommand("vscode.openFolder", folders[0]);
+    return;
   }
+  ctx.log.appendLine("[pr-import] stopped: the no-clone dialog was dismissed");
 }
 
 /** Point the setup prompt at the comment if awk can extract the tour from it, else embed the JSON. */
@@ -555,7 +596,7 @@ async function ensureCommits(plan: TourPlan, pr: PrRef, clone: CloneFolder, ctx:
         try {
           await fetchPullRequest(folder, clone.remote, pr.number, { shas: shasToFetch, signal: controller.signal });
         } catch (err) {
-          if (controller.signal.aborted) throw new Cancelled();
+          if (controller.signal.aborted) throw new Cancelled("the commit fetch was cancelled");
           const what = shasToFetch ? shasToFetch.map(short).join(", ") : `pull/${pr.number}/head`;
           failures.push(`${what}: ${message(err)}`);
           ctx.log.appendLine(`[pr-import] fetch of ${what} failed: ${message(err)}`);
@@ -566,7 +607,7 @@ async function ensureCommits(plan: TourPlan, pr: PrRef, clone: CloneFolder, ctx:
         missing = await missingShas(token);
         for (const sha of missing) {
           await attempt([sha]);
-          if (token.isCancellationRequested) throw new Cancelled();
+          if (token.isCancellationRequested) throw new Cancelled("the commit fetch was cancelled");
         }
         missing = await missingShas(token);
       } finally {
@@ -586,7 +627,7 @@ async function ensureCommits(plan: TourPlan, pr: PrRef, clone: CloneFolder, ctx:
 async function findMissing(folder: string, shas: string[], token?: vscode.CancellationToken): Promise<string[]> {
   const missing: string[] = [];
   for (const sha of shas) {
-    if (token?.isCancellationRequested) throw new Cancelled();
+    if (token?.isCancellationRequested) throw new Cancelled("checking the tour's commits was cancelled");
     if (!(await hasCommit(folder, sha))) missing.push(sha);
   }
   return missing;

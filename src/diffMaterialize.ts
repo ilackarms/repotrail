@@ -28,12 +28,18 @@ export interface GitDiffSide {
   ref: string;
 }
 
+/**
+ * Read both sides of a step's diff. `headFromWorkingTree` replaces headRef with
+ * `doc`, the workspace file, for a PR checked out for review: the working tree
+ * is then the code under review, which may be newer than the tour's headRef.
+ */
 export async function materializeStepDiff(
   step: TourStep,
   doc: vscode.TextDocument,
   range: vscode.Range,
   plan?: TourPlan,
   logger?: vscode.OutputChannel | null,
+  options: { headFromWorkingTree?: boolean } = {},
 ): Promise<MaterializedStepDiff | null> {
   const diff = step.diff;
   if (!diff) return null;
@@ -75,7 +81,7 @@ export async function materializeStepDiff(
   let afterLabel = diff.afterLabel ?? "After";
   let afterWorkspaceLineOffset: number | undefined;
   let afterGit: GitDiffSide | undefined;
-  if (diff.headRef) {
+  if (diff.headRef && !options.headFromWorkingTree) {
     if (!folder) {
       vscode.window.showErrorMessage(`RepoTrail: cannot resolve workspace folder for git diff ${plainMessageText(step.file ?? "")}.`);
       return null;
@@ -90,11 +96,12 @@ export async function materializeStepDiff(
       reportMaterializeError("head", step, err, logger);
       return null;
     }
-  } else if (typeof diff.afterText === "string") {
+  } else if (typeof diff.afterText === "string" && !options.headFromWorkingTree) {
     afterText = diff.afterText;
   } else {
     afterText = scope === "file" ? doc.getText() : textForDiffAfter(doc, step, range);
-    afterLabel = diff.afterLabel ?? (diff.baseRef ? "Workspace" : "After");
+    // The tour's own label names its headRef, which this side no longer shows.
+    afterLabel = options.headFromWorkingTree ? "Working tree" : diff.afterLabel ?? (diff.baseRef ? "Workspace" : "After");
     afterWorkspaceLineOffset = scope === "file" ? 0 : diffAfterStartLine(doc, step, range);
   }
 

@@ -39,17 +39,24 @@ test("names the neighbouring stops in the Back and Next tooltips", () => {
   assert.equal(first.tooltip, "Previous stop");
 });
 
-test("moves the step tools into the menu, with Stop last and set apart", () => {
+test("moves the step tools into the menu, with Close last and set apart", () => {
   const items = stepMenuItems("darwin");
   assert.deepEqual(
     items.map(({ id }) => id),
     ["revealCurrent", "openCurrentSource", "deeper", "exportTour", "present", "autoplay", "openTtsSettings", "stop"],
   );
-  const stop = items.at(-1);
-  assert.equal(stop.separatorBefore, true);
-  assert.equal(stop.destructive, true);
+  const close = items.at(-1);
+  assert.equal(close.label, "Close tour");
+  assert.equal(close.separatorBefore, true);
+  assert.equal(close.destructive, undefined);
   assert.equal(items.find(({ id }) => id === "openCurrentSource").shortcut, "⌥⌘O");
   assert.equal(stepMenuItems("linux").find(({ id }) => id === "openCurrentSource").shortcut, "Alt+O");
+});
+
+test("offers Comment on PR only for tours of a change", () => {
+  const ids = (options) => stepMenuItems("darwin", options).map(({ id }) => id);
+  assert.equal(ids().includes("commentOnPr"), false);
+  assert.deepEqual(ids({ prComments: true }).slice(0, 4), ["revealCurrent", "openCurrentSource", "commentOnPr", "deeper"]);
 });
 
 test("disables the play button when text to speech is off", () => {
@@ -68,4 +75,11 @@ test("on a slide, Back and Next step through beats before stops", () => {
   assert.equal(back.disabled, false);
   assert.equal(back.tooltip, "Previous beat (2 of 3)");
   assert.equal(next.disabled, true);
+});
+
+test("offers Delete tour, in the error color, only for tours saved in .repotrail/", () => {
+  assert.equal(stepMenuItems("darwin").some(({ id }) => id === "deleteTour"), false);
+  const items = stepMenuItems("darwin", { deleteTour: true });
+  assert.deepEqual(items.slice(-2).map(({ id }) => id), ["stop", "deleteTour"]);
+  assert.equal(items.at(-1).destructive, true);
 });

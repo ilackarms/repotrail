@@ -26,6 +26,8 @@ export interface TourRecord {
   repoTourSource?: RepoTourSource;
   /** Indices the user has visited ("understood"), for route dimming. */
   seen?: number[];
+  /** The GitHub pull request the tour was imported from. */
+  pullRequest?: { owner: string; repo: string; number: number };
 }
 
 function workspaceDir(workspaceRoot: string): string {

@@ -33,6 +33,7 @@ const ICONS = {
   pause: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4 2.5h2.75v11H4zm5.25 0H12v11H9.25z"/></svg>',
   loading: '<svg class="spin" viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M8 2a6 6 0 1 1-6 6"/></svg>',
   menu: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 3.25h12v1.5H2zm0 4h12v1.5H2zm0 4h12v1.5H2z"/></svg>',
+  close: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 7.06l3.97-3.97.94.94L8.94 8l3.97 3.97-.94.94L8 8.94l-3.97 3.97-.94-.94L7.06 8 3.09 4.03l.94-.94z"/></svg>',
 };
 
 export class TourViewProvider implements vscode.WebviewViewProvider {
@@ -53,6 +54,8 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   // user exactly what to paste, rather than a fire-and-forget toast. Pinned to
   // the step it was generated for; cleared once the user navigates away.
   private bridge: { label: string; prompt: string; index: number } | null = null;
+  /** What the library showed at the last render; null while a tour is active. */
+  private renderedLibraryKey: string | null = null;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -88,6 +91,16 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   /** Trigger a re-render (e.g. after a tour is deleted externally). */
   refresh(): void {
     void this.render();
+  }
+
+  /**
+   * Re-render the library only if its tours changed on disk since the last
+   * render (a cheap check for changes the file watcher missed).
+   */
+  async refreshIfLibraryChanged(): Promise<void> {
+    if (!this.view || this.controller.snapshot().plan || this.renderedLibraryKey === null) return;
+    const key = libraryKey(await this.loadRepoTours());
+    if (key !== this.renderedLibraryKey) await this.render();
   }
 
   /** Called by extension.ts to wire the TtsManager. */
@@ -161,6 +174,12 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         case "openCurrentSource":
           await this.controller.openCurrentSource();
           break;
+        case "commentOnPr":
+          await vscode.commands.executeCommand("repoTrail.commentOnPr");
+          break;
+        case "deleteTour":
+          await vscode.commands.executeCommand("repoTrail.deleteTour");
+          break;
         case "dismissBridge":
           this.bridge = null;
           await this.render();
@@ -225,6 +244,11 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
             });
           }
           break;
+        case "deleteRepoTour":
+          if (typeof msg.file === "string" && typeof msg.rootPath === "string") {
+            await vscode.commands.executeCommand("repoTrail.deleteTour", { file: msg.file, rootPath: msg.rootPath });
+          }
+          break;
         case "renameRepoTour":
           if (typeof msg.file === "string") {
             await vscode.commands.executeCommand("repoTrail.renameTour", {
@@ -247,6 +271,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       .getConfiguration("repoTrail")
       .get<string>("tts.provider", TTS_DEFAULTS.provider);
     const repoTours = snap.plan ? [] : await this.loadRepoTours();
+    this.renderedLibraryKey = snap.plan ? null : libraryKey(repoTours);
 
     const tourId = this.controller.activeTourId;
 
@@ -396,7 +421,14 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     const narration = narrationControl(ttsProvider);
     const playButton = `<button id="playPause" class="icon-button"${narration.disabled ? " disabled" : ""} title="${escape(narration.tooltip)}" aria-label="${escape(narration.label)}">${ICONS.play}</button>`;
     const menuButton = `<button id="menuButton" class="icon-button" title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="false" aria-controls="tourMenu">${ICONS.menu}</button>`;
-    const menuItems = stepMenuItems()
+    const prComments = Boolean(
+      plan && (plan.kind === "pr-diff" || plan.steps.some((s) => s.diff) || this.controller.activePullRequest),
+    );
+    const closeButton = `<button id="closeTour" class="icon-button" title="Close tour" aria-label="Close tour">${ICONS.close}</button>`;
+    const menuItems = stepMenuItems(process.platform, {
+      prComments,
+      deleteTour: Boolean(this.controller.activeRepoTourSource),
+    })
       .map((item) =>
         (item.separatorBefore ? `<div class="menu-separator" role="separator"></div>` : "") +
         `<button id="${escape(item.id)}" class="menu-item${item.destructive ? " destructive" : ""}" role="menuitem" tabindex="-1">` +
@@ -437,6 +469,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
               <div class="tour-actions">
                 <button class="repo-resume" data-root="${escape(t.rootPath)}" data-file="${escape(t.file)}" title="Open this repo-shared tour">Open</button>
                 <button class="repo-rename secondary" data-root="${escape(t.rootPath)}" data-file="${escape(t.file)}" title="Rename this repo tour's visible title">Rename</button>
+                <button class="repo-delete secondary" data-root="${escape(t.rootPath)}" data-file="${escape(t.file)}" title="Move this tour's file to the trash">Delete</button>
               </div>
             </li>`;
           },
@@ -578,7 +611,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
             ${primaryStepButtons}
           </div>
           <div class="nav-icons">
-            ${playButton}${menuButton}
+            ${playButton}${menuButton}${closeButton}
           </div>
         </div>
         <h2 class="nav-title" title="${escape(title)}">${escape(title)}</h2>
@@ -611,6 +644,9 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     on("back", "back");
     on("revealCurrent", "revealCurrent");
     on("openCurrentSource", "openCurrentSource");
+    on("commentOnPr", "commentOnPr");
+    on("deleteTour", "deleteTour");
+    on("closeTour", "stop");
     on("deeper", "deeper");
     on("stop", "stop");
     on("exportTour", "exportTour");
@@ -659,6 +695,13 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     document.querySelectorAll("button.repo-resume").forEach((b) => {
       b.addEventListener("click", () => send({
         type: "resumeRepoTour",
+        file: b.getAttribute("data-file"),
+        rootPath: b.getAttribute("data-root"),
+      }));
+    });
+    document.querySelectorAll("button.repo-delete").forEach((b) => {
+      b.addEventListener("click", () => send({
+        type: "deleteRepoTour",
         file: b.getAttribute("data-file"),
         rootPath: b.getAttribute("data-root"),
       }));
@@ -1242,4 +1285,8 @@ function renderSignature(
         ].join("\0")
       : "",
   };
+}
+
+function libraryKey(tours: RepoTourSummary[]): string {
+  return JSON.stringify(tours.map((t) => [t.key, t.title, t.kind, t.stepCount]));
 }

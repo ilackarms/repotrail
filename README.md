@@ -151,22 +151,25 @@ From a link, or with `RepoTrail: Import Tour from GitHub PR` (paste a PR or
 comment URL) or `RepoTrail: Find Tours on a PR` (the repo comes from the open
 folder's remote; enter the number):
 
-1. A link first shows VS Code's own "open this URI?" prompt, then RepoTrail's,
-   which names the repository, PR, comment, and expected head. Nothing is
-   requested before you confirm.
+1. A link first shows VS Code's own "open this URI?" prompt, then RepoTrail's.
+   RepoTrail's prompt names the repository, PR, comment, and expected head, and
+   says when the tour will replace one you have open. Nothing is requested
+   before you confirm.
 2. RepoTrail reads the PR and its issue comments from `api.github.com`. It uses
-   your existing VS Code GitHub sign-in when there is one, tries anonymously
-   otherwise, and offers to sign in when GitHub answers 401/404 or the anonymous
-   rate limit runs out (private repositories need it).
+   your existing VS Code GitHub sign-in when there is one and tries anonymously
+   otherwise. It asks you to sign in when GitHub answers 401/404 or the
+   anonymous rate limit runs out (private repositories need it).
 3. A comment holds a tour when one of its fenced `json` blocks parses as a
    RepoTrail envelope (it has a `repoTrailTour` key). With several, pick one by
    title, poster, and date; tours from the PR's author and collaborators are
    listed first. Opening a tour posted by anyone else asks first, since anyone
    can comment on a public pull request.
 4. RepoTrail uses an open folder whose git remote points at the PR's repository.
-   With none open, it offers **Copy setup prompt** (the agent prompt above, for
-   this PR and comment) or **Open Folder…**, which reopens the window on a clone
-   and then offers to continue.
+   With none open, it says which folders the window has open and offers
+   **Open Folder…**, which reopens the window on a clone and then offers to
+   continue, or **Copy setup prompt** (the agent prompt above, for this PR and
+   comment). VS Code sends a link to the window you used last, so this is also
+   what you see when the link lands in a window without the clone.
 5. RepoTrail checks the commit SHAs the tour names (up to 64). If any are
    missing, it asks before running `git fetch --no-tags <remote> pull/<n>/head`,
    then fetches each SHA that is still missing. Nothing is checked out and no
@@ -179,10 +182,44 @@ folder's remote; enter the number):
    compare against a base other than the PR's merge base, or compare against
    your working tree, and when the link's `head` is older than the PR's.
 
+If an import stops without a result, the RepoTrail output channel names the
+step where it stopped (`[pr-import] stopped: ...`).
+
 Comment JSON is only parsed as a tour. Nothing from a comment is run, step paths
 go through the usual workspace-relative checks, refs must pass the same
 validation as other git-backed stops, and tour text shown in notifications can't
 form links.
+
+### Comment while you review
+
+RepoTrail doesn't post to GitHub. Review comments go through the
+[GitHub Pull Requests](https://marketplace.visualstudio.com/items?itemName=GitHub.vscode-pull-request-github)
+extension. Outside its own pull request views, it adds its `+` comment gutter
+only to the workspace files of the PR it has checked out, never to the copies of
+a file that RepoTrail reads from git. So:
+
+- When GitHub Pull Requests has the tour's PR checked out in a stop's folder,
+  the stop's diff shows your working-tree file as the new side, even when the
+  PR has moved past the commit the tour was written for. Hover a changed line
+  and click `+` to comment. RepoTrail remembers the PR of a tour imported from
+  GitHub. For other tours it uses the checkout only when the checkout contains
+  the stop's `headRef` and the default branch doesn't yet. A commit that is
+  already merged means a tour of past work, not a PR under review.
+- **Comment on PR…** in the ☰ menu, or `RepoTrail: Comment on PR`, gets you
+  there from the current stop:
+  - If the PR is checked out, it reopens the stop on the checked-out file.
+  - Otherwise it offers **Check Out PR**. That opens the GitHub Pull Requests
+    checkout link, which switches the folder to the PR's branch after that
+    extension's own prompts. RepoTrail reopens the stop once the checkout
+    lands.
+  - It also offers **Comment on GitHub**, which opens the PR's Files changed
+    tab at the stop's file.
+  - If GitHub Pull Requests isn't installed, it offers to install it.
+
+GitHub Pull Requests takes comments only on lines the PR changes, on the new
+side. The old side of a trail diff has no comment gutter. Neither do diff stops
+built from inline text or scoped to a hunk; for those, Comment on PR opens the
+file itself.
 
 ## Features
 
@@ -216,9 +253,14 @@ form links.
 - Optional narration via system speech, local Kokoro, macOS/Linux command TTS,
   ElevenLabs, or OpenAI TTS.
 - Repository tour library backed by `.repotrail/*.json` across every open
-  workspace root.
+  workspace root. Delete a tour from the library or the ☰ menu; the file goes
+  to the trash. The library updates when tour files or the whole `.repotrail/`
+  folder are added or deleted outside VS Code.
 - PR review tours: copy a tour as a GitHub PR comment, and open one from a
   review link or a PR URL into any clone, fetching the PR's commits on request.
+- Review comments from the trail. With the PR checked out in the GitHub Pull
+  Requests extension, diff stops show the checked-out file, so that
+  extension's comment gutter works in the tour.
 - Automatic reload when the active tour JSON changes, with the current stop
   preserved when possible.
 - Agent-created VS Code workspace flow backed by
@@ -226,7 +268,8 @@ form links.
 - Export to Markdown, JSON, or standalone animated HTML with browser playback,
   embedded code/diff frames, and standalone TTS controls.
 - Automatic restoration of a tour that was still active when VS Code closed.
-  Stopping a tour prevents it from returning on the next reload.
+  Closing a tour (the × in the panel, or Close tour in the ☰ menu) keeps it
+  from returning on the next reload.
 
 ## Security And Privacy
 
@@ -236,6 +279,11 @@ form links.
   below), and reading a pull request and its comments from `api.github.com` when
   you open a review link or run an import command. There are no background or
   startup checks.
+- RepoTrail never posts to GitHub. To tell whether a stop can take comments, it
+  asks the GitHub Pull Requests extension, through that extension's API, which
+  PR a folder has checked out. It passes only the folder. **Comment on PR…**
+  can open that extension's checkout link or the PR on github.com, but only
+  when you choose to.
 - RepoTrail reads git objects to render diffs. Its only git write is
   `git fetch --no-tags <remote> pull/<n>/head` (and still-missing tour commits) while
   importing a PR tour, and it asks first every time. It runs git through
@@ -269,6 +317,12 @@ See [PRIVACY.md](PRIVACY.md) for the longer policy.
   repository for tours.
 - `RepoTrail: Copy Tour as PR Comment` - copy the markdown for a PR comment with
   the review link, an agent setup prompt, and the tour JSON.
+- `RepoTrail: Comment on PR` - get to a place where you can comment on the
+  current stop, through the GitHub Pull Requests extension or on github.com.
+- `RepoTrail: Close Tour` - close the active tour. A tour saved in
+  `.repotrail/` stays in the library.
+- `RepoTrail: Delete Tour…` - move a tour's `.repotrail/*.json` file to the
+  trash and forget your progress in it.
 - `RepoTrail: Rename Tour` - change the visible tour title without renaming
   the `.repotrail/*.json` file.
 - `RepoTrail: Save Tour to Repo (.repotrail/)`.
@@ -321,7 +375,8 @@ page, so exports configured for Command narration start with System speech.
   files. The only repository write is the confirmed PR fetch described above.
 - PR tours work with github.com only, and RepoTrail looks for them in a pull
   request's issue comments (not the description or review comments). It doesn't
-  clone repositories or check out the PR; open a clone first, or use the setup
-  prompt. Remotes that use an SSH host alias (such as `git@github-work:org/repo`)
+  clone repositories or check out the PR itself; open a clone first, or use the
+  setup prompt. **Comment on PR…** can ask GitHub Pull Requests to check the PR
+  out. Remotes that use an SSH host alias (such as `git@github-work:org/repo`)
   aren't recognized as GitHub.
 - Open VSX publishing is not currently part of the release flow.

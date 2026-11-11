@@ -2,7 +2,7 @@
   "name": "repotrail",
   "displayName": "RepoTrail",
   "description": "Agent-authored JSON codebase tours in VS Code.",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "publisher": "repotrail",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -116,12 +116,21 @@
         "title": "RepoTrail: Open Current Step Source"
       },
       {
+        "command": "repoTrail.commentOnPr",
+        "title": "RepoTrail: Comment on PR"
+      },
+      {
         "command": "repoTrail.deeper",
         "title": "RepoTrail: Go Deeper"
       },
       {
         "command": "repoTrail.stop",
-        "title": "RepoTrail: Stop Tour"
+        "title": "RepoTrail: Close Tour",
+        "icon": "$(close)"
+      },
+      {
+        "command": "repoTrail.deleteTour",
+        "title": "RepoTrail: Delete Tour…"
       },
       {
         "command": "repoTrail.cycleTts",
@@ -170,6 +179,13 @@
       }
     ],
     "menus": {
+      "view/title": [
+        {
+          "command": "repoTrail.stop",
+          "when": "view == repoTrail.tour && repoTrail.tourActive",
+          "group": "navigation"
+        }
+      ],
       "editor/context": [
         {
           "command": "repoTrail.tourFromHere",
@@ -208,6 +224,10 @@
           "when": "repoTrail.tourActive"
         },
         {
+          "command": "repoTrail.commentOnPr",
+          "when": "repoTrail.tourActive"
+        },
+        {
           "command": "repoTrail.saveTourToRepo",
           "when": "repoTrail.tourActive"
         },
@@ -226,6 +246,10 @@
         {
           "command": "repoTrail.stop",
           "when": "repoTrail.tourActive"
+        },
+        {
+          "command": "repoTrail.deleteTour",
+          "when": "workspaceFolderCount > 0"
         },
         {
           "command": "repoTrail.cycleTts",
