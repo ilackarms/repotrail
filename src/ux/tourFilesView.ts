@@ -134,7 +134,9 @@ export class TourFilesProvider implements vscode.TreeDataProvider<ViewNode>, vsc
       this.roots = [];
       return;
     }
-    const entries = plan.steps.map((step, index) => fileEntry(step, index, plan));
+    const entries = plan.steps.flatMap((step, index) =>
+      step.file ? [fileEntry(step, step.file, index, plan)] : [],
+    );
     this.roots = buildTourFileTree(entries).map((node) => this.toViewNode(node, undefined, plan));
   }
 
@@ -177,11 +179,11 @@ export class TourFilesProvider implements vscode.TreeDataProvider<ViewNode>, vsc
   }
 }
 
-function fileEntry(step: TourStep, index: number, plan: TourPlan): TourFileEntry {
+function fileEntry(step: TourStep, stepFile: string, index: number, plan: TourPlan): TourFileEntry {
   const folder = resolveStepWorkspaceFolder(step, plan);
-  let file = step.file;
+  let file = stepFile;
   try {
-    file = normalizeWorkspaceFile(step.file);
+    file = normalizeWorkspaceFile(stepFile);
   } catch {
     // Keep the raw path; the stop still shows, and opening it reports the error.
   }

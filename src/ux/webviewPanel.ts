@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
-import { formatStepPath } from "../engine/types";
+import { slideBeats } from "../engine/slides/timeline";
+import { formatStepPath, type TourStep } from "../engine/types";
 import { RepoTourSummary } from "../storage/repoTours";
 import { TTS_DEFAULTS } from "../tts/config";
 import {
@@ -41,6 +42,8 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   private view: vscode.WebviewView | undefined;
   private onSinkChange: ((sink: WebviewSink | null) => void) | null = null;
   private repoTourLoader: (() => Promise<RepoTourSummary[]>) | null = null;
+  private ttsEndedListener: (() => void) | null = null;
+  private ttsStateListener: ((state: WebviewTtsState) => void) | null = null;
 
   private warnedKokoroFallback = false;
   private ttsState: WebviewTtsState = "idle";
@@ -101,6 +104,16 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   }
 
   /** Called by extension.ts to wire the TtsManager. */
+  /** Called when narration in the sidebar plays to its end. */
+  onTtsEnded(fn: () => void): void {
+    this.ttsEndedListener = fn;
+  }
+
+  /** Called when the sidebar's narration starts, pauses or stops. */
+  onTtsState(fn: (state: WebviewTtsState) => void): void {
+    this.ttsStateListener = fn;
+  }
+
   registerSinkListener(fn: (sink: WebviewSink | null) => void): void {
     this.onSinkChange = fn;
     if (this.view) {
@@ -127,9 +140,13 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
 
     view.webview.onDidReceiveMessage(async (msg) => {
       switch (msg?.type) {
+        case "tts.ended":
+          this.ttsEndedListener?.();
+          break;
         case "tts.state":
           if (isWebviewTtsState(msg.state)) {
             this.ttsState = msg.state;
+            this.ttsStateListener?.(msg.state);
             if (this.ttsState === "idle" && this.pendingRender) {
               this.pendingRender = false;
               await this.render();
@@ -183,6 +200,12 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           break;
         case "stopTts":
           await vscode.commands.executeCommand("repoTrail.stopTts");
+          break;
+        case "present":
+          await vscode.commands.executeCommand("repoTrail.present");
+          break;
+        case "autoplay":
+          await vscode.commands.executeCommand("repoTrail.autoplay");
           break;
         case "openTtsSettings":
           await vscode.commands.executeCommand("workbench.action.openSettings", "repoTrail.tts.provider");
@@ -295,7 +318,20 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     const title = current?.title ?? "No active tour";
     const explanation = current?.explanation ?? "";
     const fileLabel = current ? formatStepPath(current) : "";
-    const currentViewLabel = current?.diff ? viewModeLabel(current.viewMode ?? "diff") : "";
+    const currentViewLabel = current ? stopViewLabel(current) : "";
+    const beatCount = snap.positions - 1;
+    const beatChip = beatCount > 0 ? `Beat ${snap.beat} / ${beatCount}` : "";
+    // A slide's beats read as a transcript under the narration: said, saying, to come.
+    const beats = current?.slide ? slideBeats(current.slide) : [];
+    const transcript = beats.some((beat) => beat.say)
+      ? `<ol class="beat-transcript">${beats
+          .map((beat, i) =>
+            beat.say
+              ? `<li value="${i + 1}" class="${i + 1 < snap.beat ? "past" : i + 1 === snap.beat ? "current" : "future"}">${renderNarrationMarkdown(beat.say)}</li>`
+              : "",
+          )
+          .join("")}</ol>`
+      : "";
 
     const escape = (s: string) =>
       s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -309,7 +345,8 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         .map((s, i) => {
           const stepPath = formatStepPath(s);
           const loc = s.range ? `${stepPath}:${s.range.startLine}` : stepPath;
-          const viewLabel = s.diff ? ` · ${viewModeLabel(s.viewMode ?? "diff")}` : "";
+          const stopLabel = stopViewLabel(s);
+          const viewLabel = stopLabel ? ` · ${stopLabel}` : "";
           const drift = snap.drift[i];
           const driftIcon = drift === "missing" ? "⚠" : drift === "relocated" ? "↪" : "";
           const driftTitle =
@@ -378,7 +415,9 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     };
 
     const neighbors = { previous: plan?.steps[index - 1]?.title, next: plan?.steps[index + 1]?.title };
-    const primaryStepButtons = primaryStepNavigationControls(index, total, neighbors).map(renderNavButton).join("");
+    const primaryStepButtons = primaryStepNavigationControls(index, total, neighbors, { position: snap.beat, count: beatCount })
+      .map(renderNavButton)
+      .join("");
     const narration = narrationControl(ttsProvider);
     const playButton = `<button id="playPause" class="icon-button"${narration.disabled ? " disabled" : ""} title="${escape(narration.tooltip)}" aria-label="${escape(narration.label)}">${ICONS.play}</button>`;
     const menuButton = `<button id="menuButton" class="icon-button" title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="false" aria-controls="tourMenu">${ICONS.menu}</button>`;
@@ -494,6 +533,16 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   .narration code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.92em; padding: 1px 4px; border-radius: 3px; background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.15)); }
   .narration pre { padding: 6px 8px; border-radius: 3px; background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.15)); overflow-x: auto; }
   .narration pre code { padding: 0; background: none; }
+  .narration.said { opacity: 0.75; }
+  .beat-transcript { margin: -6px 0 16px; padding-left: 22px; line-height: 1.5; }
+  .beat-transcript li { margin: 0 0 6px; padding-left: 2px; transition: opacity 0.2s ease; }
+  .beat-transcript li p { margin: 0; }
+  .beat-transcript li::marker { color: var(--vscode-descriptionForeground); }
+  .beat-transcript li.past { opacity: 0.75; }
+  .beat-transcript li.current { font-weight: 600; }
+  .beat-transcript li.current::marker { color: var(--vscode-textLink-foreground, var(--vscode-focusBorder)); }
+  .beat-transcript li.future { opacity: 0.4; }
+  .beat-transcript code { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.92em; padding: 1px 4px; border-radius: 3px; background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.15)); }
   .controls { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
   button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 6px 10px; cursor: pointer; border-radius: 2px; font-size: 12px; line-height: 1.2; }
   button:hover { background: var(--vscode-button-hoverBackground); }
@@ -554,6 +603,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           <span class="step-count">Step ${index + 1} of ${total}</span>
           <span class="file-chip" title="${escape(fileLabel)}">${escape(fileLabel)}</span>
           ${currentViewLabel ? `<span class="view-chip">${escape(currentViewLabel)}</span>` : ""}
+          ${beatChip ? `<span class="view-chip">${escape(beatChip)}</span>` : ""}
         </div>
         <div class="progress" title="${index + 1} of ${total}"><div class="progress-fill" style="width:${progressPct}%"></div></div>
         <div class="nav-toolbar" role="toolbar" aria-label="Tour controls">
@@ -570,7 +620,8 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
       <main class="tour-main">
         ${driftBadge}
         ${bridgeBlock}
-        <div class="explanation narration">${renderNarrationMarkdown(explanation)}</div>
+        <div class="explanation narration${snap.beat > 0 ? " said" : ""}">${renderNarrationMarkdown(explanation)}</div>
+        ${transcript}
       </main>
       <footer class="ask-dock">
         <input id="q" class="follow-up" placeholder="Ask a follow-up about this stop…" aria-label="Follow-up question" title="Press Enter to copy a follow-up prompt for your agent (voice: ${escape(ttsProvider)})" />
@@ -601,6 +652,12 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     on("exportTour", "exportTour");
     on("dismissBridge", "dismissBridge");
     on("openTtsSettings", "openTtsSettings");
+    on("present", "present");
+    // A click here is the user gesture the webview needs before autoplay can sound.
+    document.getElementById("autoplay")?.addEventListener("click", () => {
+      try { unlockAudioContext(); } catch (e) {}
+      send({ type: "autoplay" });
+    });
     document.querySelectorAll(".stop").forEach((el) => {
       el.addEventListener("click", () => {
         const i = parseInt(el.getAttribute("data-index"), 10);
@@ -835,6 +892,13 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     let state = "idle";  // idle | preparing | playing | paused
 
     const ICONS = ${JSON.stringify(ICONS).replace(/<\//g, "<\\/")};
+    // Narration that played to its end (not cancelled): autoplay moves on.
+    function finished(token) {
+      if (token !== speakToken) return;
+      setState("idle");
+      send({ type: "tts.ended" });
+    }
+
     function setState(s) {
       state = s;
       send({ type: "tts.state", state: s });
@@ -976,7 +1040,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         u.rate = 1.05;
         mode = "synth";
         u.onstart = () => { if (token === speakToken) setState("playing"); };
-        u.onend = () => { if (token === speakToken) setState("idle"); };
+        u.onend = () => finished(token);
         window.speechSynthesis?.speak(u);
       } catch (err) {
         console.error("[repotrail tts] system speak failed", err);
@@ -998,7 +1062,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         const bytes = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         playBlob(new Blob([bytes], { type: mime || "audio/mpeg" }), token)
-          .then(() => { if (token === speakToken) setState("idle"); });
+          .then(() => finished(token));
       } catch (err) {
         console.error("[repotrail tts] audio decode failed", err);
         reportAudioFailure("decode failed: " + ((err && err.message) || err), false);
@@ -1148,7 +1212,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         if (token !== speakToken) return;
         await playBlob(new Blob([wav], { type: "audio/wav" }), token);
       }
-      if (token === speakToken) setState("idle");
+      finished(token);
     }
 
     (function clearLegacyPlayState() {
@@ -1182,6 +1246,12 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   }
 }
 
+/** Short label for how a stop is shown; empty for plain code stops. */
+function stopViewLabel(step: TourStep): string {
+  if (step.slide) return step.file ? "Slide" : "";
+  return step.diff ? viewModeLabel(step.viewMode ?? "diff") : "";
+}
+
 function viewModeLabel(mode: string): string {
   if (mode === "diff") return "Diff";
   if (mode === "both") return "Diff";
@@ -1207,6 +1277,7 @@ function renderSignature(
           current.root ?? "",
           current.workspaceFolder ?? "",
           current.file,
+          String(snap.beat),
           current.title,
           current.explanation,
           current.viewMode ?? "",

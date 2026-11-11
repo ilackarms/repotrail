@@ -1,5 +1,54 @@
 # Changelog
 
+## Unreleased
+
+- Tours can include slide stops: a step with a `slide` object shows a 16:9
+  slide in a RepoTrail Slides tab in the editor area instead of opening a file.
+  Slides hold text, bullets, tables, code snippets, callouts, and flow diagrams
+  with automatic layout, in `stack`, `columns`, or `title` layouts. Slide and
+  code stops take turns in the same editor column, and →, ←, Space, PageUp and
+  PageDown in the slide move through the tour. A slide's optional `file` and
+  `range` name its source, which Open source file opens. Problems in slide
+  JSON show on the slide and in Output ▸ RepoTrail. Tours get a new
+  `design-review` kind.
+- Slides build up in beats. Next and Back step through a slide's beats before
+  moving to another stop, and Back from a slide's first beat shows the previous
+  slide finished. **RepoTrail: Next Stop** (⇧⌥→, or ⇧→ in the slide) skips the
+  rest. Beats reveal and hide elements, change labels and colors, spotlight or
+  highlight parts of the slide, send tokens along diagram edges, and pulse
+  elements; nothing moves when they do. Each beat's `say` shows as a caption,
+  in a transcript under the narration, and is what Read aloud speaks.
+- Added sequence diagrams (`type: "sequence"`) and `build: true`, which
+  reveals bullets, table rows, or sequence messages one beat at a time.
+- New settings: `repoTrail.slides.motion` (`full`, `reduced`, `off`) and
+  `repoTrail.slides.captions`.
+- The agent skill has a "Design Reviews And Slides" section: when a design doc
+  or RFC should become a slide tour, the slide format, text budgets, and a
+  method for building a design review. **Agent setup** sends design docs to
+  slide tours and includes the path of the new JSON Schema,
+  `harness/tour.schema.json`, which VS Code now uses to check
+  `.repotrail/*.json` files.
+- Export Tour includes slides. Animated HTML plays them with their beats
+  (Next and Back step through beats, and `#stop=<n>&beat=<k>` opens any
+  position). Markdown writes diagrams as Mermaid, which GitHub renders.
+- The extension ships `out/cli.js` for agents: `lint` checks a tour against
+  the schema, beat ids, source files and the skill's text budgets, and
+  `render` writes the animated HTML player without VS Code. Agent setup
+  includes its path.
+- **RepoTrail: Present Tour** hides the side bars and panel and turns slide
+  captions on; `Esc` in a slide leaves. **RepoTrail: Play Tour** narrates each
+  stop and beat and moves on when the narration ends, or after a reading pause
+  when narration is off. Moving by hand while it plays continues from there.
+  Both are also in the tour panel's ☰ menu, and `P` in a slide toggles play.
+- Diagram nodes, sequence participants and code blocks can carry a `ref`:
+  clicking one opens that file beside the slide. Lint checks that the files
+  exist.
+- When consecutive slides share node ids, the shared nodes glide from their
+  old places to their new ones instead of the slide cutting over, in VS Code
+  and in the HTML export.
+- The tour sidebar now keeps running while hidden, so narration continues in
+  present mode.
+
 ## 0.13.1 - 2026-11-11
 
 - Added PR comments from the trail, through the GitHub Pull Requests

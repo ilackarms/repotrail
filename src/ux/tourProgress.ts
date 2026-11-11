@@ -130,6 +130,7 @@ function editorTargetKey(step: TourStep): string {
     step.range ?? null,
     step.viewMode ?? null,
     step.diff ?? null,
+    step.slide ?? null,
   ]);
 }
 

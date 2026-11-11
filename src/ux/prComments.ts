@@ -36,6 +36,12 @@ export async function commentOnPr(controller: TourController, log: vscode.Output
     vscode.window.showInformationMessage("RepoTrail: start a tour first, then comment from its stops.");
     return;
   }
+  if (!step.file) {
+    vscode.window.showInformationMessage(
+      "RepoTrail: this slide has no source file to comment on. Comment from a code stop, or from a slide that names its doc section.",
+    );
+    return;
+  }
   const tourPr = controller.activePullRequest ?? undefined;
   const state = await stopReviewState(step, plan, tourPr, { fresh: true });
   log.appendLine(
@@ -234,7 +240,7 @@ async function showPullRequestsExtension(): Promise<void> {
 async function openOnGitHub(pr: PrRef, step: TourStep, plan: TourPlan): Promise<void> {
   let url = `${prHtmlUrl(pr)}/files`;
   try {
-    const file = normalizeWorkspaceFile(step.diff?.headFile ?? step.file);
+    const file = normalizeWorkspaceFile(step.diff?.headFile ?? step.file ?? "");
     const uri = resolveStepUri(step, plan);
     const folder = uri ? vscode.workspace.getWorkspaceFolder(uri) : undefined;
     const prefix = folder ? (await repoPathPrefix(folder.uri.fsPath)) ?? "" : "";

@@ -1,12 +1,13 @@
 import * as vscode from "vscode";
 import { GitDiffSide, materializeStepDiff } from "../diffMaterialize";
-import { DriftStatus, formatStepPath, TourPlan, TourStep, TourStepViewMode } from "../engine/types";
+import { DriftStatus, formatStepPath, SlideRef, TourPlan, TourSlide, TourStep, TourStepViewMode } from "../engine/types";
 import { readGitBlobText } from "../gitBlob";
 import { formatPrRef, PrRef } from "../github/prRef";
 import { normalizeWorkspaceFile, resolveStepUri, resolveStepWorkspaceFolder } from "../workspace";
 import { mapDiffPositionToSource, sameDocumentText } from "./diffPositionMap";
 import { diffRevealTargetForRange } from "./diffReveal";
 import { plainMessageText } from "./messageText";
+import type { SlidePanel } from "./slidePanel";
 import { stopShowsReviewCheckout } from "./pullRequestReview";
 
 /**
@@ -65,6 +66,8 @@ interface StepEditorOptions {
   allSteps?: TourStep[];
   currentIndex?: number;
   plan?: TourPlan;
+  /** Position on a slide stop: 0 before any beat, k after beat k. */
+  beat?: number;
   /** The pull request the tour came from, when RepoTrail knows it. */
   pullRequest?: PrRef;
 }
@@ -89,10 +92,28 @@ export function resetTourEditorLayout(): void {
   tourPrimaryViewColumn = undefined;
 }
 
+let slidePanel: SlidePanel | null = null;
+let slideChrome = { presenting: false, autoplay: false };
+
+/** Present mode and autoplay change how the Slides panel looks. */
+export function setSlideChrome(chrome: { presenting: boolean; autoplay: boolean }): void {
+  slideChrome = chrome;
+}
+
+export function setSlidePanel(panel: SlidePanel): void {
+  slidePanel = panel;
+}
+
+/** Close the RepoTrail Slides panel, if it is open. */
+export function closeSlidePanel(): void {
+  slidePanel?.close();
+}
+
 export async function executeStep(
   step: TourStep,
   opts?: StepEditorOptions,
 ): Promise<ExecuteResult> {
+  if (step.slide) return showStepSlide(step, step.slide, opts);
   if (!step.file) return { drift: "ok" };
   // With the tour's PR checked out in GitHub Pull Requests, the working tree is
   // the code under review and the only side that extension comments on. Asked
@@ -122,6 +143,114 @@ export async function executeStep(
   );
 
   return { drift: prepared.drift, capturedAnchor: prepared.capturedAnchor };
+}
+
+/**
+ * Show a slide stop in the Slides panel, in the column the tour's editors use,
+ * so code stops and slides take turns in one place. The slide's source file is
+ * only checked for drift here; "Open source" opens it.
+ */
+async function showStepSlide(step: TourStep, slide: TourSlide, opts?: StepEditorOptions): Promise<ExecuteResult> {
+  await closeRepoTrailDiffTabs();
+  if (!postSlide(step, slide, opts)) return { drift: "ok" };
+  logger?.appendLine(
+    `[editor] slide "${step.title}"` + (slide.warnings?.length ? ` [${slide.warnings.length} warnings]` : ""),
+  );
+  return step.file && step.range ? checkStepDrift(step, opts?.plan) : { drift: "ok" };
+}
+
+/**
+ * Open a file a slide element points at, beside the slide, without taking
+ * focus. Only refs that are on the current slide are opened: the request comes
+ * from the webview, so it's matched against the tour data first.
+ */
+export async function openSlideRef(requested: unknown, current: TourStep | null, plan: TourPlan): Promise<void> {
+  const slide = current?.slide;
+  if (!slide || !current) return;
+  const refs: SlideRef[] = [];
+  for (const block of slide.blocks) {
+    if (block.type === "code" && block.ref) refs.push(block.ref);
+    if (block.type === "flow") for (const node of block.nodes) if (node.ref) refs.push(node.ref);
+    if (block.type === "sequence") for (const p of block.participants) if (p.ref) refs.push(p.ref);
+  }
+  const wanted = JSON.stringify(requested);
+  const ref = refs.find((candidate) => JSON.stringify(candidate) === wanted);
+  if (!ref) return;
+  const target: TourStep = {
+    title: current.title,
+    root: ref.root ?? current.root,
+    workspaceFolder: ref.root ? undefined : current.workspaceFolder,
+    file: ref.file,
+    range: ref.range,
+    explanation: "",
+    actions: [],
+  };
+  let uri: vscode.Uri | null;
+  try {
+    uri = resolveStepUri(target, plan);
+  } catch (err) {
+    logger?.appendLine(`[editor] slide ref ${ref.file} rejected: ${String(err)}`);
+    return;
+  }
+  if (!uri) {
+    vscode.window.showWarningMessage(`RepoTrail: can't find ${plainMessageText(ref.file)} in this workspace.`);
+    return;
+  }
+  try {
+    const doc = await vscode.workspace.openTextDocument(uri);
+    const editor = await vscode.window.showTextDocument(doc, {
+      viewColumn: vscode.ViewColumn.Beside,
+      preview: true,
+      preserveFocus: true,
+    });
+    if (ref.range) {
+      const range = resolveRange(target, doc);
+      editor.setDecorations(HIGHLIGHT_DECORATION, [{ range }]);
+      editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+    }
+  } catch (err) {
+    logger?.appendLine(`[editor] slide ref ${ref.file} failed: ${String(err)}`);
+    vscode.window.showWarningMessage(`RepoTrail: can't open ${plainMessageText(ref.file)}.`);
+  }
+}
+
+/** Move the slide already on screen to another beat. */
+export function showSlideBeat(step: TourStep, opts?: StepEditorOptions): void {
+  if (step.slide) postSlide(step, step.slide, opts);
+}
+
+function postSlide(step: TourStep, slide: TourSlide, opts?: StepEditorOptions): boolean {
+  if (!slidePanel) {
+    logger?.appendLine(`[editor] slide "${step.title}" skipped: the Slides panel isn't available`);
+    return false;
+  }
+  let source: string | undefined;
+  if (step.file) {
+    source = formatStepPath(step);
+    if (step.range) {
+      const { startLine, endLine } = step.range;
+      source += startLine === endLine ? `:${startLine}` : `:${startLine}-${endLine}`;
+    }
+  }
+  const config = vscode.workspace.getConfiguration("repoTrail");
+  const motion = config.get<string>("slides.motion", "full");
+  const column = slidePanel.show(
+    {
+      title: step.title,
+      slide,
+      index: opts?.currentIndex ?? 0,
+      total: opts?.allSteps?.length ?? 1,
+      source,
+      position: opts?.beat ?? 0,
+      motion: motion === "reduced" || motion === "off" ? motion : "full",
+      captions: slideChrome.presenting || config.get<boolean>("slides.captions", true),
+      presenting: slideChrome.presenting,
+      autoplay: slideChrome.autoplay,
+    },
+    reusablePrimaryViewColumn() ?? vscode.ViewColumn.Active,
+  );
+  if (column) tourPrimaryViewColumn = column;
+  return true;
 }
 
 export async function openStepSource(
@@ -239,7 +368,7 @@ async function readHeadText(step: TourStep, plan: TourPlan | undefined): Promise
   const folder = resolveStepWorkspaceFolder(step, plan);
   if (!folder) return undefined;
   try {
-    const blob = await readGitBlobText(folder.uri.fsPath, diff.headRef, normalizeWorkspaceFile(diff.headFile ?? step.file));
+    const blob = await readGitBlobText(folder.uri.fsPath, diff.headRef, normalizeWorkspaceFile(diff.headFile ?? step.file ?? ""));
     return blob.missing ? undefined : blob.text;
   } catch (err) {
     logger?.appendLine(`[editor] could not read ${formatStepPath(step)} at ${diff.headRef} for its anchor: ${String(err)}`);
@@ -299,8 +428,8 @@ async function openStepRevision(
   const folder = resolveStepWorkspaceFolder(step, plan);
   if (!folder) return null;
   const sides = [
-    { ref: diff.headRef, file: diff.headFile ?? step.file },
-    { ref: diff.baseRef, file: diff.baseFile ?? step.file },
+    { ref: diff.headRef, file: diff.headFile ?? step.file ?? "" },
+    { ref: diff.baseRef, file: diff.baseFile ?? step.file ?? "" },
   ];
   for (const side of sides) {
     try {
@@ -605,7 +734,7 @@ function virtualDiffUri(
   source: { sourceUri: vscode.Uri; lineOffset?: number },
 ): vscode.Uri {
   ensureDiffProvider();
-  const ext = extensionForFile(step.file);
+  const ext = extensionForFile(step.file ?? "");
   const slug = sanitizePathPart(`${step.title}-${label}`) || "step";
   const uri = vscode.Uri.from({
     scheme: DIFF_SCHEME,

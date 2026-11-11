@@ -17,6 +17,8 @@ import {
   TourStepDiff,
   TourStepViewMode,
 } from "./types";
+import { slideToMarkdown } from "./slides/markdown";
+import { normalizeSlide } from "./slides/normalize";
 
 const EXPORT_VERSION = 2;
 
@@ -31,9 +33,22 @@ export function planToJson(plan: TourPlan, exportedAt: string): string {
   const envelope: TourExportEnvelope = {
     repoTrailTour: EXPORT_VERSION,
     exportedAt,
-    plan,
+    plan: withoutRuntimeFields(plan),
   };
   return JSON.stringify(envelope, null, 2);
+}
+
+/** Drop fields RepoTrail adds while reading a tour (slide warnings). */
+function withoutRuntimeFields(plan: TourPlan): TourPlan {
+  if (!plan.steps.some((step) => step.slide?.warnings)) return plan;
+  return {
+    ...plan,
+    steps: plan.steps.map((step) => {
+      if (!step.slide?.warnings) return step;
+      const { warnings: _warnings, ...slide } = step.slide;
+      return { ...step, slide };
+    }),
+  };
 }
 
 /**
@@ -78,23 +93,30 @@ function normalizePlan(value: unknown): TourPlan | null {
 function normalizeStep(value: unknown): TourStep | null {
   if (!value || typeof value !== "object") return null;
   const s = value as Record<string, unknown>;
-  if (typeof s.file !== "string" || typeof s.title !== "string") return null;
+  if (typeof s.title !== "string") return null;
+  const slide = s.slide !== undefined ? normalizeSlide(s.slide) : undefined;
+  // A code stop needs a file. On a slide stop the file is the optional source.
+  let file: string | undefined;
+  if (typeof s.file === "string") file = slide && !s.file.trim() ? undefined : s.file;
+  if (file === undefined && !slide) return null;
   const range = normalizeRange(s.range);
   const diff = normalizeDiff(s.diff);
   const viewMode = normalizeViewMode(s.viewMode, diff);
-  return {
+  const step: TourStep = {
     title: s.title,
     root: typeof s.root === "string" && s.root.trim() ? s.root.trim() : undefined,
     workspaceFolder: typeof s.workspaceFolder === "string" ? s.workspaceFolder : undefined,
-    file: s.file,
+    file,
     explanation: typeof s.explanation === "string" ? s.explanation : "",
     range,
     viewMode,
     diff,
     symbol: typeof s.symbol === "string" ? s.symbol : undefined,
     anchor: typeof s.anchor === "string" ? s.anchor : undefined,
-    actions: defaultActions(range, diff, viewMode),
+    actions: slide ? ["showNarration"] : defaultActions(range, diff, viewMode),
   };
+  if (slide) step.slide = slide;
+  return step;
 }
 
 function normalizeRoots(value: unknown): Record<string, TourRootRef> | undefined {
@@ -181,12 +203,13 @@ function defaultActions(
   return actions;
 }
 
-const KINDS: TourKind[] = [
+export const KINDS: TourKind[] = [
   "architecture",
   "pr-diff",
   "file-walkthrough",
   "request-lifecycle",
   "bug-investigation",
+  "design-review",
 ];
 
 function normalizeKind(value: unknown): TourKind {
@@ -215,7 +238,10 @@ export function planToMarkdown(plan: TourPlan, exportedAt: string): string {
     lines.push("");
     lines.push(`\`${stepLocation(step)}\``);
     lines.push("");
-    if (step.diff) {
+    if (step.slide) {
+      lines.push(`_Slide${step.slide.beats?.length ? ` · ${step.slide.beats.length} beats` : ""}_`);
+      lines.push("");
+    } else if (step.diff) {
       lines.push(`_Diff view: ${step.viewMode ?? "diff"}_`);
       lines.push("");
     }
@@ -223,12 +249,15 @@ export function planToMarkdown(plan: TourPlan, exportedAt: string): string {
       lines.push(step.explanation.trim());
       lines.push("");
     }
+    if (step.slide) lines.push(...slideToMarkdown(step.slide));
   });
   return lines.join("\n");
 }
 
-function stepLocation(step: TourStep): string {
+/** `path:line` or `path:start-end` for a stop; "Slide" for a slide with no source. */
+export function stepLocation(step: TourStep): string {
   const target = formatStepPath(step);
+  if (step.slide && !step.file) return target;
   if (!step.range) return target;
   const { startLine, endLine } = step.range;
   return startLine === endLine

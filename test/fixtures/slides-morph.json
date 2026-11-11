@@ -1,0 +1,68 @@
+{
+  "repoTrailTour": 2,
+  "exportedAt": "2026-11-11T00:00:00.000Z",
+  "plan": {
+    "kind": "design-review",
+    "title": "How a slide reaches the screen",
+    "summary": "Two slides that share node ids, so the diagram changes in place, with nodes that open their source.",
+    "steps": [
+      {
+        "title": "An agent writes the tour, RepoTrail plays it",
+        "explanation": "The tour file is the whole contract between the agent and the editor.",
+        "file": "docs/design/slides.md",
+        "range": { "startLine": 1, "endLine": 12 },
+        "slide": {
+          "eyebrow": "Today",
+          "blocks": [
+            {
+              "type": "flow",
+              "id": "today",
+              "nodes": [
+                { "id": "agent", "label": "Agent", "shape": "actor" },
+                { "id": "tour", "label": ".repotrail/*.json", "shape": "file" },
+                { "id": "reader", "label": "normalizeSlide", "sub": "drops what it can't use", "ref": { "file": "src/engine/slides/normalize.ts", "range": { "startLine": 70, "endLine": 110 } } },
+                { "id": "panel", "label": "Slides panel", "shape": "service", "ref": { "file": "src/ux/slidePanel.ts" } }
+              ],
+              "edges": ["agent -> tour: writes", "tour -> reader", "reader -> panel"]
+            }
+          ],
+          "beats": [
+            { "say": "The agent writes one JSON file.", "flow": ["agent->tour"], "focus": ["agent", "tour", "agent->tour"] },
+            { "say": "RepoTrail reads it and shows the slide.", "flow": ["tour->reader", "reader->panel"] }
+          ]
+        }
+      },
+      {
+        "title": "With the CLI, the agent checks its work first",
+        "explanation": "lint and render close the loop without VS Code.",
+        "file": "docs/design/slides.md",
+        "range": { "startLine": 340, "endLine": 360 },
+        "slide": {
+          "eyebrow": "Phase 3",
+          "blocks": [
+            {
+              "type": "flow",
+              "id": "loop",
+              "direction": "TB",
+              "nodes": [
+                { "id": "agent", "label": "Agent", "shape": "actor" },
+                { "id": "tour", "label": ".repotrail/*.json", "shape": "file" },
+                { "id": "lint", "label": "cli.js lint", "sub": "schema, ids, budgets", "tone": "accent", "ref": { "file": "src/engine/slides/lint.ts" } },
+                { "id": "render", "label": "cli.js render", "sub": "HTML at any beat", "tone": "accent", "ref": { "file": "src/cli.ts" } },
+                { "id": "reader", "label": "normalizeSlide", "sub": "drops what it can't use" },
+                { "id": "panel", "label": "Slides panel", "shape": "service" }
+              ],
+              "edges": ["agent -> tour: writes", "tour -> lint", "tour -> render", "lint --> agent: errors", "tour -> reader", "reader -> panel"]
+            },
+            {
+              "type": "code",
+              "id": "cmd",
+              "code": "node out/cli.js lint .repotrail/deck.json",
+              "ref": { "file": "src/cli.ts", "range": { "startLine": 1, "endLine": 12 } }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

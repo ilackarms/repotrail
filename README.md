@@ -224,7 +224,15 @@ file itself.
 ## Features
 
 - Full-route tours for architecture, PR/diff walkthroughs, file walkthroughs,
-  request lifecycle traces, and bug investigation paths.
+  request lifecycle traces, bug investigation paths, and design reviews.
+- Slides: a stop can be a 16:9 slide with text, tables, code snippets,
+  callouts, flow diagrams and sequence diagrams that build up in beats.
+  Elements appear, change, get spotlighted, and send tokens along edges, with
+  a caption and narration per beat. Slides and code stops share one editor
+  column. Diagram nodes can open the file they describe, and nodes that
+  consecutive slides share glide to their new places.
+- Present mode hides the workbench chrome and shows captions; Play tour
+  narrates each stop and beat and moves on by itself.
 - Cross-repo tours in multi-root VS Code windows via `plan.roots` aliases or
   legacy per-step `workspaceFolder` addressing.
 - Tight highlighted ranges with auto-captured anchors that detect code drift.
@@ -238,7 +246,10 @@ file itself.
 - Tour Files tree that shows the tour's files by folder, follows the current
   stop, and jumps to any file or stop on click.
 - CodeLens controls above highlighted stops.
-- Keyboard navigation with `Alt+Left` and `Alt+Right`.
+- Keyboard navigation with `Alt+Left` and `Alt+Right` (beats first on a
+  slide; `Shift+Alt+Right` skips to the next stop). In a slide, the arrow
+  keys, Space, PageUp/PageDown and presentation clickers work too; `P` plays
+  or stops the tour and `Esc` leaves present mode.
 - Optional narration via system speech, local Kokoro, macOS/Linux command TTS,
   ElevenLabs, or OpenAI TTS.
 - Repository tour library backed by `.repotrail/*.json` across every open
@@ -317,6 +328,14 @@ See [PRIVACY.md](PRIVACY.md) for the longer policy.
 - `RepoTrail: Save Tour to Repo (.repotrail/)`.
 - `RepoTrail: Manage TTS Credentials` - securely store, replace, or clear an
   OpenAI or ElevenLabs API key.
+- `RepoTrail: Present Tour (Toggle)` - hide the side bars and panel and show
+  slide captions; run it again, or press `Esc` in a slide, to leave.
+- `RepoTrail: Play Tour (Toggle Autoplay)` - narrate the current stop or beat,
+  then move on when it ends (after a reading pause when narration is off).
+- `RepoTrail: Next Stop (Skip Slide Beats)`.
+
+Agents can also run `node <extension>/out/cli.js lint <tour.json>` and
+`render <tour.json> --out <file.html>`; see `harness/README.md`.
 
 ## Development
 
@@ -336,6 +355,10 @@ locally with `pnpm install-local`.
 player for the active tour. The file embeds the tour route, narration, bounded
 code snapshots, and diff frames, so it can be opened outside VS Code or shared as
 a single artifact.
+
+Slides play in the export too, with their beats: Next and Back step through
+them, and `<file>.html#stop=<n>&beat=<k>` opens any position. Markdown export
+writes slide diagrams as Mermaid.
 
 The exported player includes Back/Next, Play, Speak, and TTS settings. It carries
 non-secret VS Code TTS defaults such as provider, model, and voice. API keys from

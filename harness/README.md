@@ -114,6 +114,49 @@ request-path, or architecture tours unrelated to a window of changes. A
 change-review tour may include highlight-only orientation/context stops, but
 stops that review changed code should be diffs.
 
+## Slide Stops And Design Reviews
+
+A step with a `slide` object is a slide stop: RepoTrail shows it in a
+RepoTrail Slides tab in the editor area instead of opening a file. On a slide
+stop `file` is optional and names the slide's source (the doc section it
+summarizes), which "Open source file" opens. Slides hold `text`, `bullets`,
+`table`, `code`, `callout`, `flow` and `sequence` blocks and build up in
+`beats`. Use them for design reviews (`kind: "design-review"`) and for the
+shape of a change at the start of a PR tour. The format is in the skill's
+"Design Reviews And Slides" section.
+
+RepoTrail reads slides forgivingly: it drops what it can't use and lists the
+problems on the slide and in the RepoTrail output channel. Versions before
+slides support skip slide stops that have no `file`.
+
+## JSON Schema
+
+`harness/tour.schema.json` (JSON Schema draft-07) describes the tour file, the
+envelope or a bare plan. It's strict inside `slide`, so a misspelled field is
+an error, and permissive elsewhere so older tours still pass. VS Code checks
+`.repotrail/*.json` files against it while RepoTrail is installed, and the
+Agent setup prompt includes its path so agents can validate what they write.
+
+## Command Line
+
+The extension ships `out/cli.js` for agents that can't see VS Code:
+
+```bash
+node <extension>/out/cli.js lint <tour.json> [--root <dir> | --root <alias>=<dir>]... [--json]
+node <extension>/out/cli.js render <tour.json> --out <file.html> [--root ...]...
+```
+
+- `lint` validates against the schema and reports what RepoTrail would drop
+  (unknown beat ids, unreadable stops, missing files, ranges past the end of a
+  file) as errors, with exit code 1. Text over the skill's budgets and
+  diagrams that will render too small are warnings.
+- `render` writes the same standalone HTML player as **Export Tour → Animated
+  HTML**, with slides, code read from disk, and diffs from `git show`. Open it
+  at `#stop=<n>&beat=<k>` to see any position.
+- Files resolve against the folder that holds the tour's `.repotrail/`
+  directory, or the current directory. `--root` overrides that, per alias if
+  needed. Neither command writes anything but `--out`.
+
 ## Pull Request Comments
 
 A tour for a GitHub pull request can also be posted as a PR comment, so
@@ -135,7 +178,10 @@ parses as an envelope with a `repoTrailTour` key.
   `https://vscode.dev/redirect?url=<encoded vscode:// link>` (GitHub strips
   `vscode://` hrefs), the raw link in a code span for `code --open-url`, a
   collapsed agent setup prompt, and a collapsed `json` block with the envelope.
-  Stay under GitHub's 65,536-character comment limit.
+  Stay under GitHub's 65,536-character comment limit. Slides are the heavy
+  part: a 16-stop design review is about 59,000 characters with pretty JSON.
+  RepoTrail switches to compact JSON when the pretty form doesn't fit, which
+  leaves room for roughly 30 slides.
 
 The review link:
 

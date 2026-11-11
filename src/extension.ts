@@ -10,10 +10,12 @@ import {
   AnimatedTourFrame,
   AnimatedTourTtsDefaults,
   buildAnimatedDiffFrame,
+  codeFrameFromLines,
   planToAnimatedHtml,
 } from "./engine/animatedHtml";
 import {
   parseTourJson,
+  stepLocation,
   planToJson,
   planToMarkdown,
   slugForFilename,
@@ -35,7 +37,10 @@ import {
   TTS_SECRET_KEYS,
 } from "./tts/config";
 import { TourCodeLensProvider } from "./ux/codeLensProvider";
-import { setEditorLogger } from "./ux/editorActions";
+import { openSlideRef, setEditorLogger, setSlideChrome, setSlidePanel } from "./ux/editorActions";
+import { Autoplay } from "./ux/autoplay";
+import { PresentMode } from "./ux/presentMode";
+import { SlidePanel } from "./ux/slidePanel";
 import { deleteTourCommand } from "./ux/tourDelete";
 import { commentOnPr } from "./ux/prComments";
 import { onDidFindLateCheckout, setPullRequestReviewLogger, stopShowsReviewCheckout } from "./ux/pullRequestReview";
@@ -67,8 +72,6 @@ import {
 
 let tourStatusItem: vscode.StatusBarItem | null = null;
 
-const ANIMATED_EXPORT_CONTEXT_LINES = 2;
-const ANIMATED_EXPORT_MAX_CODE_LINES = 80;
 const WORKSPACE_REGISTRY_DIR_DISPLAY = "~/.repotrail/workspaces";
 
 type RenameTourArg = { rootPath?: string; file?: string };
@@ -86,6 +89,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   const controller = new TourController();
+  const presentMode = new PresentMode(controller, log);
+  let autoplay: Autoplay | null = null;
+  const slidePanel = new SlidePanel(
+    context.extensionUri,
+    {
+      next: () => void controller.next(),
+      back: () => void controller.back(),
+      nextStop: () => void controller.nextStop(),
+      openSource: () => void controller.openCurrentSource(),
+      exitPresent: () => void presentMode.exit(),
+      toggleAutoplay: () => autoplay?.toggle(),
+      openRef: (ref, slideIndex) => {
+        const snap = controller.snapshot();
+        if (snap.plan && snap.index === slideIndex) void openSlideRef(ref, snap.current, snap.plan);
+      },
+    },
+    log,
+  );
+  setSlidePanel(slidePanel);
+  context.subscriptions.push({ dispose: () => slidePanel.close() });
   let persistQueue = Promise.resolve();
   controller.setPersistFn((record) => {
     persistQueue = persistQueue
@@ -118,7 +141,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return listRepoTours(repoTourRoots());
   });
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(TourViewProvider.viewType, viewProvider),
+    // Kept alive while hidden so narration keeps playing in present mode.
+    vscode.window.registerWebviewViewProvider(TourViewProvider.viewType, viewProvider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
   );
   const filesProvider = new TourFilesProvider(controller);
   const filesView = vscode.window.createTreeView("repoTrail.files", {
@@ -206,6 +232,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   viewProvider.registerSinkListener((sink) => tts.setWebviewSink(sink));
   context.subscriptions.push(tts);
 
+  autoplay = new Autoplay(controller, tts, log);
+  const player = autoplay;
+  viewProvider.onTtsEnded(() => tts.notifyWebviewEnded());
+  viewProvider.onTtsState((state) => player.ttsStateChanged(state));
+  const refreshSlideChrome = () => {
+    setSlideChrome({ presenting: presentMode.isActive, autoplay: player.isActive });
+    controller.repostSlide();
+  };
+  context.subscriptions.push(
+    player,
+    presentMode,
+    player.onDidChangeActive(refreshSlideChrome),
+    presentMode.onDidChangeActive(refreshSlideChrome),
+    // Leaving the tour leaves present mode too.
+    controller.onDidChange(() => {
+      if (presentMode.isActive && !controller.snapshot().plan) void presentMode.exit();
+    }),
+    vscode.commands.registerCommand("repoTrail.present", () => presentMode.toggle()),
+    vscode.commands.registerCommand("repoTrail.autoplay", () => player.toggle()),
+  );
+
   const prImport: PrImportContext = {
     controller,
     log,
@@ -248,7 +295,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("repoTrail.copyAgentSetup", () => copyTourPrompt(context.extensionUri, log)),
     // Compatibility alias for the 0.11.0 command ID.
     vscode.commands.registerCommand("repoTrail.copyTourPrompt", () => copyTourPrompt(context.extensionUri, log)),
-    vscode.commands.registerCommand("repoTrail.exportTour", () => exportActiveTour(controller, log)),
+    vscode.commands.registerCommand("repoTrail.exportTour", () => exportActiveTour(controller, log, context.extensionUri)),
     vscode.commands.registerCommand("repoTrail.importTour", () => importTour(controller, log)),
     vscode.commands.registerCommand("repoTrail.importTourFromPr", () => importTourFromPrCommand(prImport)),
     vscode.commands.registerCommand("repoTrail.findToursOnPr", () => findToursOnPrCommand(prImport)),
@@ -258,6 +305,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("repoTrail.copySelectionReference", () => copySelectionReference()),
     vscode.commands.registerCommand("repoTrail.next", () => controller.next()),
     vscode.commands.registerCommand("repoTrail.back", () => controller.back()),
+    vscode.commands.registerCommand("repoTrail.nextStop", () => controller.nextStop()),
     vscode.commands.registerCommand("repoTrail.showStep", (index?: number) => {
       if (typeof index === "number") void controller.showStep(index);
     }),
@@ -616,7 +664,7 @@ function preferredRepoRootForPlan(plan: TourPlan): string | undefined {
   return best?.root;
 }
 
-function buildTourAuthoringPrompt(): string {
+function buildTourAuthoringPrompt(paths: { schema: string; cli: string }): string {
   const infos = workspaceFolderInfos();
   const aliases = buildRootAliases(infos.map((info) => info.name));
   const rootLines = infos
@@ -680,6 +728,7 @@ function buildTourAuthoringPrompt(): string {
     "- Use diff.scope \"file\" for normal PR/commit review stops so RepoTrail reads real full-file contents from git and VS Code can show unchanged surrounding code.",
     "- Do not paste generated code into diff.beforeText/diff.afterText for git-backed reviews. Use pasted text only when there is no local git ref to compare.",
     "- Use highlight-only viewMode \"code\" only for codebase, file, subsystem, request-path, or architecture tours unrelated to a window of changes, plus optional orientation/context stops that do not review changed code.",
+    "- If the subject is a design document, RFC, ADR, proposal, or architecture plan, even one that arrives as a PR, create a design-review tour (kind \"design-review\") built from slides, as the skill's \"Design Reviews And Slides\" section describes.",
     "",
     "JSON format:",
     "```json",
@@ -691,6 +740,8 @@ function buildTourAuthoringPrompt(): string {
     "- Use workspace-relative forward-slash file paths only.",
     "- Keep ranges tight and 1-indexed.",
     "- Do not use absolute file paths in steps, empty file paths, or paths containing \"..\".",
+    `- Check the finished file with RepoTrail's linter and fix every error: node "${paths.cli}" lint <tour file>. It validates against the JSON Schema at ${paths.schema}, checks beat ids, sources and text budgets. Pass --root <alias>=<dir> for roots outside the tour's project.`,
+    `- For slides, if you can open a browser: node "${paths.cli}" render <tour file> --out <file.html>, then open <file.html>#stop=<n>&beat=<k> to see any slide at any beat.`,
   ].join("\n");
 }
 
@@ -808,7 +859,11 @@ function activeTourRevisionInstruction(controller: TourController): string {
  * Export the active tour to a file the user picks. Markdown is the readable
  * artifact (file:line refs + narration); JSON round-trips back through Import.
  */
-async function exportActiveTour(controller: TourController, log: vscode.OutputChannel): Promise<void> {
+async function exportActiveTour(
+  controller: TourController,
+  log: vscode.OutputChannel,
+  extensionUri: vscode.Uri,
+): Promise<void> {
   const snap = controller.snapshot();
   if (!snap.plan || snap.plan.steps.length === 0) {
     vscode.window.showInformationMessage("RepoTrail: no active tour to export.");
@@ -847,6 +902,7 @@ async function exportActiveTour(controller: TourController, log: vscode.OutputCh
         exportedAt,
         frames: await buildAnimatedTourFrames(snap.plan, log),
         tts: buildAnimatedTtsDefaults(),
+        slideRuntime: snap.plan.steps.some((step) => step.slide) ? await readSlideRuntime(extensionUri, log) : undefined,
       })
     : isJson
       ? planToJson(snap.plan, exportedAt)
@@ -900,6 +956,17 @@ async function buildAnimatedTourFrame(
   index: number,
   log: vscode.OutputChannel,
 ): Promise<AnimatedTourFrame> {
+  if (step.slide) {
+    return {
+      index,
+      title: step.title,
+      location: stepLocationLabel(step),
+      explanation: step.explanation,
+      viewLabel: "Slide",
+      slide: step.slide,
+      warnings: [],
+    };
+  }
   const warnings: string[] = [];
   const code = await snapshotStepCode(step, plan, warnings, log);
   const shouldRenderDiff = Boolean(step.diff && step.viewMode !== "code");
@@ -994,43 +1061,34 @@ async function snapshotStepCode(
     return undefined;
   }
 
-  if (doc.lineCount === 0) {
-    return {
-      text: "",
-      startLine: 1,
-      languageId: doc.languageId,
-    };
-  }
-
-  const focusStart = step.range ? clamp(step.range.startLine - 1, 0, doc.lineCount - 1) : 0;
-  const focusEnd = step.range ? clamp(step.range.endLine - 1, focusStart, doc.lineCount - 1) : 0;
-  let start = step.range
-    ? Math.max(0, focusStart - ANIMATED_EXPORT_CONTEXT_LINES)
-    : 0;
-  let end = step.range
-    ? Math.min(doc.lineCount - 1, focusEnd + ANIMATED_EXPORT_CONTEXT_LINES)
-    : Math.min(doc.lineCount - 1, ANIMATED_EXPORT_MAX_CODE_LINES - 1);
-
-  if (end - start + 1 > ANIMATED_EXPORT_MAX_CODE_LINES) {
-    end = start + ANIMATED_EXPORT_MAX_CODE_LINES - 1;
-  }
-  const truncated = start > 0 || end < doc.lineCount - 1;
   const lines: string[] = [];
-  for (let line = start; line <= end; line++) {
-    lines.push(doc.lineAt(line).text);
-  }
-  if (truncated) {
-    warnings.push("Code snapshot was trimmed around the tour range.");
-  }
+  for (let line = 0; line < doc.lineCount; line++) lines.push(doc.lineAt(line).text);
+  const snapshot = codeFrameFromLines(
+    lines,
+    step.range,
+    doc.languageId,
+    doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n",
+  );
+  warnings.push(...snapshot.warnings);
+  return snapshot.frame;
+}
 
-  return {
-    text: lines.join(doc.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n"),
-    startLine: start + 1,
-    highlightStartLine: step.range ? focusStart + 1 : undefined,
-    highlightEndLine: step.range ? focusEnd + 1 : undefined,
-    languageId: doc.languageId,
-    truncated,
-  };
+/** The slide runtime the Slides panel uses, for inlining into an HTML export. */
+async function readSlideRuntime(
+  extensionUri: vscode.Uri,
+  log: vscode.OutputChannel,
+): Promise<{ script: string; css: string } | undefined> {
+  try {
+    const [script, css] = await Promise.all(
+      ["slides.js", "slides.css"].map(async (name) =>
+        Buffer.from(await vscode.workspace.fs.readFile(vscode.Uri.joinPath(extensionUri, "out", name))).toString("utf8"),
+      ),
+    );
+    return { script, css };
+  } catch (err) {
+    log.appendLine(`[export:animated] slide runtime unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  }
 }
 
 function resolveExportRange(step: TourStep, doc: vscode.TextDocument): vscode.Range {
@@ -1046,10 +1104,7 @@ function resolveExportRange(step: TourStep, doc: vscode.TextDocument): vscode.Ra
 }
 
 function stepLocationLabel(step: TourStep): string {
-  const target = formatStepPath(step);
-  if (!step.range) return target;
-  const { startLine, endLine } = step.range;
-  return startLine === endLine ? `${target}:${startLine}` : `${target}:${startLine}-${endLine}`;
+  return stepLocation(step);
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -1216,7 +1271,11 @@ async function copyTourPrompt(extensionUri: vscode.Uri, log: vscode.OutputChanne
     vscode.window.showErrorMessage("RepoTrail: open a folder/workspace first.");
     return;
   }
-  if (!await copyBundledAgentPrompt(extensionUri, buildTourAuthoringPrompt(), log)) return;
+  const paths = {
+    schema: vscode.Uri.joinPath(extensionUri, "harness", "tour.schema.json").fsPath,
+    cli: vscode.Uri.joinPath(extensionUri, "out", "cli.js").fsPath,
+  };
+  if (!await copyBundledAgentPrompt(extensionUri, buildTourAuthoringPrompt(paths), log)) return;
   await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
   vscode.window.showInformationMessage(
     "RepoTrail agent setup copied with the bundled skill. Paste it into your agent; it should write a .repotrail/*.json file.",

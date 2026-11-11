@@ -5,7 +5,8 @@ export type TourKind =
   | "pr-diff"
   | "file-walkthrough"
   | "request-lifecycle"
-  | "bug-investigation";
+  | "bug-investigation"
+  | "design-review";
 
 export interface TourRange {
   startLine: number;     // 1-indexed
@@ -81,7 +82,12 @@ export interface TourStep {
    * tours or to target the first workspace folder.
    */
   workspaceFolder?: string;
-  file: string;            // workspace-relative path inside workspaceFolder
+  /**
+   * Workspace-relative path inside workspaceFolder. Required for code and diff
+   * stops. On a slide stop it is optional and names the slide's source (the
+   * doc section it summarizes), which "Open source" opens on request.
+   */
+  file?: string;
   range?: TourRange;
   /**
    * How to present the stop. Diff-backed steps default to a compact native diff.
@@ -101,6 +107,218 @@ export interface TourStep {
    * survive edits to the underlying code.
    */
   anchor?: string;
+  /**
+   * Present on slide stops. Landing on the stop shows the slide in the
+   * RepoTrail Slides panel instead of opening `file`.
+   */
+  slide?: TourSlide;
+}
+
+export type SlideTone = "default" | "accent" | "good" | "warn" | "bad" | "muted";
+export type SlideLayout = "stack" | "columns" | "title";
+export type SlideCalloutTone = "info" | "warn" | "risk" | "decision" | "question";
+export type SlideNodeShape =
+  | "box"
+  | "service"
+  | "store"
+  | "file"
+  | "actor"
+  | "device"
+  | "queue"
+  | "external"
+  | "decision"
+  | "note";
+
+interface SlideBlockBase {
+  /** Unique within the slide. Defaults to `b1`, `b2`, … */
+  id: string;
+  title?: string;
+  /**
+   * In the `columns` layout, the 1-based column for this block. Blocks that
+   * share a column stack top to bottom. Without it, a block starts the column
+   * after the previous block's.
+   */
+  column?: number;
+  /** Column weight in the `columns` layout. */
+  span?: number;
+  /** Reveal items one beat at a time (bullets, table rows). */
+  build?: boolean;
+}
+
+export interface SlideTextBlock extends SlideBlockBase {
+  type: "text";
+  md: string;
+}
+
+export interface SlideBulletItem {
+  /** Defaults to `<block>.<n>` (nested: `<block>.<n>.<m>`). */
+  id: string;
+  text: string;
+  tone?: SlideTone;
+  items?: SlideBulletItem[];
+}
+
+export interface SlideBulletsBlock extends SlideBlockBase {
+  type: "bullets";
+  ordered?: boolean;
+  items: SlideBulletItem[];
+}
+
+export interface SlideTableRow {
+  /** Defaults to `<block>.<n>`. */
+  id: string;
+  cells: string[];
+  tone?: SlideTone;
+}
+
+export interface SlideTableBlock extends SlideBlockBase {
+  type: "table";
+  columns: string[];
+  rows: SlideTableRow[];
+}
+
+/** A file a slide element points at; clicking the element opens it beside the slide. */
+export interface SlideRef {
+  /** Root alias; defaults to the slide stop's root. */
+  root?: string;
+  file: string;
+  range?: TourRange;
+}
+
+export interface SlideCodeBlock extends SlideBlockBase {
+  type: "code";
+  code: string;
+  language?: string;
+  /** Line number shown for the first line. Defaults to 1. */
+  startLine?: number;
+  ref?: SlideRef;
+}
+
+export interface SlideCalloutBlock extends SlideBlockBase {
+  type: "callout";
+  tone: SlideCalloutTone;
+  md: string;
+}
+
+export interface SlideFlowNode {
+  id: string;
+  label: string;
+  sub?: string;
+  shape: SlideNodeShape;
+  tone?: SlideTone;
+  badge?: string;
+  group?: string;
+  ref?: SlideRef;
+}
+
+export interface SlideFlowEdge {
+  /** Defaults to `<from>-><to>`, then `<from>-><to>#2` for a repeat. */
+  id: string;
+  from: string;
+  to: string;
+  label?: string;
+  style: "solid" | "dashed";
+  arrow: "end" | "both" | "none";
+  tone?: SlideTone;
+}
+
+export interface SlideFlowGroup {
+  id: string;
+  label?: string;
+  tone?: SlideTone;
+}
+
+export interface SlideFlowBlock extends SlideBlockBase {
+  type: "flow";
+  direction: "LR" | "TB";
+  nodes: SlideFlowNode[];
+  edges: SlideFlowEdge[];
+  groups: SlideFlowGroup[];
+}
+
+export interface SlideSequenceParticipant {
+  id: string;
+  label: string;
+  sub?: string;
+  shape: SlideNodeShape;
+  tone?: SlideTone;
+  ref?: SlideRef;
+}
+
+export interface SlideSequenceMessage {
+  /** Defaults to `<block>.<n>`, counting messages and notes together. */
+  id: string;
+  from: string;
+  to: string;
+  label?: string;
+  /** Drawn dashed, as a response. */
+  reply?: boolean;
+  tone?: SlideTone;
+}
+
+export interface SlideSequenceNote {
+  id: string;
+  note: string;
+  /** Participants the note spans. */
+  over: string[];
+  tone?: SlideTone;
+}
+
+export interface SlideSequenceBlock extends SlideBlockBase {
+  type: "sequence";
+  participants: SlideSequenceParticipant[];
+  messages: Array<SlideSequenceMessage | SlideSequenceNote>;
+}
+
+export type SlideBlock =
+  | SlideTextBlock
+  | SlideBulletsBlock
+  | SlideTableBlock
+  | SlideCodeBlock
+  | SlideCalloutBlock
+  | SlideFlowBlock
+  | SlideSequenceBlock;
+
+export interface SlideElementPatch {
+  label?: string;
+  sub?: string;
+  badge?: string;
+  tone?: SlideTone;
+}
+
+export interface SlideFlowEffect {
+  edge: string;
+  label?: string;
+  tone?: SlideTone;
+  reverse?: boolean;
+}
+
+/**
+ * One build step. `show`, `hide` and `set` carry forward; `focus` and
+ * `highlight` last one beat; `flow` and `pulse` play once on entering it.
+ */
+export interface SlideBeat {
+  say?: string;
+  show?: string[];
+  hide?: string[];
+  set?: Record<string, SlideElementPatch>;
+  focus?: string[];
+  highlight?: string[];
+  flow?: SlideFlowEffect[];
+  pulse?: string[];
+}
+
+export interface TourSlide {
+  layout: SlideLayout;
+  eyebrow?: string;
+  subtitle?: string;
+  blocks: SlideBlock[];
+  beats?: SlideBeat[];
+  /**
+   * Problems found while reading the slide JSON. Set by RepoTrail, ignored on
+   * input, and left out of exported tours.
+   */
+  warnings?: string[];
 }
 
 /**
@@ -120,8 +338,10 @@ export interface TourPlan {
   steps: TourStep[];
 }
 
+/** Display path for a stop. A slide stop with no source shows as "Slide". */
 export function formatStepPath(step: Pick<TourStep, "file" | "workspaceFolder">): string {
   const keyedStep = step as Pick<TourStep, "file" | "workspaceFolder" | "root">;
+  if (!step.file) return "Slide";
   const prefix = keyedStep.root ?? keyedStep.workspaceFolder;
   return prefix ? `${prefix}/${step.file}` : step.file;
 }

@@ -43,7 +43,7 @@ test("moves the step tools into the menu, with Close last and set apart", () => 
   const items = stepMenuItems("darwin");
   assert.deepEqual(
     items.map(({ id }) => id),
-    ["revealCurrent", "openCurrentSource", "deeper", "exportTour", "openTtsSettings", "stop"],
+    ["revealCurrent", "openCurrentSource", "deeper", "exportTour", "present", "autoplay", "openTtsSettings", "stop"],
   );
   const close = items.at(-1);
   assert.equal(close.label, "Close tour");
@@ -64,6 +64,17 @@ test("disables the play button when text to speech is off", () => {
   const off = narrationControl("off");
   assert.equal(off.disabled, true);
   assert.match(off.tooltip, /Narration settings/);
+});
+
+test("on a slide, Back and Next step through beats before stops", () => {
+  const [backAtStart, nextAtStart] = primaryStepNavigationControls(0, 1, {}, { position: 0, count: 3 });
+  assert.equal(backAtStart.disabled, true);
+  assert.equal(nextAtStart.disabled, false);
+  assert.equal(nextAtStart.tooltip, "Next beat (1 of 3)");
+  const [back, next] = primaryStepNavigationControls(0, 1, {}, { position: 3, count: 3 });
+  assert.equal(back.disabled, false);
+  assert.equal(back.tooltip, "Previous beat (2 of 3)");
+  assert.equal(next.disabled, true);
 });
 
 test("offers Delete tour, in the error color, only for tours saved in .repotrail/", () => {

@@ -1,9 +1,10 @@
 import type { TourStep } from "../engine/types";
 
 /** Stable identity for the narration currently playing in the webview or host. */
-export function narrationTargetKey(tourId: string | null, step: TourStep | null): string | null {
+export function narrationTargetKey(tourId: string | null, step: TourStep | null, beat = 0): string | null {
   if (!tourId || !step) return null;
   return JSON.stringify([
+    beat,
     tourId,
     step.root ?? null,
     step.workspaceFolder ?? null,

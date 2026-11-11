@@ -1,11 +1,20 @@
 import * as vscode from "vscode";
+import { moveCursor, positionCount, type CursorMove } from "../engine/slides/timeline";
 import type { DriftStatus, TourPlan, TourStep } from "../engine/types";
 import { PrRef, prRef } from "../github/prRef";
 import type { RepoTourSource } from "../storage/repoTours";
 import { newTourId, repoTourProgressId } from "../storage/tourStore";
 import type { TourRecord } from "../storage/tourStore";
 import { currentWorkspaceStorageRoot, resolveTourPlanRoots, TourRootBindingOptions } from "../workspace";
-import { checkStepDrift, clearHighlights, executeStep, openStepSource, resetTourEditorLayout } from "./editorActions";
+import {
+  checkStepDrift,
+  clearHighlights,
+  closeSlidePanel,
+  executeStep,
+  openStepSource,
+  resetTourEditorLayout,
+  showSlideBeat,
+} from "./editorActions";
 import { reconcileTourUpdate } from "./tourProgress";
 
 /**
@@ -23,6 +32,8 @@ export interface LoadPlanOptions extends TourRootBindingOptions {
 export class TourController {
   private plan: TourPlan | null = null;
   private index = 0;
+  /** Position on the current stop when it is a slide with beats. */
+  private beat = 0;
   private tourId: string | null = null;
   private repoTourSource: RepoTourSource | null = null;
   private pullRequest: PrRef | null = null;
@@ -83,6 +94,7 @@ export class TourController {
   ): Promise<void> {
     this.plan = resolveTourPlanRoots(plan, binding);
     this.index = plan.steps.length > 0 ? 0 : -1;
+    this.beat = 0;
     this.tourId = repoTourSource ? repoTourProgressId(repoTourSource) : newTourId();
     this.repoTourSource = repoTourSource ?? null;
     this.pullRequest = binding.pullRequest ?? null;
@@ -107,6 +119,7 @@ export class TourController {
     this.workspaceRoot = record.workspaceRoot;
     this.createdAt = record.createdAt;
     this.index = Math.max(0, Math.min(record.lastIndex, record.plan.steps.length - 1));
+    this.beat = 0;
     this.driftByIndex.clear();
     this.seen = new Set(record.seen ?? []);
     resetTourEditorLayout();
@@ -147,9 +160,16 @@ export class TourController {
   async reloadPlan(plan: TourPlan): Promise<void> {
     if (!this.plan || !this.repoTourSource) return;
     const nextPlan = resolveTourPlanRoots(plan);
+    const previous = this.plan.steps[this.index];
     const progress = reconcileTourUpdate(this.plan.steps, this.index, this.seen, nextPlan.steps);
     this.plan = { ...nextPlan, steps: progress.steps };
     this.index = progress.index;
+    // Keep the beat while the agent rewrites the slide on screen.
+    const current = this.plan.steps[this.index];
+    this.beat =
+      current?.slide && previous?.slide && current.title === previous.title
+        ? Math.min(this.beat, positionCount(current) - 1)
+        : 0;
     this.seen = new Set(progress.seen);
     this.driftByIndex.clear();
     if (this.index >= 0 && progress.editorRefreshNeeded) await this.applyCurrent();
@@ -160,33 +180,57 @@ export class TourController {
     void this.scanDrift();
   }
 
-  async next(): Promise<void> {
-    if (!this.plan) return;
-    if (this.index < this.plan.steps.length - 1) {
-      this.index++;
-      await this.applyCurrent();
-      this.persist();
-      this.onChangeEmitter.fire();
-    }
+  /** Next beat on a slide, otherwise the next stop. */
+  next(): Promise<void> {
+    return this.move("next");
   }
 
-  async back(): Promise<void> {
-    if (!this.plan) return;
-    if (this.index > 0) {
-      this.index--;
+  /** Previous beat on a slide, otherwise the previous stop (a slide lands on its last beat). */
+  back(): Promise<void> {
+    return this.move("back");
+  }
+
+  /** The next stop, skipping any beats left on this slide. */
+  nextStop(): Promise<void> {
+    return this.move("nextStop");
+  }
+
+  private async move(direction: CursorMove): Promise<void> {
+    if (!this.plan || this.index < 0) return;
+    const target = moveCursor(this.plan.steps, { index: this.index, beat: this.beat }, direction);
+    if (!target) return;
+    const sameStop = target.index === this.index;
+    this.index = target.index;
+    this.beat = target.beat;
+    if (sameStop) {
+      showSlideBeat(this.plan.steps[this.index], {
+        allSteps: this.plan.steps,
+        currentIndex: this.index,
+        plan: this.plan,
+        beat: this.beat,
+      });
+    } else {
       await this.applyCurrent();
       this.persist();
-      this.onChangeEmitter.fire();
     }
+    this.onChangeEmitter.fire();
   }
 
   async showStep(index: number): Promise<void> {
     if (!this.plan) return;
     if (index < 0 || index >= this.plan.steps.length) return;
     this.index = index;
+    this.beat = 0;
     await this.applyCurrent();
     this.persist();
     this.onChangeEmitter.fire();
+  }
+
+  /** Post the current slide again, for panel chrome that changed (present mode, autoplay). */
+  repostSlide(): void {
+    const step = this.plan && this.index >= 0 ? this.plan.steps[this.index] : undefined;
+    if (!this.plan || !step?.slide) return;
+    showSlideBeat(step, { allSteps: this.plan.steps, currentIndex: this.index, plan: this.plan, beat: this.beat });
   }
 
   /** Re-open and reveal the currently selected tour step without changing state. */
@@ -221,6 +265,7 @@ export class TourController {
     this.persist();
     this.plan = null;
     this.index = 0;
+    this.beat = 0;
     this.tourId = null;
     this.repoTourSource = null;
     this.pullRequest = null;
@@ -229,6 +274,7 @@ export class TourController {
     this.driftByIndex.clear();
     this.seen = new Set();
     resetTourEditorLayout();
+    closeSlidePanel();
     this.setActiveContext(false);
     clearHighlights();
     this.onChangeEmitter.fire();
@@ -238,6 +284,10 @@ export class TourController {
   snapshot(): {
     plan: TourPlan | null;
     index: number;
+    /** Position on the current stop: 0 before any beat. */
+    beat: number;
+    /** Positions on the current stop: beats + 1 for a slide, 1 otherwise. */
+    positions: number;
     current: TourStep | null;
     drift: Record<number, DriftStatus>;
     currentDrift: DriftStatus;
@@ -245,10 +295,13 @@ export class TourController {
   } {
     const drift: Record<number, DriftStatus> = {};
     for (const [i, s] of this.driftByIndex) if (s !== "ok") drift[i] = s;
+    const current = this.plan && this.index >= 0 ? this.plan.steps[this.index] ?? null : null;
     return {
       plan: this.plan,
       index: this.index,
-      current: this.plan && this.index >= 0 ? this.plan.steps[this.index] ?? null : null,
+      beat: this.beat,
+      positions: current ? positionCount(current) : 0,
+      current,
       drift,
       currentDrift: this.driftByIndex.get(this.index) ?? "ok",
       seen: [...this.seen].sort((a, b) => a - b),
@@ -265,6 +318,7 @@ export class TourController {
       allSteps: planAtStart.steps,
       currentIndex: indexAtStart,
       plan: planAtStart,
+      beat: this.beat,
       pullRequest: this.pullRequest ?? undefined,
     });
     if (this.plan !== planAtStart || this.index !== indexAtStart) return;

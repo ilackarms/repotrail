@@ -46,8 +46,16 @@ Layers stay separated:
    has checked out; `src/ux/prComments.ts` owns "Comment on PR". RepoTrail
    never posts to GitHub. `src/gitRepo.ts` owns the remote listing, commit
    and ancestry checks, and the confirmed PR fetch (the only git write).
-6. `harness/repo-trail/SKILL.md` is the generic authoring skill.
-7. `harness/README.md` documents the JSON file contract for external agents.
+6. `src/webview/` is browser-only code bundled for webviews. The slide
+   runtime (`src/webview/slides/`) renders slide stops in the RepoTrail Slides
+   panel; `src/ux/slidePanel.ts` owns that panel and only `editorActions.ts`
+   drives it. Webview code may import `src/engine/` and pure UI helpers, never
+   `vscode`.
+7. `src/cli.ts` is the command line for agents (`out/cli.js lint` and
+   `render`). It uses `src/engine/` only and reads files and git directly;
+   it never imports `vscode`. Lint rules live in `src/engine/slides/lint.ts`.
+8. `harness/repo-trail/SKILL.md` is the generic authoring skill.
+9. `harness/README.md` documents the JSON file contract for external agents.
 
 ## Product Rule
 
