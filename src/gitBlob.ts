@@ -40,7 +40,8 @@ export async function readGitBlobText(
   }
 }
 
-function normalizeGitRef(ref: string): string {
+/** Reject refs that git could read as an option or that carry newlines/paths. */
+export function normalizeGitRef(ref: string): string {
   const trimmed = ref.trim();
   if (!trimmed || trimmed.startsWith("-") || /[\0\r\n:]/.test(trimmed)) {
     throw new Error("Git ref must be a non-empty commit-ish without ':' or newlines.");

@@ -33,7 +33,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onUri"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -49,6 +50,18 @@
       {
         "command": "repoTrail.importTour",
         "title": "RepoTrail: Import Tour"
+      },
+      {
+        "command": "repoTrail.importTourFromPr",
+        "title": "RepoTrail: Import Tour from GitHub PR"
+      },
+      {
+        "command": "repoTrail.findToursOnPr",
+        "title": "RepoTrail: Find Tours on a PR"
+      },
+      {
+        "command": "repoTrail.copyTourAsPrComment",
+        "title": "RepoTrail: Copy Tour as PR Comment"
       },
       {
         "command": "repoTrail.saveTourToRepo",

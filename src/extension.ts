@@ -43,6 +43,14 @@ import { TourFilesProvider } from "./ux/tourFilesView";
 import { TourViewProvider } from "./ux/webviewPanel";
 import { composeAgentSetupPrompt } from "./ux/agentSetupPrompt";
 import {
+  copyTourAsPrComment,
+  findToursOnPrCommand,
+  handleReviewUri,
+  importTourFromPrCommand,
+  PrImportContext,
+  resumePendingPrImport,
+} from "./ux/prImport";
+import {
   currentWorkspaceFolders,
   currentWorkspaceStorageRoot,
   firstWorkspaceRoot,
@@ -151,6 +159,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   viewProvider.registerSinkListener((sink) => tts.setWebviewSink(sink));
   context.subscriptions.push(tts);
 
+  const prImport: PrImportContext = {
+    controller,
+    log,
+    globalState: context.globalState,
+    extensionId: context.extension.id,
+  };
+  // Review links: <any VS Code scheme>://repotrail.repotrail/review?pr=... The
+  // scheme is whatever this editor registered (vscode, vscode-insiders, ...).
+  context.subscriptions.push(
+    vscode.window.registerUriHandler({ handleUri: (uri) => handleReviewUri(uri, prImport) }),
+  );
+
   const codeLensProvider = new TourCodeLensProvider(controller);
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider({ scheme: "file" }, codeLensProvider),
@@ -165,6 +185,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("repoTrail.copyTourPrompt", () => copyTourPrompt(context.extensionUri, log)),
     vscode.commands.registerCommand("repoTrail.exportTour", () => exportActiveTour(controller, log)),
     vscode.commands.registerCommand("repoTrail.importTour", () => importTour(controller, log)),
+    vscode.commands.registerCommand("repoTrail.importTourFromPr", () => importTourFromPrCommand(prImport)),
+    vscode.commands.registerCommand("repoTrail.findToursOnPr", () => findToursOnPrCommand(prImport)),
+    vscode.commands.registerCommand("repoTrail.copyTourAsPrComment", () => copyTourAsPrComment(prImport)),
     vscode.commands.registerCommand("repoTrail.saveTourToRepo", () => saveTourToRepo(controller, log)),
     vscode.commands.registerCommand("repoTrail.tourFromHere", () => tourFromHere(context.extensionUri, log)),
     vscode.commands.registerCommand("repoTrail.copySelectionReference", () => copySelectionReference()),
@@ -217,6 +240,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   viewProvider.refresh();
   void restoreActiveTour(context, controller, log);
+  void resumePendingPrImport(prImport);
 }
 
 function configurationTargetForSetting(
