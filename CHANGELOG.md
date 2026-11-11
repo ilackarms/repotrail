@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+- Added PR comments from the trail, through the GitHub Pull Requests
+  extension.
+  - When that extension has the tour's PR checked out, diff stops show the
+    working-tree file as their new side, so its `+` comment gutter works in
+    the tour. This holds even when the PR has moved past the tour's commit.
+    For tours without a known PR, the checkout must contain the stop's
+    `headRef` and the default branch must not.
+  - **Comment on PR…** in the ☰ menu (`RepoTrail: Comment on PR`) reopens the
+    stop on the checked-out file. If the PR isn't checked out, it offers that
+    extension's **Check Out PR** and reopens the stop once the checkout lands.
+    It also offers to open the stop's file in the PR on github.com.
+  - Tours imported from a PR remember which PR they came from.
+  - RepoTrail still never posts to GitHub.
+- An anchor now matches when its line is the first non-empty line of a stop's
+  range. Before, ranges that start on a blank line were flagged as moved.
+- When the working tree differs from a pinned diff's `headRef`, the stop's
+  anchor is captured from the file at `headRef` rather than from the working
+  tree.
+
 ## 0.13.0 - 2026-11-11
 
 - Compacted the tour panel. Back and Next share one toolbar row with a

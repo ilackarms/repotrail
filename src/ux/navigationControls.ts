@@ -73,11 +73,18 @@ export function narrationControl(ttsProvider: string): NavigationControl {
   };
 }
 
-/** Everything that used to be a row of buttons under the title. */
-export function stepMenuItems(platform: string = process.platform): StepMenuItem[] {
+/**
+ * Everything that used to be a row of buttons under the title. `prComments`
+ * adds "Comment on PR…" for tours of a change (diff stops, or imported from a PR).
+ */
+export function stepMenuItems(
+  platform: string = process.platform,
+  options: { prComments?: boolean } = {},
+): StepMenuItem[] {
   return [
     { id: "revealCurrent", label: "Jump to step code" },
     { id: "openCurrentSource", label: "Open source file", shortcut: platform === "darwin" ? "⌥⌘O" : "Alt+O" },
+    ...(options.prComments ? [{ id: "commentOnPr", label: "Comment on PR…" }] : []),
     { id: "deeper", label: "Copy deepen prompt" },
     { id: "exportTour", label: "Export tour…" },
     { id: "openTtsSettings", label: "Narration settings…", separatorBefore: true },

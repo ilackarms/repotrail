@@ -206,7 +206,7 @@ export async function importTourFromPr(
     await ensureCommits(plan, pr, clone, ctx);
     const base = await mergeBase(clone.folder.uri.fsPath, pull.baseSha, pull.headSha);
 
-    await ctx.controller.loadPlan(plan, undefined, undefined, { importFolder: clone.folder.uri.fsPath });
+    await ctx.controller.loadPlan(plan, undefined, undefined, { importFolder: clone.folder.uri.fsPath, pullRequest: pr });
     await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
     ctx.log.appendLine(`[pr-import] loaded "${plan.title}" (${plan.steps.length} stops)`);
 

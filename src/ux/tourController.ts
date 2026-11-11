@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { DriftStatus, TourPlan, TourStep } from "../engine/types";
+import { PrRef, prRef } from "../github/prRef";
 import type { RepoTourSource } from "../storage/repoTours";
 import { newTourId, repoTourProgressId } from "../storage/tourStore";
 import type { TourRecord } from "../storage/tourStore";
@@ -14,11 +15,17 @@ import { reconcileTourUpdate } from "./tourProgress";
  */
 export type PersistFn = (record: TourRecord | null) => void;
 
+export interface LoadPlanOptions extends TourRootBindingOptions {
+  /** The GitHub pull request the tour was imported from. */
+  pullRequest?: PrRef;
+}
+
 export class TourController {
   private plan: TourPlan | null = null;
   private index = 0;
   private tourId: string | null = null;
   private repoTourSource: RepoTourSource | null = null;
+  private pullRequest: PrRef | null = null;
   private workspaceRoot: string | null = null;
   private createdAt: number | null = null;
   private persistFn: PersistFn | null = null;
@@ -52,6 +59,7 @@ export class TourController {
       plan: this.plan,
       repoTourSource: this.repoTourSource ?? undefined,
       seen: [...this.seen].sort((a, b) => a - b),
+      pullRequest: this.pullRequest ?? undefined,
     });
   }
 
@@ -64,18 +72,20 @@ export class TourController {
    * stable progress id so opening the same JSON never creates duplicate cache
    * records. Imported files without a repo source still receive a fresh id.
    * `binding.importFolder` binds root aliases that match no open folder to the
-   * folder a tour was imported into.
+   * folder a tour was imported into; `binding.pullRequest` remembers the PR
+   * it came from.
    */
   async loadPlan(
     plan: TourPlan,
     workspaceRoot?: string,
     repoTourSource?: RepoTourSource,
-    binding: TourRootBindingOptions = {},
+    binding: LoadPlanOptions = {},
   ): Promise<void> {
     this.plan = resolveTourPlanRoots(plan, binding);
     this.index = plan.steps.length > 0 ? 0 : -1;
     this.tourId = repoTourSource ? repoTourProgressId(repoTourSource) : newTourId();
     this.repoTourSource = repoTourSource ?? null;
+    this.pullRequest = binding.pullRequest ?? null;
     this.workspaceRoot = this.resolveWorkspaceRoot(workspaceRoot);
     this.createdAt = Date.now();
     this.driftByIndex.clear();
@@ -93,6 +103,7 @@ export class TourController {
     this.plan = resolveTourPlanRoots(record.plan);
     this.tourId = record.id;
     this.repoTourSource = record.repoTourSource ?? null;
+    this.pullRequest = recordPullRequest(record);
     this.workspaceRoot = record.workspaceRoot;
     this.createdAt = record.createdAt;
     this.index = Math.max(0, Math.min(record.lastIndex, record.plan.steps.length - 1));
@@ -112,6 +123,11 @@ export class TourController {
 
   get activeRepoTourSource(): RepoTourSource | null {
     return this.repoTourSource;
+  }
+
+  /** The pull request the active tour was imported from, when known. */
+  get activePullRequest(): PrRef | null {
+    return this.pullRequest;
   }
 
   renameActiveTitle(title: string): boolean {
@@ -183,6 +199,7 @@ export class TourController {
       allSteps: this.plan.steps,
       currentIndex: this.index,
       plan: this.plan,
+      pullRequest: this.pullRequest ?? undefined,
     });
     this.driftByIndex.set(this.index, result.drift);
     if (result.capturedAnchor && !step.anchor) {
@@ -201,6 +218,7 @@ export class TourController {
     this.index = 0;
     this.tourId = null;
     this.repoTourSource = null;
+    this.pullRequest = null;
     this.workspaceRoot = null;
     this.createdAt = null;
     this.driftByIndex.clear();
@@ -242,6 +260,7 @@ export class TourController {
       allSteps: planAtStart.steps,
       currentIndex: indexAtStart,
       plan: planAtStart,
+      pullRequest: this.pullRequest ?? undefined,
     });
     if (this.plan !== planAtStart || this.index !== indexAtStart) return;
     this.driftByIndex.set(indexAtStart, result.drift);
@@ -266,7 +285,7 @@ export class TourController {
       const step = planAtStart.steps[i];
       if (!step.range) continue;
       try {
-        const res = await checkStepDrift(step, planAtStart);
+        const res = await checkStepDrift(step, planAtStart, this.pullRequest ?? undefined);
         if (this.plan !== planAtStart) return;
         this.driftByIndex.set(i, res.drift);
         if (res.capturedAnchor && !step.anchor) {
@@ -280,5 +299,16 @@ export class TourController {
     if (this.plan !== planAtStart) return;
     if (changed) this.persist();
     this.onChangeEmitter.fire();
+  }
+}
+
+/** The record's pull request, if it still has a valid shape (records are local but hand-editable). */
+function recordPullRequest(record: TourRecord): PrRef | null {
+  const pr = record.pullRequest;
+  if (!pr || typeof pr.owner !== "string" || typeof pr.repo !== "string" || typeof pr.number !== "number") return null;
+  try {
+    return prRef(pr.owner, pr.repo, String(pr.number));
+  } catch {
+    return null;
   }
 }

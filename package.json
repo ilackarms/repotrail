@@ -104,6 +104,10 @@
         "title": "RepoTrail: Open Current Step Source"
       },
       {
+        "command": "repoTrail.commentOnPr",
+        "title": "RepoTrail: Comment on PR"
+      },
+      {
         "command": "repoTrail.deeper",
         "title": "RepoTrail: Go Deeper"
       },
@@ -188,6 +192,10 @@
         },
         {
           "command": "repoTrail.openCurrentSource",
+          "when": "repoTrail.tourActive"
+        },
+        {
+          "command": "repoTrail.commentOnPr",
           "when": "repoTrail.tourActive"
         },
         {

@@ -3,10 +3,11 @@ import { normalizeGitRef } from "./gitBlob";
 import { GitRemote, parseGitRemoteVerbose } from "./github/remotes";
 
 /**
- * Git calls for importing a tour from a pull request. Everything here runs
- * through execFile with fixed argument lists, never a shell. `fetchPullRequest`
- * is the only call that writes to the repository (objects and FETCH_HEAD),
- * and callers ask the user before running it.
+ * Git calls for PR tours: importing one, and checking what a review checkout
+ * contains. Everything here runs through execFile with fixed argument lists,
+ * never a shell. `fetchPullRequest` is the only call that writes to the
+ * repository (objects and FETCH_HEAD), and callers ask the user before
+ * running it.
  */
 
 const REMOTE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
@@ -38,6 +39,38 @@ export async function mergeBase(folder: string, a: string, b: string): Promise<s
     const { stdout } = await git(["-C", folder, "merge-base", a, b], 20_000);
     const sha = stdout.trim().toLowerCase();
     return /^[0-9a-f]{40}$/.test(sha) ? sha : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** `git merge-base --is-ancestor <ancestor> HEAD`: does the checkout contain this commit? */
+export async function headContains(folder: string, ancestor: string): Promise<boolean> {
+  const safeRef = normalizeGitRef(ancestor);
+  try {
+    await git(["-C", folder, "merge-base", "--is-ancestor", safeRef, "HEAD"], 10_000);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** `git branch -r --contains <commit>`: remote-tracking branches that already have it, one per line. */
+export async function remoteBranchesContaining(folder: string, commit: string): Promise<string | undefined> {
+  const safeRef = normalizeGitRef(commit);
+  try {
+    const { stdout } = await git(["-C", folder, "branch", "-r", "--contains", safeRef, "--format=%(refname:short)"], 20_000);
+    return stdout;
+  } catch {
+    return undefined;
+  }
+}
+
+/** `git rev-parse --show-prefix`: the folder's path inside its repository, "" at the root. */
+export async function repoPathPrefix(folder: string): Promise<string | undefined> {
+  try {
+    const { stdout } = await git(["-C", folder, "rev-parse", "--show-prefix"], 10_000);
+    return stdout.trim().replace(/\\/g, "/");
   } catch {
     return undefined;
   }

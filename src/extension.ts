@@ -36,6 +36,8 @@ import {
 } from "./tts/config";
 import { TourCodeLensProvider } from "./ux/codeLensProvider";
 import { setEditorLogger } from "./ux/editorActions";
+import { commentOnPr } from "./ux/prComments";
+import { onDidFindLateCheckout, setPullRequestReviewLogger, stopShowsReviewCheckout } from "./ux/pullRequestReview";
 import { formatSelectionReference, selectedFullLineRange } from "./ux/selectionReference";
 import { TourController } from "./ux/tourController";
 import { reconcileTourUpdate } from "./ux/tourProgress";
@@ -74,6 +76,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const log = vscode.window.createOutputChannel("RepoTrail");
   context.subscriptions.push(log);
   setEditorLogger(log);
+  setPullRequestReviewLogger(log);
   log.appendLine(`[ext] activate ${(context.extension.packageJSON as { version?: string }).version ?? "?"}`);
   try {
     await migrateLegacyTtsCredentials(context.secrets, log);
@@ -171,6 +174,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.window.registerUriHandler({ handleUri: (uri) => handleReviewUri(uri, prImport) }),
   );
 
+  // A stop shown while GitHub Pull Requests was still starting up missed its
+  // checkout; show it again once that extension answers.
+  context.subscriptions.push(
+    onDidFindLateCheckout(async (folder) => {
+      try {
+        const { plan, current } = controller.snapshot();
+        if (!plan || !current?.diff?.headRef) return;
+        if (resolveStepWorkspaceFolder(current, plan)?.uri.toString() !== folder.toString()) return;
+        // Only when the stop would now show the checked-out file.
+        if (!(await stopShowsReviewCheckout(current, plan, controller.activePullRequest ?? undefined))) return;
+        if (controller.snapshot().current !== current) return;
+        await controller.revealCurrent();
+      } catch (err) {
+        log.appendLine(`[pr-review] reopening the stop failed: ${String(err)}`);
+      }
+    }),
+  );
+
   const codeLensProvider = new TourCodeLensProvider(controller);
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider({ scheme: "file" }, codeLensProvider),
@@ -198,6 +219,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("repoTrail.revealCurrent", () => controller.revealCurrent()),
     vscode.commands.registerCommand("repoTrail.openCurrentSource", () => controller.openCurrentSource()),
+    vscode.commands.registerCommand("repoTrail.commentOnPr", () => commentOnPr(controller, log)),
     vscode.commands.registerCommand("repoTrail.resumeRepoTour", async (arg?: string | { rootPath?: string; file?: string }) => {
       const file = typeof arg === "string" ? arg : arg?.file;
       const requestedRoot = typeof arg === "string" ? undefined : arg?.rootPath;

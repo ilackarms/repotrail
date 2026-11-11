@@ -144,6 +144,9 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         case "openCurrentSource":
           await this.controller.openCurrentSource();
           break;
+        case "commentOnPr":
+          await vscode.commands.executeCommand("repoTrail.commentOnPr");
+          break;
         case "dismissBridge":
           this.bridge = null;
           await this.render();
@@ -357,7 +360,10 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     const narration = narrationControl(ttsProvider);
     const playButton = `<button id="playPause" class="icon-button"${narration.disabled ? " disabled" : ""} title="${escape(narration.tooltip)}" aria-label="${escape(narration.label)}">${ICONS.play}</button>`;
     const menuButton = `<button id="menuButton" class="icon-button" title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="false" aria-controls="tourMenu">${ICONS.menu}</button>`;
-    const menuItems = stepMenuItems()
+    const prComments = Boolean(
+      plan && (plan.kind === "pr-diff" || plan.steps.some((s) => s.diff) || this.controller.activePullRequest),
+    );
+    const menuItems = stepMenuItems(process.platform, { prComments })
       .map((item) =>
         (item.separatorBefore ? `<div class="menu-separator" role="separator"></div>` : "") +
         `<button id="${escape(item.id)}" class="menu-item${item.destructive ? " destructive" : ""}" role="menuitem" tabindex="-1">` +
@@ -560,6 +566,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     on("back", "back");
     on("revealCurrent", "revealCurrent");
     on("openCurrentSource", "openCurrentSource");
+    on("commentOnPr", "commentOnPr");
     on("deeper", "deeper");
     on("stop", "stop");
     on("exportTour", "exportTour");
