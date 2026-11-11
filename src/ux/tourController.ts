@@ -3,7 +3,7 @@ import type { DriftStatus, TourPlan, TourStep } from "../engine/types";
 import type { RepoTourSource } from "../storage/repoTours";
 import { newTourId, repoTourProgressId } from "../storage/tourStore";
 import type { TourRecord } from "../storage/tourStore";
-import { currentWorkspaceStorageRoot, resolveTourPlanRoots } from "../workspace";
+import { currentWorkspaceStorageRoot, resolveTourPlanRoots, TourRootBindingOptions } from "../workspace";
 import { checkStepDrift, clearHighlights, executeStep, openStepSource, resetTourEditorLayout } from "./editorActions";
 import { reconcileTourUpdate } from "./tourProgress";
 
@@ -63,9 +63,16 @@ export class TourController {
    * Load a fully-formed plan and land on step 1. Repo-local tours reuse one
    * stable progress id so opening the same JSON never creates duplicate cache
    * records. Imported files without a repo source still receive a fresh id.
+   * `binding.importFolder` binds root aliases that match no open folder to the
+   * folder a tour was imported into.
    */
-  async loadPlan(plan: TourPlan, workspaceRoot?: string, repoTourSource?: RepoTourSource): Promise<void> {
-    this.plan = resolveTourPlanRoots(plan);
+  async loadPlan(
+    plan: TourPlan,
+    workspaceRoot?: string,
+    repoTourSource?: RepoTourSource,
+    binding: TourRootBindingOptions = {},
+  ): Promise<void> {
+    this.plan = resolveTourPlanRoots(plan, binding);
     this.index = plan.steps.length > 0 ? 0 : -1;
     this.tourId = repoTourSource ? repoTourProgressId(repoTourSource) : newTourId();
     this.repoTourSource = repoTourSource ?? null;
