@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.14.1 - 2026-11-11
+
+- Review links now notice when they open in the wrong checkout. A link opens
+  in whichever VS Code window had focus. Slide stops, file stops and the code
+  that slide nodes open read the working tree, so a tour imported into a clone
+  on another branch showed missing or stale files without saying why.
+  - Before loading, RepoTrail compares the files the tour reads with the PR's
+    head. When they differ, a dialog names them and the folder's branch. It
+    offers the worktree that has the PR's head checked out, another folder, or
+    loading here anyway.
+  - Opening that folder switches to the window that already has it (or the
+    `.code-workspace` holding it) open, and the import continues there.
+    Windows check for a waiting import when they gain focus, not only when
+    they start.
+  - With several clones open, the one at the PR's head is picked.
+- PR comments from **Copy Tour as PR Comment** ask for a checkout of the PR,
+  not any clone, when the tour reads the working tree. They also say slides
+  need RepoTrail 0.14 or later, since older versions show slide stops as plain
+  stops. Diff-only tours keep "any clone of this repo".
+- **Copy Tour as PR Comment** no longer says the link lacks a head SHA for
+  tours that have no diff stops.
+
 ## 0.14.0 - 2026-11-11
 
 - Added slides, for walking through design docs. A tour stop with a `slide`
