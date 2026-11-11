@@ -123,7 +123,7 @@ export async function findToursOnPrCommand(ctx: PrImportContext): Promise<void> 
       ))?.repo;
   if (!chosen) return;
   const value = await vscode.window.showInputBox({
-    title: `Find RepoTrail tours on a ${chosen.owner}/${chosen.repo} PR`,
+    title: `Find RepoTrail tours on a pull request in ${chosen.owner}/${chosen.repo}`,
     prompt: "Pull request number",
     placeHolder: "123",
     ignoreFocusOut: true,
