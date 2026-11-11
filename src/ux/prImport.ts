@@ -3,7 +3,18 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { slugForFilename } from "../engine/tourSerialize";
 import type { TourPlan } from "../engine/types";
-import { fetchPullRequest, hasCommit, listRemotes, mergeBase, pullRequestFetchArgs } from "../gitRepo";
+import {
+  currentBranch,
+  fetchPullRequest,
+  filesDifferingFrom,
+  hasCommit,
+  headCommit,
+  listRemotes,
+  listWorktrees,
+  mergeBase,
+  pullRequestFetchArgs,
+  repoPathPrefix,
+} from "../gitRepo";
 import {
   commentBelongsTo,
   getIssueComment,
@@ -37,10 +48,13 @@ import {
   short,
   TourCandidateInfo,
   tourRefWarnings,
+  workingTreeFiles,
 } from "../github/prTour";
 import { parseGitHubRemote } from "../github/remotes";
 import { findToursInMarkdown, FoundTour } from "../github/tourComments";
+import { clearPendingImport, readPendingImport, writePendingImport } from "../storage/pendingImport";
 import { listRepoTours, readRepoTour, REPO_TOURS_DIR } from "../storage/repoTours";
+import { workspaceFileFor } from "../storage/workspaceFiles";
 import { currentWorkspaceFolders, workspaceFolderInfos } from "../workspace";
 import { plainMessageText } from "./messageText";
 import type { TourController } from "./tourController";
@@ -55,7 +69,6 @@ import type { TourController } from "./tourController";
 export interface PrImportContext {
   controller: TourController;
   log: vscode.OutputChannel;
-  globalState: vscode.Memento;
   extensionId: string;
 }
 
@@ -79,7 +92,6 @@ interface CloneFolder {
 /** The user stopped the import; `message` says where, for the log. */
 class Cancelled extends Error {}
 
-const PENDING_IMPORT_KEY = "repoTrail.pendingPrImport";
 const PENDING_IMPORT_TTL_MS = 15 * 60 * 1000;
 /** Imports check and fetch at most this many distinct commits. */
 const MAX_IMPORT_COMMITS = 64;
@@ -206,6 +218,7 @@ export async function importTourFromPr(
     ctx.log.appendLine(
       `[pr-import] using ${clone.folder.uri.fsPath} (remote ${clone.remote}); tour by ${picked.author} (${picked.authorAssociation})`,
     );
+    if (!(await confirmCheckout(request, pull, plan, clone, ctx))) return;
 
     await ensureCommits(plan, pr, clone, ctx);
     const base = await mergeBase(clone.folder.uri.fsPath, pull.baseSha, pull.headSha);
@@ -230,26 +243,43 @@ export async function importTourFromPr(
   }
 }
 
-/** Resume an import whose "Open Folder…" reopened the window on the chosen folder. */
-export async function resumePendingPrImport(ctx: PrImportContext): Promise<void> {
-  const pending = ctx.globalState.get<{ request: PrImportRequest; folder: string; at: number }>(PENDING_IMPORT_KEY);
+let resuming = false;
+
+/**
+ * Resume an import another window handed to this one: "Open Folder…" when no
+ * clone was open, or a folder that has the PR checked out. Runs when the
+ * window starts and whenever it gains focus; `quiet` skips the log line for
+ * imports waiting on other windows.
+ */
+export async function resumePendingPrImport(ctx: PrImportContext, options: { quiet?: boolean } = {}): Promise<void> {
+  if (resuming) return;
+  resuming = true;
+  try {
+    await resumePending(ctx, options.quiet ?? false);
+  } finally {
+    resuming = false;
+  }
+}
+
+async function resumePending(ctx: PrImportContext, quiet: boolean): Promise<void> {
+  const pending = await readPendingImport();
   if (!pending) return;
-  const folder = currentWorkspaceFolders().find((f) => samePath(f.uri.fsPath, pending.folder));
-  if (Date.now() - pending.at > PENDING_IMPORT_TTL_MS) {
-    await ctx.globalState.update(PENDING_IMPORT_KEY, undefined);
+  if (Date.now() - pending.at > PENDING_IMPORT_TTL_MS || pending.at > Date.now() + 60_000) {
+    await clearPendingImport();
     ctx.log.appendLine("[pr-import] dropped a pending import older than 15 minutes");
     return;
   }
+  const folder = currentWorkspaceFolders().find((f) => samePath(f.uri.fsPath, pending.folder));
   if (!folder) {
     // Another window's import; that window picks it up.
-    ctx.log.appendLine(`[pr-import] a pending import is waiting for ${pending.folder}, which isn't open here`);
+    if (!quiet) ctx.log.appendLine(`[pr-import] a pending import is waiting for ${pending.folder}, which isn't open here`);
     return;
   }
-  await ctx.globalState.update(PENDING_IMPORT_KEY, undefined);
+  await clearPendingImport();
   let request: PrImportRequest;
   try {
-    // Re-validate: global state is ours, but keep the same strict shapes.
-    const { pr, commentId, head } = pending.request;
+    // Re-validate: the file is ours, but keep the same strict shapes.
+    const { pr, commentId, head } = pending.request as PrImportRequest;
     request = parseReviewLink(
       "/review",
       `pr=${pr.owner}/${pr.repo}/${pr.number}${commentId ? `&comment=${commentId}` : ""}${head ? `&head=${head}` : ""}`,
@@ -306,7 +336,9 @@ export async function copyTourAsPrComment(ctx: PrImportContext): Promise<void> {
     `RepoTrail: PR comment copied (${result.body.length.toLocaleString("en-US")} characters). Paste it into a comment on ${formatPrRef(pr)}.`,
   ];
   if (result.compactJson) notes.push("The tour JSON is compacted to fit GitHub's limit.");
-  if (!sharedHeadRef(plan)) notes.push("The link has no head SHA because the diff stops don't share one headRef.");
+  if (diffRefs(plan).length > 0 && !sharedHeadRef(plan)) {
+    notes.push("The link has no head SHA because the diff stops don't share one headRef.");
+  }
   const pick = await vscode.window.showInformationMessage(notes.join(" "), "Open PR");
   if (pick === "Open PR") await vscode.env.openExternal(vscode.Uri.parse(prHtmlUrl(pr)));
 }
@@ -454,6 +486,10 @@ async function pickCloneFolder(
   const preferred = preferredFolder && matches.find((m) => samePath(m.folder.uri.fsPath, preferredFolder));
   if (preferred) return preferred;
   if (matches.length === 1) return matches[0];
+  const prHead = pull.headSha.toLowerCase();
+  const atHead: CloneFolder[] = [];
+  for (const match of matches) if ((await headCommit(match.folder.uri.fsPath)) === prHead) atHead.push(match);
+  if (atHead.length === 1) return atHead[0];
   const pick = await vscode.window.showQuickPick(
     matches.map((match) => ({
       label: match.folder.name,
@@ -464,6 +500,120 @@ async function pickCloneFolder(
   );
   if (!pick) throw new Cancelled("no clone was picked");
   return pick.match;
+}
+
+const OPEN_FOLDER = "Open Folder…";
+const LOAD_HERE = "Load Here Anyway";
+
+/**
+ * Slides, file stops and slide refs read the working tree, so they need the
+ * PR's files checked out; diff stops read commits and work from any checkout.
+ * A review link opens in whichever window had focus, which may be a checkout
+ * of another branch. When the clone's working tree doesn't match the PR's head
+ * for the files the tour reads, say so and offer the worktree that has the
+ * PR's head (VS Code switches to its window if it's open), another folder, or
+ * loading here anyway. True to load in this clone.
+ */
+async function confirmCheckout(
+  request: PrImportRequest,
+  pull: GitHubPull,
+  plan: TourPlan,
+  clone: CloneFolder,
+  ctx: PrImportContext,
+): Promise<boolean> {
+  const files = workingTreeFiles(plan);
+  const prHead = pull.headSha.toLowerCase();
+  if (files.length === 0 || !isFullSha(prHead)) return true;
+  const folder = clone.folder.uri.fsPath;
+  const head = await headCommit(folder);
+  if (head === prHead) return true;
+  const known = await hasCommit(folder, prHead);
+  const differing = (known ? await filesDifferingFrom(folder, prHead, files) : undefined) ?? (await missingFiles(folder, files));
+  const at = head ? short(head) : "no commit";
+  if (differing.length === 0) {
+    ctx.log.appendLine(
+      `[pr-import] ${clone.folder.name} is at ${at}, not ${short(prHead)}, but the tour's ${files.length} working-tree file(s) ${known ? "match the PR's head" : "are all present (the PR's head isn't fetched here)"}`,
+    );
+    return true;
+  }
+  ctx.log.appendLine(
+    `[pr-import] ${clone.folder.name} is at ${at}, not ${short(prHead)}; ${differing.length} of ${files.length} working-tree file(s) ${known ? "differ" : "are missing"}: ${differing.join(", ")}`,
+  );
+
+  const label = formatPrRef(request.pr);
+  const branch = await currentBranch(folder);
+  const where = branch ? `on ${branch}` : head ? `at ${short(head)}` : "not on a commit";
+  const prefix = (await repoPathPrefix(folder)) ?? "";
+  const worktree = (await listWorktrees(folder))
+    .filter((w) => w.head === prHead)
+    .map((w) => path.join(w.path, prefix))
+    .find((candidate) => !samePath(candidate, folder));
+  const worktreeName = worktree ? path.basename(worktree) : undefined;
+  const shown = differing.slice(0, 3).join(", ") + (differing.length > 3 ? `, and ${differing.length - 3} more` : "");
+  const detail = [
+    `${clone.folder.name} is ${where}, not the PR's head (${short(prHead)}). The tour shows files from the working tree, and here ${
+      differing.length === 1 ? "one is" : `${differing.length} are`
+    } ${known ? "different or missing" : "missing"}: ${shown}.`,
+    "",
+    worktree
+      ? `${worktreeName} has the PR's head checked out. Open it to play the tour there; if it's open in another window, VS Code switches to that window.`
+      : `Check out the PR in ${clone.folder.name} (with GitHub Pull Requests, or gh pr checkout ${request.pr.number}) and open the tour again, or open a folder that has it checked out.`,
+  ].join("\n");
+  const openWorktree = worktreeName ? `Open ${worktreeName}` : undefined;
+  const pick = await vscode.window.showWarningMessage(
+    `${clone.folder.name} doesn't have ${label} checked out.`,
+    { modal: true, detail },
+    ...(openWorktree ? [openWorktree] : []),
+    OPEN_FOLDER,
+    LOAD_HERE,
+  );
+  if (pick === LOAD_HERE) {
+    ctx.log.appendLine(`[pr-import] loading in ${clone.folder.name} anyway`);
+    return true;
+  }
+  if (pick && pick === openWorktree && worktree) {
+    await continueInWindow(request, worktree, ctx);
+    return false;
+  }
+  if (pick === OPEN_FOLDER) {
+    const folders = await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      defaultUri: vscode.Uri.file(path.dirname(folder)),
+      openLabel: "Open",
+      title: `Open a folder that has ${label} checked out`,
+    });
+    if (!folders?.[0]) throw new Cancelled("no folder was opened");
+    await continueInWindow(request, folders[0].fsPath, ctx);
+    return false;
+  }
+  throw new Cancelled("the checkout warning was dismissed");
+}
+
+/**
+ * Continue the import in `target`: here if this window has it open, else in
+ * the window on it. VS Code switches to the window that already has the
+ * folder (or the `.code-workspace` holding it) open, or opens a new one;
+ * resumePendingPrImport picks the import up there.
+ */
+async function continueInWindow(request: PrImportRequest, target: string, ctx: PrImportContext): Promise<void> {
+  if (currentWorkspaceFolders().some((f) => samePath(f.uri.fsPath, target))) {
+    await importTourFromPr(request, ctx, { preferredFolder: target });
+    return;
+  }
+  const workspaceFile = await workspaceFileFor(target);
+  await writePendingImport({ request, folder: target, at: Date.now() });
+  ctx.log.appendLine(
+    `[pr-import] handing ${formatPrRef(request.pr)} to the window on ${workspaceFile ?? target}${workspaceFile ? ` (holds ${target})` : ""}`,
+  );
+  await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(workspaceFile ?? target), { forceNewWindow: true });
+}
+
+async function missingFiles(folder: string, files: string[]): Promise<string[]> {
+  const missing: string[] = [];
+  for (const file of files) if (!(await exists(path.join(folder, file)))) missing.push(file);
+  return missing;
 }
 
 async function offerNoCloneActions(
@@ -521,7 +671,7 @@ async function offerNoCloneActions(
       ctx.log.appendLine("[pr-import] stopped: no folder was opened");
       return;
     }
-    await ctx.globalState.update(PENDING_IMPORT_KEY, { request, folder: folders[0].fsPath, at: Date.now() });
+    await writePendingImport({ request, folder: folders[0].fsPath, at: Date.now() });
     await vscode.commands.executeCommand("vscode.openFolder", folders[0]);
     return;
   }

@@ -4,6 +4,7 @@
  * comment. No `vscode`, no network.
  */
 
+import { slideRefs } from "../engine/slides/refs";
 import { planToJson, slugForFilename } from "../engine/tourSerialize";
 import type { TourPlan, TourRootRef } from "../engine/types";
 import { formatPrRef, isFullSha, PrImportRequest, prHtmlUrl, PrRef, reviewLink, vscodeDevRedirect } from "./prRef";
@@ -12,6 +13,41 @@ import { formatPrRef, isFullSha, PrImportRequest, prHtmlUrl, PrRef, reviewLink, 
 export const GITHUB_COMMENT_LIMIT = 65_536;
 
 export const MARKETPLACE_URL = "https://marketplace.visualstudio.com/items?itemName=repotrail.repotrail";
+
+/** First RepoTrail release that plays slide stops; older ones show them as plain stops. */
+export const SLIDES_MIN_VERSION = "0.14";
+
+/**
+ * Files the tour reads from the working tree instead of from a commit: stops
+ * whose diff has neither `headRef` nor `afterText` (file stops, slide sources,
+ * diffs against the current file) and slide refs. These need the PR's files
+ * checked out. Root aliases are ignored: an imported tour binds every root to
+ * the clone it opens in. Paths are normalized; unsafe ones are dropped.
+ */
+export function workingTreeFiles(plan: TourPlan): string[] {
+  const files = new Set<string>();
+  const add = (file: string | undefined) => {
+    const clean = file ? relativeFile(file) : undefined;
+    if (clean) files.add(clean);
+  };
+  for (const step of plan.steps) {
+    if (!step.diff?.headRef && step.diff?.afterText === undefined) add(step.diff?.headFile ?? step.file);
+    if (step.slide) for (const ref of slideRefs(step.slide)) add(ref.file);
+  }
+  return [...files];
+}
+
+function relativeFile(file: string): string | undefined {
+  const parts = file.replace(/\\/g, "/").split("/").filter((part) => part && part !== ".");
+  if (parts.length === 0 || parts.includes("..") || file.includes("\0")) return undefined;
+  if (file.startsWith("/") || /^[A-Za-z]:[\\/]/.test(file)) return undefined;
+  return parts.join("/");
+}
+
+/** Does the tour have slide stops? */
+export function hasSlides(plan: TourPlan): boolean {
+  return plan.steps.some((step) => step.slide);
+}
 
 /** Distinct `diff.baseRef` / `diff.headRef` values, base refs first. */
 export function diffRefs(plan: TourPlan): string[] {
@@ -370,13 +406,19 @@ export function composePrComment(input: PrCommentInput): PrCommentResult {
   const prompt = composeSetupPrompt({ pr: input.pr, plan, headSha: request.head, source: { marker } });
   const file = `${slugForFilename(plan.title)}.json`;
   const stops = `${plan.steps.length} stop${plan.steps.length === 1 ? "" : "s"}`;
+  const slides = hasSlides(plan);
+  // Diff stops read commits, so any clone works; other stops read the working tree.
+  const where =
+    workingTreeFiles(plan).length > 0
+      ? "a checkout of this PR"
+      : "any clone of this repo";
 
   const build = (json: string) =>
     [
       marker,
       `**RepoTrail review tour for ${formatPrRef(input.pr)}:** ${escapeInline(plan.title)} (${stops}).`,
       "",
-      `[Open it in VS Code](${vscodeDevRedirect(link)}) with the [RepoTrail extension](${MARKETPLACE_URL}) and any clone of this repo. If the link doesn't open VS Code, run \`code --open-url '${link}'\`.`,
+      `[Open it in VS Code](${vscodeDevRedirect(link)}) with the [RepoTrail extension](${MARKETPLACE_URL})${slides ? ` (${SLIDES_MIN_VERSION} or later, for the slides)` : ""} and ${where}. If the link doesn't open VS Code, run \`code --open-url '${link}'\`.`,
       "",
       "<details>",
       "<summary>No RepoTrail or no clone? Prompt for your coding agent</summary>",

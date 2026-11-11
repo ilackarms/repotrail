@@ -572,6 +572,13 @@ yourself unless the user explicitly asks.
    `&comment=<id>` only when editing a comment that already exists. GitHub
    strips `vscode://` hrefs, which is why the clickable link goes through
    `vscode.dev/redirect`. Keep the whole comment under 65,536 characters.
+
+   Slide stops, file stops and slide refs read the reviewer's working tree,
+   not a commit. When the tour has any of them, replace "and any clone of
+   this repo" with "(0.14 or later, for the slides) and a checkout of this
+   PR", dropping the version note when there are no slides. RepoTrail warns
+   and offers the PR's worktree when the link opens in a window that has
+   another branch checked out.
 4. Tell the user the comment is ready to paste and how many stops it has.
 
 ## JSON Format

@@ -256,7 +256,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const prImport: PrImportContext = {
     controller,
     log,
-    globalState: context.globalState,
     extensionId: context.extension.id,
   };
   // Review links: <any VS Code scheme>://repotrail.repotrail/review?pr=... The
@@ -364,6 +363,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   viewProvider.refresh();
   void restoreActiveTour(context, controller, log);
   void resumePendingPrImport(prImport);
+  // A review link that opened in another window can hand its import to this
+  // one by opening this folder, which focuses this window.
+  context.subscriptions.push(
+    vscode.window.onDidChangeWindowState((state) => {
+      if (state.focused) void resumePendingPrImport(prImport, { quiet: true });
+    }),
+  );
 }
 
 function configurationTargetForSetting(
