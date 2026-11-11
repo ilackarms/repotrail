@@ -113,7 +113,12 @@
       },
       {
         "command": "repoTrail.stop",
-        "title": "RepoTrail: Stop Tour"
+        "title": "RepoTrail: Close Tour",
+        "icon": "$(close)"
+      },
+      {
+        "command": "repoTrail.deleteTour",
+        "title": "RepoTrail: Delete Tour…"
       },
       {
         "command": "repoTrail.cycleTts",
@@ -157,6 +162,13 @@
       }
     ],
     "menus": {
+      "view/title": [
+        {
+          "command": "repoTrail.stop",
+          "when": "view == repoTrail.tour && repoTrail.tourActive",
+          "group": "navigation"
+        }
+      ],
       "editor/context": [
         {
           "command": "repoTrail.tourFromHere",
@@ -217,6 +229,10 @@
         {
           "command": "repoTrail.stop",
           "when": "repoTrail.tourActive"
+        },
+        {
+          "command": "repoTrail.deleteTour",
+          "when": "workspaceFolderCount > 0"
         },
         {
           "command": "repoTrail.cycleTts",

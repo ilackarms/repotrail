@@ -15,6 +15,25 @@
     It also offers to open the stop's file in the PR on github.com.
   - Tours imported from a PR remember which PR they came from.
   - RepoTrail still never posts to GitHub.
+- Added ways to close and delete tours.
+  - A × button in the tour toolbar and in the panel's title bar closes the
+    active tour. "Stop tour" is now "Close tour" everywhere.
+  - **Delete** in the library, **Delete tour…** in the ☰ menu, and
+    `RepoTrail: Delete Tour…` move a tour's `.repotrail/*.json` file to the
+    trash after a confirmation and forget your progress in it.
+- The library and the active tour now notice when the whole `.repotrail/`
+  folder is deleted or restored outside VS Code. Before, only changes to
+  single tour files were picked up, so a deleted folder left its tours listed
+  until a reload. A missed change is also caught when the window regains
+  focus.
+- Review links no longer fail silently.
+  - The sign-in prompt for private repositories and the "no open folder is a
+    clone" prompt are now dialogs instead of notifications that were easy to
+    miss. The second one names the folders the window has open, because VS
+    Code sends a link to the last window used.
+  - Quick picks stay open when focus moves.
+  - The confirmation says when the tour replaces one you have open.
+  - The output channel logs where an import stopped.
 - An anchor now matches when its line is the first non-empty line of a stop's
   range. Before, ranges that start on a blank line were flagged as moved.
 - When the working tree differs from a pinned diff's `headRef`, the stop's

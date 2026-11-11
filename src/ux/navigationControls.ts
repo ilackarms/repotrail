@@ -75,11 +75,12 @@ export function narrationControl(ttsProvider: string): NavigationControl {
 
 /**
  * Everything that used to be a row of buttons under the title. `prComments`
- * adds "Comment on PR…" for tours of a change (diff stops, or imported from a PR).
+ * adds "Comment on PR…" for tours of a change (diff stops, or imported from a
+ * PR); `deleteTour` adds "Delete tour…" for a tour saved in .repotrail/.
  */
 export function stepMenuItems(
   platform: string = process.platform,
-  options: { prComments?: boolean } = {},
+  options: { prComments?: boolean; deleteTour?: boolean } = {},
 ): StepMenuItem[] {
   return [
     { id: "revealCurrent", label: "Jump to step code" },
@@ -88,6 +89,7 @@ export function stepMenuItems(
     { id: "deeper", label: "Copy deepen prompt" },
     { id: "exportTour", label: "Export tour…" },
     { id: "openTtsSettings", label: "Narration settings…", separatorBefore: true },
-    { id: "stop", label: "Stop tour", separatorBefore: true, destructive: true },
+    { id: "stop", label: "Close tour", separatorBefore: true },
+    ...(options.deleteTour ? [{ id: "deleteTour", label: "Delete tour…", destructive: true }] : []),
   ];
 }
