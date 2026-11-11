@@ -7,6 +7,9 @@ export interface SlidePanelHandlers {
   back(): void;
   nextStop(): void;
   openSource(): void;
+  exitPresent(): void;
+  toggleAutoplay(): void;
+  openRef(ref: unknown, slideIndex: number): void;
 }
 
 /**
@@ -73,6 +76,15 @@ export class SlidePanel {
           break;
         case "nextStop":
           this.handlers.nextStop();
+          break;
+        case "exitPresent":
+          this.handlers.exitPresent();
+          break;
+        case "toggleAutoplay":
+          this.handlers.toggleAutoplay();
+          break;
+        case "openRef":
+          if (this.pending) this.handlers.openRef(message.ref, this.pending.payload.index);
           break;
         case "openSource":
           this.handlers.openSource();

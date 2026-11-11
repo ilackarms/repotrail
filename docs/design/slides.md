@@ -1,7 +1,7 @@
 # Slides: animated diagrams in RepoTrail tours
 
-Status: phases 0 (static slides), 1 (beats and motion), 2 (the authoring
-API) and 3 (export and the agent loop) are implemented.
+Status: phases 0-4 are implemented: static slides, beats and motion, the
+authoring API, export and the agent loop, and presenting.
 Target: RepoTrail 0.14+.
 
 ## Why
@@ -560,7 +560,35 @@ didn't change.
 **Phase 4: presenting.** Autoplay, present mode (maximize the editor group,
 captions on), `ref` click-through from nodes, and shared-element transitions:
 when consecutive slides share node ids, the nodes move to their new places
-instead of the slide cutting over.
+instead of the slide cutting over. **Done**, with these choices:
+- **Autoplay.** The sidebar webview reports a new `tts.ended` when narration
+  plays to its end, kept apart from cancellation; the command voice reports a
+  clean exit. `TtsManager.onDidFinish` carries the narration key, and
+  `Autoplay` (`src/ux/autoplay.ts`) waits for the key it started. When nothing
+  will be heard (narration off, no sidebar) it waits `readingTimeMs` instead,
+  and a safety timeout covers an end that never arrives. Pausing narration
+  pauses autoplay.
+- **Present mode** closes the side bar, panel and secondary side bar rather
+  than maximizing the editor group, since `toggleMaximizeEditorGroup` isn't
+  available back to VS Code 1.85. The tour sidebar is registered with
+  `retainContextWhenHidden` so narration keeps playing while it's hidden.
+  Leaving reopens the RepoTrail sidebar.
+- **Refs** are on nodes, participants and code blocks. The host only opens a
+  ref that's on the current slide.
+- **Transitions** (`SlideView.morphFrom`) move shared nodes with a FLIP
+  transform in the SVG's user units, while the old slide fades out on top.
+  Edges stay hidden until the nodes land. They apply to adjacent stops only,
+  with full motion.
+
+Verified in a browser:
+- **Panel simulation:** ref clicks post the exact ref, `P` and `Esc` post their
+  messages, and the status pill shows.
+- **Transitions:** they run in both the panel simulation and the export
+  (`test/fixtures/slides-morph.json`).
+- **Autoplay:** its state machine is unit-tested with fake timers.
+
+Not checked: present mode and autoplay inside VS Code, where workbench
+commands and webview audio rules apply.
 
 **Later, not committed.** `stat` and `chart` blocks, repo-relative images, a
 static `mermaid` block, and "comment on this slide", which turns a reviewer's

@@ -184,3 +184,10 @@ test("the fleet configuration storyboard parses cleanly", async () => {
   assert.equal(plan.steps.filter((s) => s.slide).length, 14);
   assert.equal(positionCount(plan.steps[9]), 10, "the sequence builds one beat per message and note");
 });
+
+test("reading time grows with the words, within bounds", async () => {
+  const { readingTimeMs } = await import("../out-test/engine/slides/timeline.js");
+  assert.equal(readingTimeMs(""), 1800);
+  assert.equal(readingTimeMs(Array.from({ length: 26 }, () => "word").join(" ")), 10700);
+  assert.equal(readingTimeMs(Array.from({ length: 500 }, () => "word").join(" ")), 15000);
+});

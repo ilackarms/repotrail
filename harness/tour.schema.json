@@ -15,6 +15,26 @@
     "$ref": "#/definitions/plan"
   },
   "definitions": {
+    "slideRef": {
+      "type": "object",
+      "description": "A file this element opens beside the slide when clicked. root defaults to the slide stop's root.",
+      "additionalProperties": false,
+      "required": [
+        "file"
+      ],
+      "properties": {
+        "root": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string",
+          "pattern": "^(?![A-Za-z]:|/|\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+        },
+        "range": {
+          "$ref": "#/definitions/range"
+        }
+      }
+    },
     "envelope": {
       "type": "object",
       "required": [
@@ -675,6 +695,9 @@
         "startLine": {
           "type": "integer",
           "minimum": 1
+        },
+        "ref": {
+          "$ref": "#/definitions/slideRef"
         }
       }
     },
@@ -841,6 +864,9 @@
                   "group": {
                     "type": "string",
                     "description": "Id of a group in `groups`."
+                  },
+                  "ref": {
+                    "$ref": "#/definitions/slideRef"
                   }
                 }
               }
@@ -1049,6 +1075,9 @@
                       "muted"
                     ],
                     "description": "Theme color: accent, good, warn, bad or muted."
+                  },
+                  "ref": {
+                    "$ref": "#/definitions/slideRef"
                   }
                 }
               }

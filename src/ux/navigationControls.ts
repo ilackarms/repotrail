@@ -92,6 +92,8 @@ export function stepMenuItems(platform: string = process.platform): StepMenuItem
     { id: "openCurrentSource", label: "Open source file", shortcut: platform === "darwin" ? "⌥⌘O" : "Alt+O" },
     { id: "deeper", label: "Copy deepen prompt" },
     { id: "exportTour", label: "Export tour…" },
+    { id: "present", label: "Present", separatorBefore: true },
+    { id: "autoplay", label: "Play or stop the tour" },
     { id: "openTtsSettings", label: "Narration settings…", separatorBefore: true },
     { id: "stop", label: "Stop tour", separatorBefore: true, destructive: true },
   ];

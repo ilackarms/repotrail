@@ -17,7 +17,13 @@ import type {
   SlideTableBlock,
 } from "../../engine/types";
 import { renderNarrationMarkdown } from "../../ux/narrationMarkdown";
-import { flip, renderFlow, renderSequence, setTone, type DiagramContext } from "./diagrams";
+import { flip, refLabel, renderFlow, renderSequence, setTone, type DiagramContext } from "./diagrams";
+import type { SlideRef } from "../../engine/types";
+
+export interface RenderOptions {
+  /** Where clicking a `ref` opens its file; without it refs only show a tooltip. */
+  onOpenRef?: (ref: SlideRef) => void;
+}
 
 export const SLIDE_WIDTH = 1280;
 export const SLIDE_HEIGHT = 720;
@@ -42,9 +48,14 @@ export interface RenderedSlide {
   dots: HTMLElement | null;
 }
 
-export function renderSlide(payload: SlideViewPayload): RenderedSlide {
+export function renderSlide(payload: SlideViewPayload, options: RenderOptions = {}): RenderedSlide {
   const { slide } = payload;
-  const ctx: DiagramContext = { appliers: new Map(), edgePaths: new Map(), variants: textVariants(slide) };
+  const ctx: DiagramContext = {
+    appliers: new Map(),
+    edgePaths: new Map(),
+    variants: textVariants(slide),
+    onOpenRef: options.onOpenRef,
+  };
   const beats = slideBeats(slide);
   const root = el("div", `rt-slide layout-${slide.layout}`);
   root.style.setProperty("--fit", "1");
@@ -169,7 +180,7 @@ function renderBlock(block: SlideBlock, ctx: DiagramContext): HTMLElement {
       wrap.append(renderTable(block, ctx));
       break;
     case "code":
-      wrap.append(renderCode(block));
+      wrap.append(renderCode(block, ctx));
       break;
     case "callout":
       wrap.append(renderCallout(block));
@@ -238,9 +249,16 @@ function renderTable(block: SlideTableBlock, ctx: DiagramContext): HTMLElement {
   return table;
 }
 
-function renderCode(block: SlideCodeBlock): HTMLElement {
+function renderCode(block: SlideCodeBlock, ctx: DiagramContext): HTMLElement {
   const code = el("div", "rt-code");
-  if (block.language) code.append(el("div", "rt-code-lang", block.language));
+  if (block.ref) {
+    const ref = block.ref;
+    const link = el(ctx.onOpenRef ? "button" : "span", "rt-code-ref", `↗ ${refLabel(ref)}`);
+    link.title = ctx.onOpenRef ? `Open ${refLabel(ref)}` : refLabel(ref);
+    const open = ctx.onOpenRef;
+    if (open) link.addEventListener("click", () => open(ref));
+    code.append(link);
+  } else if (block.language) code.append(el("div", "rt-code-lang", block.language));
   const first = block.startLine ?? 1;
   block.code.split("\n").forEach((text, i) => {
     const line = el("div", "rt-line");

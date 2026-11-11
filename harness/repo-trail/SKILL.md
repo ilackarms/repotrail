@@ -283,6 +283,10 @@ map to theme colors; never pick colors yourself.
 - Nodes need an `id`. `label` defaults to the id; `sub` is a smaller second
   line; `badge` is a corner chip (a version, a count); `group` puts the node in
   a dashed box from `groups`.
+- `ref: { file, range?, root? }` on a node makes it a link: clicking it opens
+  that file beside the slide, highlighted. Use it when a box stands for real
+  code (a function, a module), with a range you read. `root` defaults to the
+  slide's root. Participants and `code` blocks take `ref` too.
 - `shape`: `box` (default), `service`, `store` (database), `file`, `actor`
   (person or client), `device`, `queue`, `external` (dashed, outside your
   system), `decision` (diamond), `note`.
@@ -297,6 +301,10 @@ map to theme colors; never pick colors yourself.
 - Keep a diagram to about 12 nodes, labels under about 28 characters, and subs
   under about 34. The diagram scales to fit its space, so long labels shrink
   everything.
+- To show a system changing (today, then after the design), put the two
+  diagrams on consecutive slides and reuse the node ids that stay. Shared
+  nodes glide from their old places to their new ones, so the reader sees what
+  moved and what's new.
 
 ### Sequence diagrams
 
@@ -387,6 +395,8 @@ flows that don't connect start together.
   element, including rows, bullets, messages and code lines.
 - `say` takes inline markdown, but keep it plain: it's read aloud. A beat with
   only `say` is fine; it advances the narration without changing the slide.
+  When a tour plays by itself, each beat lasts as long as its `say` takes to
+  read or speak, so a beat without `say` passes in under two seconds.
 - Everything is laid out at the start, hidden elements included, so nothing
   moves when a beat reveals something or changes a label.
 - `flow` works on edges of `flow` diagrams. For a sequence, reveal messages

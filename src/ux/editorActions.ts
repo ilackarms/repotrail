@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { GitDiffSide, materializeStepDiff } from "../diffMaterialize";
-import { DriftStatus, formatStepPath, TourPlan, TourSlide, TourStep, TourStepViewMode } from "../engine/types";
+import { DriftStatus, formatStepPath, SlideRef, TourPlan, TourSlide, TourStep, TourStepViewMode } from "../engine/types";
 import { readGitBlobText } from "../gitBlob";
 import { normalizeWorkspaceFile, resolveStepUri, resolveStepWorkspaceFolder } from "../workspace";
 import { mapDiffPositionToSource, sameDocumentText } from "./diffPositionMap";
@@ -87,6 +87,12 @@ export function resetTourEditorLayout(): void {
 }
 
 let slidePanel: SlidePanel | null = null;
+let slideChrome = { presenting: false, autoplay: false };
+
+/** Present mode and autoplay change how the Slides panel looks. */
+export function setSlideChrome(chrome: { presenting: boolean; autoplay: boolean }): void {
+  slideChrome = chrome;
+}
 
 export function setSlidePanel(panel: SlidePanel): void {
   slidePanel = panel;
@@ -141,6 +147,61 @@ async function showStepSlide(step: TourStep, slide: TourSlide, opts?: StepEditor
   return step.file && step.range ? checkStepDrift(step, opts?.plan) : { drift: "ok" };
 }
 
+/**
+ * Open a file a slide element points at, beside the slide, without taking
+ * focus. Only refs that are on the current slide are opened: the request comes
+ * from the webview, so it's matched against the tour data first.
+ */
+export async function openSlideRef(requested: unknown, current: TourStep | null, plan: TourPlan): Promise<void> {
+  const slide = current?.slide;
+  if (!slide || !current) return;
+  const refs: SlideRef[] = [];
+  for (const block of slide.blocks) {
+    if (block.type === "code" && block.ref) refs.push(block.ref);
+    if (block.type === "flow") for (const node of block.nodes) if (node.ref) refs.push(node.ref);
+    if (block.type === "sequence") for (const p of block.participants) if (p.ref) refs.push(p.ref);
+  }
+  const wanted = JSON.stringify(requested);
+  const ref = refs.find((candidate) => JSON.stringify(candidate) === wanted);
+  if (!ref) return;
+  const target: TourStep = {
+    title: current.title,
+    root: ref.root ?? current.root,
+    workspaceFolder: ref.root ? undefined : current.workspaceFolder,
+    file: ref.file,
+    range: ref.range,
+    explanation: "",
+    actions: [],
+  };
+  let uri: vscode.Uri | null;
+  try {
+    uri = resolveStepUri(target, plan);
+  } catch (err) {
+    logger?.appendLine(`[editor] slide ref ${ref.file} rejected: ${String(err)}`);
+    return;
+  }
+  if (!uri) {
+    vscode.window.showWarningMessage(`RepoTrail: can't find ${plainMessageText(ref.file)} in this workspace.`);
+    return;
+  }
+  try {
+    const doc = await vscode.workspace.openTextDocument(uri);
+    const editor = await vscode.window.showTextDocument(doc, {
+      viewColumn: vscode.ViewColumn.Beside,
+      preview: true,
+      preserveFocus: true,
+    });
+    if (ref.range) {
+      const range = resolveRange(target, doc);
+      editor.setDecorations(HIGHLIGHT_DECORATION, [{ range }]);
+      editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+    }
+  } catch (err) {
+    logger?.appendLine(`[editor] slide ref ${ref.file} failed: ${String(err)}`);
+    vscode.window.showWarningMessage(`RepoTrail: can't open ${plainMessageText(ref.file)}.`);
+  }
+}
+
 /** Move the slide already on screen to another beat. */
 export function showSlideBeat(step: TourStep, opts?: StepEditorOptions): void {
   if (step.slide) postSlide(step, step.slide, opts);
@@ -170,7 +231,9 @@ function postSlide(step: TourStep, slide: TourSlide, opts?: StepEditorOptions): 
       source,
       position: opts?.beat ?? 0,
       motion: motion === "reduced" || motion === "off" ? motion : "full",
-      captions: config.get<boolean>("slides.captions", true),
+      captions: slideChrome.presenting || config.get<boolean>("slides.captions", true),
+      presenting: slideChrome.presenting,
+      autoplay: slideChrome.autoplay,
     },
     reusablePrimaryViewColumn() ?? vscode.ViewColumn.Active,
   );

@@ -15,6 +15,10 @@ export interface SlideViewPayload {
   motion: SlideMotion;
   /** Show the current beat's narration on the slide. */
   captions: boolean;
+  /** Present mode is on (panel chrome only). */
+  presenting?: boolean;
+  /** Autoplay is running (panel chrome only). */
+  autoplay?: boolean;
 }
 
 /** `full` animates; `reduced` only fades; `off` changes instantly. */
@@ -27,4 +31,7 @@ export type SlideWebviewMessage =
   | { type: "next" }
   | { type: "back" }
   | { type: "nextStop" }
+  | { type: "exitPresent" }
+  | { type: "toggleAutoplay" }
+  | { type: "openRef"; ref: unknown }
   | { type: "openSource" };

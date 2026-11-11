@@ -10,6 +10,7 @@ import type {
   SlideElementPatch,
   SlideFlowBlock,
   SlideNodeShape,
+  SlideRef,
   SlideSequenceBlock,
   SlideTone,
 } from "../../engine/types";
@@ -26,6 +27,15 @@ export interface DiagramContext {
   /** Paths tokens travel along, by edge id. */
   edgePaths: Map<string, SVGPathElement>;
   variants: TextVariants;
+  /** Set where clicking a `ref` can open its file (the Slides panel). */
+  onOpenRef?: (ref: SlideRef) => void;
+}
+
+/** "path:12-30", for tooltips. */
+export function refLabel(ref: SlideRef): string {
+  if (!ref.range) return ref.file;
+  const { startLine, endLine } = ref.range;
+  return startLine === endLine ? `${ref.file}:${startLine}` : `${ref.file}:${startLine}-${endLine}`;
 }
 
 let markerSeq = 0;
@@ -174,10 +184,22 @@ interface NodeLike {
   shape: SlideNodeShape;
   tone?: SlideTone;
   badge?: string;
+  ref?: SlideRef;
 }
 
 function renderNode(node: NodeLike, box: FlowNodeBox, ctx: DiagramContext): SVGElement {
   const g = svg_("g", { class: `rt-node shape-${node.shape}`, "data-id": node.id });
+  if (node.ref) {
+    const tip = svg_("title");
+    tip.textContent = ctx.onOpenRef ? `Open ${refLabel(node.ref)}` : refLabel(node.ref);
+    g.append(tip);
+    if (ctx.onOpenRef) {
+      const ref = node.ref;
+      const open = ctx.onOpenRef;
+      g.classList.add("has-ref");
+      g.addEventListener("click", () => open(ref));
+    }
+  }
   const { x, y, width: w, height: h } = box;
   switch (node.shape) {
     case "store": {

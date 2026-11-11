@@ -37,7 +37,9 @@ import {
   TTS_SECRET_KEYS,
 } from "./tts/config";
 import { TourCodeLensProvider } from "./ux/codeLensProvider";
-import { setEditorLogger, setSlidePanel } from "./ux/editorActions";
+import { openSlideRef, setEditorLogger, setSlideChrome, setSlidePanel } from "./ux/editorActions";
+import { Autoplay } from "./ux/autoplay";
+import { PresentMode } from "./ux/presentMode";
 import { SlidePanel } from "./ux/slidePanel";
 import { formatSelectionReference, selectedFullLineRange } from "./ux/selectionReference";
 import { TourController } from "./ux/tourController";
@@ -83,6 +85,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   const controller = new TourController();
+  const presentMode = new PresentMode(controller, log);
+  let autoplay: Autoplay | null = null;
   const slidePanel = new SlidePanel(
     context.extensionUri,
     {
@@ -90,6 +94,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       back: () => void controller.back(),
       nextStop: () => void controller.nextStop(),
       openSource: () => void controller.openCurrentSource(),
+      exitPresent: () => void presentMode.exit(),
+      toggleAutoplay: () => autoplay?.toggle(),
+      openRef: (ref, slideIndex) => {
+        const snap = controller.snapshot();
+        if (snap.plan && snap.index === slideIndex) void openSlideRef(ref, snap.current, snap.plan);
+      },
     },
     log,
   );
@@ -116,7 +126,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return listRepoTours(repoTourRoots());
   });
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(TourViewProvider.viewType, viewProvider),
+    // Kept alive while hidden so narration keeps playing in present mode.
+    vscode.window.registerWebviewViewProvider(TourViewProvider.viewType, viewProvider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
   );
   const filesProvider = new TourFilesProvider(controller);
   const filesView = vscode.window.createTreeView("repoTrail.files", {
@@ -171,6 +184,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const tts = new TtsManager(controller, log, context.secrets);
   viewProvider.registerSinkListener((sink) => tts.setWebviewSink(sink));
   context.subscriptions.push(tts);
+
+  autoplay = new Autoplay(controller, tts, log);
+  const player = autoplay;
+  viewProvider.onTtsEnded(() => tts.notifyWebviewEnded());
+  viewProvider.onTtsState((state) => player.ttsStateChanged(state));
+  const refreshSlideChrome = () => {
+    setSlideChrome({ presenting: presentMode.isActive, autoplay: player.isActive });
+    controller.repostSlide();
+  };
+  context.subscriptions.push(
+    player,
+    presentMode,
+    player.onDidChangeActive(refreshSlideChrome),
+    presentMode.onDidChangeActive(refreshSlideChrome),
+    // Leaving the tour leaves present mode too.
+    controller.onDidChange(() => {
+      if (presentMode.isActive && !controller.snapshot().plan) void presentMode.exit();
+    }),
+    vscode.commands.registerCommand("repoTrail.present", () => presentMode.toggle()),
+    vscode.commands.registerCommand("repoTrail.autoplay", () => player.toggle()),
+  );
 
   const prImport: PrImportContext = {
     controller,

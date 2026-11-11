@@ -23,7 +23,7 @@ test("the schema's vocabularies match what RepoTrail reads", () => {
 });
 
 test("the fleet configuration storyboards are valid", async () => {
-  for (const name of ["fleet-config-slides.json", "fleet-config-agent-written.json"]) {
+  for (const name of ["fleet-config-slides.json", "fleet-config-agent-written.json", "slides-morph.json"]) {
     const tour = JSON.parse(await readFile(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
     assert.deepEqual(errors(tour), [], name);
   }
@@ -109,4 +109,15 @@ test("the skill's slide examples are valid and read with no warnings", async () 
     assert.deepEqual(errors(slideStep(slide)), []);
     assert.equal(normalizeSlide(slide).warnings, undefined, normalizeSlide(slide).warnings?.join("\n"));
   }
+});
+
+test("refs are valid on nodes, participants and code, and must stay in the workspace", () => {
+  const ok = errors(slideStep({ blocks: [
+    { type: "flow", nodes: [{ id: "a", ref: { file: "src/a.rs", range: { startLine: 1, endLine: 4 } } }] },
+    { type: "sequence", participants: [{ id: "p", ref: { root: "api", file: "lib/p.ts" } }], messages: [] },
+    { type: "code", code: "x", ref: { file: "docs/x.md" } },
+  ] }));
+  assert.deepEqual(ok, []);
+  assert.match(errors(slideStep({ blocks: [{ type: "flow", nodes: [{ id: "a", ref: { file: "../up" } }] }] })).join("\n"), /pattern/);
+  assert.match(errors(slideStep({ blocks: [{ type: "code", code: "x", ref: { path: "x" } }] })).join("\n"), /required property 'file'/);
 });

@@ -205,6 +205,13 @@ export class TourController {
     this.onChangeEmitter.fire();
   }
 
+  /** Post the current slide again, for panel chrome that changed (present mode, autoplay). */
+  repostSlide(): void {
+    const step = this.plan && this.index >= 0 ? this.plan.steps[this.index] : undefined;
+    if (!this.plan || !step?.slide) return;
+    showSlideBeat(step, { allSteps: this.plan.steps, currentIndex: this.index, plan: this.plan, beat: this.beat });
+  }
+
   /** Re-open and reveal the currently selected tour step without changing state. */
   async revealCurrent(): Promise<void> {
     if (!this.plan || this.index < 0) return;

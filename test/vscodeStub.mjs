@@ -24,8 +24,27 @@ class Uri {
   }
 }
 
+class EventEmitter {
+  constructor() {
+    this.listeners = new Set();
+    this.event = (fn) => {
+      this.listeners.add(fn);
+      return { dispose: () => this.listeners.delete(fn) };
+    };
+  }
+  fire(value) {
+    for (const fn of [...this.listeners]) fn(value);
+  }
+  dispose() {
+    this.listeners.clear();
+  }
+}
+
 export const vscodeStub = {
   Uri,
+  EventEmitter,
+  commands: { executeCommand: async () => undefined },
+  window: { showInformationMessage: async () => undefined },
   workspace: {
     workspaceFolders: undefined,
     getWorkspaceFolder(uri) {

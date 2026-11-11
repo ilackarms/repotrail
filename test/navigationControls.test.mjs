@@ -43,7 +43,7 @@ test("moves the step tools into the menu, with Stop last and set apart", () => {
   const items = stepMenuItems("darwin");
   assert.deepEqual(
     items.map(({ id }) => id),
-    ["revealCurrent", "openCurrentSource", "deeper", "exportTour", "openTtsSettings", "stop"],
+    ["revealCurrent", "openCurrentSource", "deeper", "exportTour", "present", "autoplay", "openTtsSettings", "stop"],
   );
   const stop = items.at(-1);
   assert.equal(stop.separatorBefore, true);

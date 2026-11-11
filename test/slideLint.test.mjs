@@ -68,3 +68,24 @@ test("formats a report with errors first", () => {
   const report = { stops: 2, slides: 1, errors: [{ stop: 1, message: "bad" }], warnings: [{ message: "meh" }] };
   assert.equal(formatLintReport(report, "t.json"), "t.json: 2 stops (1 slides), 1 error, 1 warning\nerror stop 1: bad\nwarning meh");
 });
+
+test("errors on refs whose files are missing or too short", () => {
+  const report = lint(
+    tour([
+      {
+        title: "Refs",
+        file: "doc.md",
+        explanation: "",
+        slide: {
+          blocks: [
+            { type: "flow", nodes: [{ id: "a", ref: { file: "gone.rs" } }, { id: "b", ref: { file: "short.rs", range: { startLine: 90, endLine: 95 } } }] },
+          ],
+        },
+      },
+    ]),
+    (step) => (step.file === "gone.rs" ? null : step.file === "short.rs" ? 20 : 100),
+  );
+  const text = messages(report.errors);
+  assert.match(text, /1: ref `gone\.rs` can't be read/);
+  assert.match(text, /1: ref `short\.rs` starts at line 90, past the end \(20 lines\)/);
+});

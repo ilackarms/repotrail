@@ -182,3 +182,20 @@ test("places blocks in columns", () => {
   assert.deepEqual(slide.blocks.map((b) => [b.column ?? null, b.span ?? null]), [[null, 1.5], [null, null], [2, null], [null, null]]);
   assert.match(slide.warnings.join("\n"), /Block 4: column must be a whole number from 1 to 4/);
 });
+
+test("reads refs on nodes, participants and code, and rejects paths that escape", () => {
+  const slide = normalizeSlide({
+    blocks: [
+      { type: "flow", nodes: [{ id: "a", ref: { file: "src/a.rs", range: { startLine: 3, endLine: 9 } } }, { id: "b", ref: { file: "../etc/passwd" } }] },
+      { type: "sequence", participants: [{ id: "p", ref: { root: "api", file: "lib/p.ts" } }], messages: [] },
+      { type: "code", code: "x", ref: { file: "/abs/path" } },
+    ],
+  });
+  const [flow, seq, code] = slide.blocks;
+  assert.deepEqual(flow.nodes[0].ref, { file: "src/a.rs", range: { startLine: 3, startColumn: 1, endLine: 9, endColumn: 1 } });
+  assert.equal(flow.nodes[1].ref, undefined);
+  assert.deepEqual(seq.participants[0].ref, { root: "api", file: "lib/p.ts" });
+  assert.equal(code.ref, undefined);
+  assert.match(slide.warnings.join("\n"), /node 2 ref: "\.\.\/etc\/passwd" must be a workspace-relative path/);
+  assert.match(slide.warnings.join("\n"), /Block 3 ref: "\/abs\/path" must be a workspace-relative path/);
+});

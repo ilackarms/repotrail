@@ -41,6 +41,8 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   private view: vscode.WebviewView | undefined;
   private onSinkChange: ((sink: WebviewSink | null) => void) | null = null;
   private repoTourLoader: (() => Promise<RepoTourSummary[]>) | null = null;
+  private ttsEndedListener: (() => void) | null = null;
+  private ttsStateListener: ((state: WebviewTtsState) => void) | null = null;
 
   private warnedKokoroFallback = false;
   private ttsState: WebviewTtsState = "idle";
@@ -89,6 +91,16 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
   }
 
   /** Called by extension.ts to wire the TtsManager. */
+  /** Called when narration in the sidebar plays to its end. */
+  onTtsEnded(fn: () => void): void {
+    this.ttsEndedListener = fn;
+  }
+
+  /** Called when the sidebar's narration starts, pauses or stops. */
+  onTtsState(fn: (state: WebviewTtsState) => void): void {
+    this.ttsStateListener = fn;
+  }
+
   registerSinkListener(fn: (sink: WebviewSink | null) => void): void {
     this.onSinkChange = fn;
     if (this.view) {
@@ -115,9 +127,13 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
 
     view.webview.onDidReceiveMessage(async (msg) => {
       switch (msg?.type) {
+        case "tts.ended":
+          this.ttsEndedListener?.();
+          break;
         case "tts.state":
           if (isWebviewTtsState(msg.state)) {
             this.ttsState = msg.state;
+            this.ttsStateListener?.(msg.state);
             if (this.ttsState === "idle" && this.pendingRender) {
               this.pendingRender = false;
               await this.render();
@@ -165,6 +181,12 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
           break;
         case "stopTts":
           await vscode.commands.executeCommand("repoTrail.stopTts");
+          break;
+        case "present":
+          await vscode.commands.executeCommand("repoTrail.present");
+          break;
+        case "autoplay":
+          await vscode.commands.executeCommand("repoTrail.autoplay");
           break;
         case "openTtsSettings":
           await vscode.commands.executeCommand("workbench.action.openSettings", "repoTrail.tts.provider");
@@ -594,6 +616,12 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     on("exportTour", "exportTour");
     on("dismissBridge", "dismissBridge");
     on("openTtsSettings", "openTtsSettings");
+    on("present", "present");
+    // A click here is the user gesture the webview needs before autoplay can sound.
+    document.getElementById("autoplay")?.addEventListener("click", () => {
+      try { unlockAudioContext(); } catch (e) {}
+      send({ type: "autoplay" });
+    });
     document.querySelectorAll(".stop").forEach((el) => {
       el.addEventListener("click", () => {
         const i = parseInt(el.getAttribute("data-index"), 10);
@@ -821,6 +849,13 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
     let state = "idle";  // idle | preparing | playing | paused
 
     const ICONS = ${JSON.stringify(ICONS).replace(/<\//g, "<\\/")};
+    // Narration that played to its end (not cancelled): autoplay moves on.
+    function finished(token) {
+      if (token !== speakToken) return;
+      setState("idle");
+      send({ type: "tts.ended" });
+    }
+
     function setState(s) {
       state = s;
       send({ type: "tts.state", state: s });
@@ -962,7 +997,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         u.rate = 1.05;
         mode = "synth";
         u.onstart = () => { if (token === speakToken) setState("playing"); };
-        u.onend = () => { if (token === speakToken) setState("idle"); };
+        u.onend = () => finished(token);
         window.speechSynthesis?.speak(u);
       } catch (err) {
         console.error("[repotrail tts] system speak failed", err);
@@ -984,7 +1019,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         const bytes = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         playBlob(new Blob([bytes], { type: mime || "audio/mpeg" }), token)
-          .then(() => { if (token === speakToken) setState("idle"); });
+          .then(() => finished(token));
       } catch (err) {
         console.error("[repotrail tts] audio decode failed", err);
         reportAudioFailure("decode failed: " + ((err && err.message) || err), false);
@@ -1134,7 +1169,7 @@ export class TourViewProvider implements vscode.WebviewViewProvider {
         if (token !== speakToken) return;
         await playBlob(new Blob([wav], { type: "audio/wav" }), token);
       }
-      if (token === speakToken) setState("idle");
+      finished(token);
     }
 
     (function clearLegacyPlayState() {

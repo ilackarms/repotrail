@@ -100,6 +100,14 @@
         "title": "RepoTrail: Next Stop (Skip Slide Beats)"
       },
       {
+        "command": "repoTrail.present",
+        "title": "RepoTrail: Present Tour (Toggle)"
+      },
+      {
+        "command": "repoTrail.autoplay",
+        "title": "RepoTrail: Play Tour (Toggle Autoplay)"
+      },
+      {
         "command": "repoTrail.revealCurrent",
         "title": "RepoTrail: Jump to Current Step Code"
       },

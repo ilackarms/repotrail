@@ -10,12 +10,13 @@
 import type { SlideMotion, SlideViewPayload } from "../../engine/slides/payload";
 import { effectsEntering, slideBeats, stateAt, type SlideEffects, type SlideState } from "../../engine/slides/timeline";
 import { flip, measureFont, setTone, svg_ } from "./diagrams";
-import { fitSlide, inlineMarkdown, renderSlide, type RenderedSlide } from "./render";
+import { fitSlide, inlineMarkdown, renderSlide, type RenderedSlide, type RenderOptions } from "./render";
 
 const STAGGER_MS = 60;
 const DRAW_MS = 420;
 const FLOW_MS = 700;
 const PULSE_MS = 520;
+const MORPH_MS = 520;
 
 /** Identity of a slide's content: the same key means only the position changed. */
 export function slideKey(payload: SlideViewPayload): string {
@@ -31,10 +32,64 @@ export class SlideView {
   private readonly byId = new Map<string, Element[]>();
   private cancels: Array<() => void> = [];
 
-  constructor(private readonly payload: SlideViewPayload) {
+  constructor(
+    private readonly payload: SlideViewPayload,
+    options: RenderOptions = {},
+  ) {
     this.key = slideKey(payload);
-    this.rendered = renderSlide(payload);
+    this.rendered = renderSlide(payload, options);
     this.root = this.rendered.root;
+  }
+
+  /** The stop this slide belongs to. */
+  get index(): number {
+    return this.payload.index;
+  }
+
+  /**
+   * Shared-element transition from the slide on screen before this one. Nodes
+   * and participants with the same id on both slides glide from their old
+   * place and size to the new one; everything else cross-fades as the old
+   * slide fades out on top. Both slides must be mounted and placed the same
+   * way. Returns how long the old slide should take to fade.
+   */
+  morphFrom(previous: SlideView, motion: SlideMotion): number {
+    if (effectiveMotion(motion) !== "full") return 200;
+    const before = new Map<string, Element>();
+    for (const node of previous.root.querySelectorAll(".rt-node[data-id]:not(.rt-hidden)")) {
+      before.set(node.getAttribute("data-id")!, node);
+    }
+    let moved = 0;
+    for (const node of this.root.querySelectorAll<SVGGraphicsElement>(".rt-node[data-id]:not(.rt-hidden)")) {
+      const old = before.get(node.getAttribute("data-id")!);
+      const oldShape = old?.querySelector(".rt-shape");
+      const newShape = node.querySelector(".rt-shape");
+      const ctm = node.getScreenCTM?.();
+      if (!old || !oldShape || !newShape || !ctm || !node.animate) continue;
+      const a = oldShape.getBoundingClientRect();
+      const b = newShape.getBoundingClientRect();
+      if (b.width === 0 || b.height === 0) continue;
+      // Screen pixels to this SVG's user units, which CSS transforms on SVG use.
+      const dx = (a.left + a.width / 2 - (b.left + b.width / 2)) / ctm.a;
+      const dy = (a.top + a.height / 2 - (b.top + b.height / 2)) / ctm.d;
+      const scale = Math.max(0.5, Math.min(2, (a.width / b.width + a.height / b.height) / 2));
+      const animation = node.animate(
+        [{ transform: `translate(${dx}px, ${dy}px) scale(${scale})` }, { transform: "none" }],
+        { duration: MORPH_MS, easing: "cubic-bezier(0.2, 0.7, 0.2, 1)" },
+      );
+      this.cancels.push(() => animation.cancel());
+      (old as SVGElement).style.opacity = "0";
+      moved++;
+    }
+    if (moved === 0) return 200;
+    // Edges would sit at the nodes' final places while they're still moving.
+    this.root.classList.add("rt-morphing");
+    const timer = setTimeout(() => this.root.classList.remove("rt-morphing"), MORPH_MS - 120);
+    this.cancels.push(() => {
+      clearTimeout(timer);
+      this.root.classList.remove("rt-morphing");
+    });
+    return 320;
   }
 
   /** Fit and show the starting position. Call once the root is in the document. */

@@ -50,6 +50,9 @@ export class TtsManager implements vscode.Disposable {
   private requestSeq = 0;
   private warnedMissing = new Set<string>();
   private lastHostedWarn = 0;
+  private readonly finishEmitter = new vscode.EventEmitter<string | null>();
+  /** Fires with the narration target key when narration plays to its end. */
+  readonly onDidFinish = this.finishEmitter.event;
 
   constructor(
     private readonly controller: TourController,
@@ -63,13 +66,22 @@ export class TtsManager implements vscode.Disposable {
     this.webviewSink = sink;
   }
 
-  /** Speak the active step now (used by the toggle button). */
-  speakCurrent(): void {
+  /**
+   * Speak the active step now (used by the toggle button). Returns false when
+   * nothing will be heard: narration is off, there's no text, or the sidebar
+   * that plays it isn't open.
+   */
+  speakCurrent(): boolean {
     const snap = this.controller.snapshot();
-    if (!snap.current) return;
+    if (!snap.current) return false;
     this.observedTargetKey = narrationTargetKey(this.controller.activeTourId, snap.current, snap.beat);
     // On a slide, each beat speaks its own `say`; position 0 speaks the stop.
-    this.dispatch(humanizeForSpeech(narrationAt(snap.current, snap.beat)));
+    return this.dispatch(humanizeForSpeech(narrationAt(snap.current, snap.beat)));
+  }
+
+  /** The sidebar reports that its narration played to the end. */
+  notifyWebviewEnded(): void {
+    this.finishEmitter.fire(this.observedTargetKey);
   }
 
   /** Full stop: halt host-side work AND tell the webview to stop narration + reset
@@ -96,6 +108,7 @@ export class TtsManager implements vscode.Disposable {
   }
 
   dispose(): void {
+    this.finishEmitter.dispose();
     this.cancel();
     this.subscription?.dispose();
     this.subscription = null;
@@ -116,20 +129,25 @@ export class TtsManager implements vscode.Disposable {
     }
   }
 
-  private dispatch(text: string): void {
+  private dispatch(text: string): boolean {
     const provider = currentProvider();
     this.cancelHostWork();
     if (provider === "off" || !text.trim()) {
       // Nothing will be spoken — make sure the webview button doesn't sit on a
       // stale "preparing" state from the click.
       this.webviewSink?.({ type: "tts.cancel" });
-      return;
+      return false;
+    }
+    // Every provider but the command voice plays in the sidebar webview.
+    if (provider !== "say" && !this.webviewSink) {
+      this.log.appendLine("[tts] webview sink unavailable — open the RepoTrail sidebar to hear narration.");
+      return false;
     }
     const cfg = vscode.workspace.getConfiguration("repoTrail");
     switch (provider) {
       case "system":
         this.sendToWebview({ type: "tts.speak", engine: "system", text });
-        return;
+        return true;
       case "kokoro":
         this.sendToWebview({
           type: "tts.speak",
@@ -137,17 +155,17 @@ export class TtsManager implements vscode.Disposable {
           text,
           voice: cfg.get<string>("tts.kokoroVoice", TTS_DEFAULTS.kokoroVoice),
         });
-        return;
+        return true;
       case "say":
-        this.speakViaCommand(text, cfg);
-        return;
+        return this.speakViaCommand(text, cfg);
       case "elevenlabs":
         void this.speakViaElevenLabs(text, cfg);
-        return;
+        return true;
       case "openai":
         void this.speakViaOpenAi(text, cfg);
-        return;
+        return true;
     }
+    return false;
   }
 
   private sendToWebview(msg: TtsWebviewMsg): void {
@@ -158,16 +176,25 @@ export class TtsManager implements vscode.Disposable {
     }
   }
 
-  private speakViaCommand(text: string, cfg: vscode.WorkspaceConfiguration): void {
+  private speakViaCommand(text: string, cfg: vscode.WorkspaceConfiguration): boolean {
     const cmd = cfg.get<string>("tts.command", TTS_DEFAULTS.command);
     try {
       const child = childProcess.spawn(cmd, [text], { stdio: "ignore", detached: false });
+      const key = this.observedTargetKey;
       child.on("error", (err) =>
         this.log.appendLine(`[tts] ${cmd} failed: ${err instanceof Error ? err.message : String(err)}`),
       );
+      // A clean exit of the child we're still waiting on means it finished speaking.
+      child.on("exit", (code, signal) => {
+        if (this.currentChild !== child) return;
+        this.currentChild = null;
+        if (code === 0 && !signal) this.finishEmitter.fire(key);
+      });
       this.currentChild = child;
+      return true;
     } catch (err) {
       this.log.appendLine(`[tts] spawn ${cmd} threw: ${String(err)}`);
+      return false;
     }
   }
 

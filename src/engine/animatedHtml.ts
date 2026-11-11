@@ -761,6 +761,7 @@ ${input.slideRuntime ? `<script>${input.slideRuntime.script.replace(/<\/script/g
   let index = 0;
   let beat = 0; // position on a slide stop: 0 before any beat
   let slideView = null;
+  let slideViewIndex = -1;
 
   const byId = (id) => document.getElementById(id);
   const setText = (id, value) => { const el = byId(id); if (el) el.textContent = value || ""; };
@@ -924,10 +925,12 @@ ${input.slideRuntime ? `<script>${input.slideRuntime.script.replace(/<\/script/g
   function renderSlideFrame(frame) {
     const box = byId("slideBox");
     if (!box) return;
-    if (slideView) slideView.dispose();
+    const previous = slideView;
+    const previousIndex = slideViewIndex;
     slideView = null;
-    box.textContent = "";
+    if (!previous) box.textContent = "";
     if (!slides) {
+      box.textContent = "";
       const empty = document.createElement("div");
       empty.className = "empty";
       empty.textContent = "This export doesn't include the slide runtime.";
@@ -944,15 +947,29 @@ ${input.slideRuntime ? `<script>${input.slideRuntime.script.replace(/<\/script/g
       motion: "full",
       captions: true,
     });
-    box.appendChild(slideView.root);
+    slideViewIndex = index;
+    // The new slide goes underneath so the old one can fade out over it, and
+    // nodes both slides share glide to their new places.
+    if (previous) box.insertBefore(slideView.root, previous.root);
+    else box.appendChild(slideView.root);
     slideView.mount();
     placeSlide();
+    if (previous) {
+      previous.dispose();
+      const fade = Math.abs(previousIndex - index) === 1 ? slideView.morphFrom(previous, "full") : 0;
+      const outgoing = previous.root;
+      const animation = fade && outgoing.animate ? outgoing.animate([{ opacity: 1 }, { opacity: 0 }], { duration: fade }) : null;
+      if (animation) animation.onfinish = () => outgoing.remove();
+      else outgoing.remove();
+    }
   }
 
   function placeSlide() {
     const box = byId("slideBox");
-    if (!slideView || !box || !slides) return;
-    slideView.root.style.transform = "scale(" + box.clientWidth / slides.SLIDE_WIDTH + ")";
+    if (!box || !slides) return;
+    box.querySelectorAll(".rt-slide").forEach((root) => {
+      root.style.transform = "scale(" + box.clientWidth / slides.SLIDE_WIDTH + ")";
+    });
   }
 
   function renderBeats(frame) {
@@ -1398,6 +1415,9 @@ ${input.slideRuntime ? `<script>${input.slideRuntime.script.replace(/<\/script/g
     else {
       if (slideView) slideView.dispose();
       slideView = null;
+      slideViewIndex = -1;
+      const box = byId("slideBox");
+      if (box) box.textContent = "";
       renderCode(frame);
     }
     renderBeats(frame);

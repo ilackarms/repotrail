@@ -142,6 +142,15 @@ export function narrationAt(step: TourStep, beat: number): string {
 }
 
 /**
+ * How long to show a position when nothing narrates it: about 2.6 words a
+ * second, at least 1.8 s and at most 15 s.
+ */
+export function readingTimeMs(text: string): number {
+  const words = text.split(/\s+/).filter(Boolean).length;
+  return Math.min(15000, Math.max(1800, Math.round((words / 2.6) * 1000) + 700));
+}
+
+/**
  * Every label and sub a node or edge shows across the beats, so layout can
  * size it once for the longest and nothing moves when `set` changes text.
  */

@@ -9,7 +9,7 @@
  */
 
 import { parseTourJson } from "../tourSerialize";
-import type { SlideBlock, TourSlide, TourStep } from "../types";
+import type { SlideBlock, SlideRef, TourSlide, TourStep } from "../types";
 import { layoutFlow, type TextMeasure } from "./flowLayout";
 import { layoutSequence } from "./sequenceLayout";
 import { slideBeats, textVariants } from "./timeline";
@@ -109,6 +109,12 @@ export function lintTour(input: LintInput): LintReport {
     if (!step.slide) return;
     const slide = step.slide;
     for (const warning of slide.warnings ?? []) error(warning);
+    for (const ref of slideRefs(slide)) {
+      const target: TourStep = { ...step, root: ref.root ?? step.root, file: ref.file, range: ref.range, slide: undefined };
+      const lines = input.lineCount(target);
+      if (lines === null) error(`ref \`${ref.file}\` can't be read.`);
+      else if (ref.range && ref.range.startLine > lines) error(`ref \`${ref.file}\` starts at line ${ref.range.startLine}, past the end (${lines} lines).`);
+    }
     if (plan.kind === "design-review" && !step.file) warn("The slide has no source `file` and `range`.");
     lintSlide(step.title, slide, warn);
   });
@@ -217,6 +223,16 @@ function columnWidths(slide: TourSlide): Map<string, number> {
     for (const block of members) widths.set(block.id, (free * weights[i]) / total);
   });
   return widths;
+}
+
+function slideRefs(slide: TourSlide): SlideRef[] {
+  const refs: SlideRef[] = [];
+  for (const block of slide.blocks) {
+    if (block.type === "code" && block.ref) refs.push(block.ref);
+    if (block.type === "flow") for (const node of block.nodes) if (node.ref) refs.push(node.ref);
+    if (block.type === "sequence") for (const p of block.participants) if (p.ref) refs.push(p.ref);
+  }
+  return refs;
 }
 
 function flatten(items: Array<{ id: string; text: string; items?: unknown[] }>): Array<{ id: string; text: string }> {

@@ -22,6 +22,7 @@ import type {
   SlideFlowNode,
   SlideLayout,
   SlideNodeShape,
+  SlideRef,
   SlideSequenceBlock,
   SlideSequenceMessage,
   SlideSequenceNote,
@@ -257,6 +258,8 @@ function normalizeBlock(value: unknown, index: number, ctx: SlideContext): Slide
         if (Number.isInteger(value.startLine) && (value.startLine as number) >= 1) block.startLine = value.startLine as number;
         else ctx.warn(`${where}: startLine must be a whole number of 1 or more.`);
       }
+      const ref = normalizeRef(value.ref, where, ctx);
+      if (ref) block.ref = ref;
       const first = block.startLine ?? 1;
       ctx.codeLines.set(id, { first, last: first + lines.length - 1 });
       return block;
@@ -443,6 +446,8 @@ function normalizeFlow(
       if (typeof obj.group === "string" && groupIds.has(obj.group)) node.group = obj.group;
       else ctx.warn(`${what}: group ${describe(obj.group)} isn't defined in \`groups\`.`);
     }
+    const ref = normalizeRef(obj.ref, what, ctx);
+    if (ref) node.ref = ref;
     nodes.push(node);
   });
   if (nodes.length === 0) return missing(ctx, where, "nodes");
@@ -518,6 +523,8 @@ function normalizeSequence(
     if (sub) participant.sub = sub;
     const tone = ctx.tone(obj.tone, what);
     if (tone) participant.tone = tone;
+    const ref = normalizeRef(obj.ref, what, ctx);
+    if (ref) participant.ref = ref;
     participants.push(participant);
   });
   if (participants.length === 0) return missing(ctx, where, "participants");
@@ -563,6 +570,35 @@ function normalizeSequence(
   });
 
   return { ...base, type: "sequence", participants, messages };
+}
+
+/** `{ file, range?, root? }`: a workspace-relative file an element opens when clicked. */
+function normalizeRef(value: unknown, where: string, ctx: SlideContext): SlideRef | undefined {
+  if (value === undefined) return undefined;
+  const what = `${where} ref`;
+  if (!isObject(value) || typeof value.file !== "string" || !value.file.trim()) {
+    ctx.warn(`${what} must be { file, range?, root? }.`);
+    return undefined;
+  }
+  const file = value.file.trim().replace(/\\/g, "/");
+  if (file.startsWith("/") || /^[A-Za-z]:/.test(file) || file.split("/").includes("..")) {
+    ctx.warn(`${what}: "${file}" must be a workspace-relative path without "..".`);
+    return undefined;
+  }
+  const ref: SlideRef = { file };
+  if (typeof value.root === "string" && value.root.trim()) ref.root = value.root.trim();
+  if (value.range !== undefined) {
+    const r = isObject(value.range) ? value.range : {};
+    const line = (v: unknown) => (Number.isInteger(v) && (v as number) >= 1 ? (v as number) : undefined);
+    const startLine = line(r.startLine);
+    const endLine = line(r.endLine) ?? startLine;
+    if (startLine === undefined || endLine === undefined || endLine < startLine) {
+      ctx.warn(`${what}: range needs whole-number startLine and endLine.`);
+    } else {
+      ref.range = { startLine, startColumn: line(r.startColumn) ?? 1, endLine, endColumn: line(r.endColumn) ?? 1 };
+    }
+  }
+  return ref;
 }
 
 interface ParsedEdge {

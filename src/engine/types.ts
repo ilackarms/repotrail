@@ -177,12 +177,21 @@ export interface SlideTableBlock extends SlideBlockBase {
   rows: SlideTableRow[];
 }
 
+/** A file a slide element points at; clicking the element opens it beside the slide. */
+export interface SlideRef {
+  /** Root alias; defaults to the slide stop's root. */
+  root?: string;
+  file: string;
+  range?: TourRange;
+}
+
 export interface SlideCodeBlock extends SlideBlockBase {
   type: "code";
   code: string;
   language?: string;
   /** Line number shown for the first line. Defaults to 1. */
   startLine?: number;
+  ref?: SlideRef;
 }
 
 export interface SlideCalloutBlock extends SlideBlockBase {
@@ -199,6 +208,7 @@ export interface SlideFlowNode {
   tone?: SlideTone;
   badge?: string;
   group?: string;
+  ref?: SlideRef;
 }
 
 export interface SlideFlowEdge {
@@ -232,6 +242,7 @@ export interface SlideSequenceParticipant {
   sub?: string;
   shape: SlideNodeShape;
   tone?: SlideTone;
+  ref?: SlideRef;
 }
 
 export interface SlideSequenceMessage {

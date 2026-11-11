@@ -35,6 +35,19 @@
   the schema, beat ids, source files and the skill's text budgets, and
   `render` writes the animated HTML player without VS Code. Agent setup
   includes its path.
+- **RepoTrail: Present Tour** hides the side bars and panel and turns slide
+  captions on; `Esc` in a slide leaves. **RepoTrail: Play Tour** narrates each
+  stop and beat and moves on when the narration ends, or after a reading pause
+  when narration is off. Moving by hand while it plays continues from there.
+  Both are also in the tour panel's ☰ menu, and `P` in a slide toggles play.
+- Diagram nodes, sequence participants and code blocks can carry a `ref`:
+  clicking one opens that file beside the slide. Lint checks that the files
+  exist.
+- When consecutive slides share node ids, the shared nodes glide from their
+  old places to their new ones instead of the slide cutting over, in VS Code
+  and in the HTML export.
+- The tour sidebar now keeps running while hidden, so narration continues in
+  present mode.
 
 ## 0.13.0 - 2026-11-11
 
