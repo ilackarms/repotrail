@@ -1,7 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.13.0 - 2026-11-11
 
+- Compacted the tour panel. Back and Next share one toolbar row with a
+  play/pause icon and a ☰ menu that holds Jump to step code, Open source file,
+  Copy deepen prompt, Export tour, Narration settings, and Stop tour. The route
+  list starts collapsed, the follow-up box moved to a footer, and Back/Next
+  tooltips name the stop they go to.
+- Narration now renders as markdown (paragraphs, lists, bold, italics, and
+  code) instead of raw text. Links, images, and HTML stay plain text.
 - Added PR review tours. `RepoTrail: Copy Tour as PR Comment` copies a GitHub
   comment with an Open in VS Code link, an agent setup prompt for reviewers
   without the extension, and the tour JSON. Reviewers open it from the link,
