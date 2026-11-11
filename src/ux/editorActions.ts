@@ -118,7 +118,7 @@ export async function openStepSource(
 ): Promise<ExecuteResult> {
   if (!step.file) return { drift: "ok" };
   await closeRepoTrailDiffTabs();
-  const prepared = await prepareStep(step, opts);
+  const prepared = await prepareStep(step, opts, { preferWorkingTree: true });
   if (!prepared) return { drift: "missing" };
 
   await showSourceDocument(step, prepared.doc, prepared.range, opts, false);
@@ -131,7 +131,11 @@ export async function openStepSource(
   return { drift: prepared.drift, capturedAnchor: prepared.capturedAnchor };
 }
 
-async function prepareStep(step: TourStep, opts?: StepEditorOptions): Promise<PreparedStep | null> {
+async function prepareStep(
+  step: TourStep,
+  opts?: StepEditorOptions,
+  documentOptions: { preferWorkingTree?: boolean } = {},
+): Promise<PreparedStep | null> {
   if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
     vscode.window.showErrorMessage("RepoTrail: open a workspace first.");
     return null;
@@ -154,7 +158,7 @@ async function prepareStep(step: TourStep, opts?: StepEditorOptions): Promise<Pr
 
   let doc: vscode.TextDocument;
   try {
-    doc = await openStepDocument(step, uri, opts?.plan);
+    doc = await openStepDocument(step, uri, opts?.plan, documentOptions);
   } catch (err) {
     logger?.appendLine(`[editor] open failed for ${label}: ${String(err)}`);
     vscode.window.showErrorMessage(`RepoTrail: cannot open ${plainMessageText(label)}.`);
@@ -180,25 +184,53 @@ async function prepareStep(step: TourStep, opts?: StepEditorOptions): Promise<Pr
 }
 
 /**
- * Open the document a step's range refers to. Normally the working-tree file.
- * A diff stop that pins both sides (baseRef and headRef) doesn't depend on
- * what is checked out, so when its file isn't in the working tree (new in the
- * change, or the clone is on another branch) this opens the file at headRef,
- * or at baseRef for a file the change deletes, read from git.
+ * Open the document a step's range refers to. A diff stop that pins both sides
+ * to commits (hex baseRef and headRef) doesn't depend on what is checked out:
+ * its range and anchor refer to the file at headRef. So the working-tree file
+ * is used only when its text matches headRef; otherwise (a different branch,
+ * or a file the change adds) the file is read from git at headRef, or at
+ * baseRef for a file the change deletes. `preferWorkingTree` keeps the real
+ * file whenever it exists, for "Open Current Source".
  */
-async function openStepDocument(step: TourStep, uri: vscode.Uri, plan?: TourPlan): Promise<vscode.TextDocument> {
+async function openStepDocument(
+  step: TourStep,
+  uri: vscode.Uri,
+  plan?: TourPlan,
+  options: { preferWorkingTree?: boolean } = {},
+): Promise<vscode.TextDocument> {
+  if (!isPinnedDiff(step)) return vscode.workspace.openTextDocument(uri);
+  let working: vscode.TextDocument | undefined;
+  let workingError: unknown;
   try {
-    return await vscode.workspace.openTextDocument(uri);
+    working = await vscode.workspace.openTextDocument(uri);
   } catch (err) {
-    const revision = await openStepRevision(step, uri, plan);
-    if (revision) return revision;
-    throw err;
+    workingError = err;
   }
+  if (working && options.preferWorkingTree) return working;
+  const revision = await openStepRevision(step, uri, plan, working);
+  if (revision) return revision;
+  if (working) return working;
+  throw workingError;
 }
 
-async function openStepRevision(step: TourStep, uri: vscode.Uri, plan?: TourPlan): Promise<vscode.TextDocument | null> {
+const COMMIT_REF = /^[0-9a-f]{7,40}$/i;
+
+function isPinnedDiff(step: TourStep): boolean {
   const diff = step.diff;
-  if (!diff?.baseRef || !diff.headRef || effectiveViewMode(step) !== "diff") return null;
+  return Boolean(
+    diff?.baseRef && diff.headRef && COMMIT_REF.test(diff.baseRef) && COMMIT_REF.test(diff.headRef) &&
+      effectiveViewMode(step) === "diff",
+  );
+}
+
+async function openStepRevision(
+  step: TourStep,
+  uri: vscode.Uri,
+  plan: TourPlan | undefined,
+  working: vscode.TextDocument | undefined,
+): Promise<vscode.TextDocument | null> {
+  const diff = step.diff;
+  if (!diff?.baseRef || !diff.headRef) return null;
   const folder = resolveStepWorkspaceFolder(step, plan);
   if (!folder) return null;
   const sides = [
@@ -210,13 +242,16 @@ async function openStepRevision(step: TourStep, uri: vscode.Uri, plan?: TourPlan
       const file = normalizeWorkspaceFile(side.file);
       const blob = await readGitBlobText(folder.uri.fsPath, side.ref, file);
       if (blob.missing) continue;
+      if (working && sameDocumentText(working.getText(), blob.text)) return working;
       const fileUri = vscode.Uri.joinPath(folder.uri, ...file.split("/"));
       const gitUri = await builtInGitUri({ fileUri, ref: side.ref }, blob.text);
       if (gitUri) diffDocumentSources.set(gitUri.toString(), { sourceUri: uri });
       const doc = await vscode.workspace.openTextDocument(
         gitUri ?? virtualDiffUri(step, side.ref.slice(0, 12), blob.text, { sourceUri: uri }),
       );
-      logger?.appendLine(`[editor] ${formatStepPath(step)} isn't in the working tree; using it at ${side.ref}`);
+      logger?.appendLine(
+        `[editor] ${formatStepPath(step)} ${working ? "differs from" : "isn't in"} the working tree; using it at ${side.ref}`,
+      );
       return doc;
     } catch (err) {
       logger?.appendLine(`[editor] could not read ${side.file} at ${side.ref}: ${String(err)}`);
@@ -503,6 +538,7 @@ function virtualDiffUri(
   text: string,
   source: { sourceUri: vscode.Uri; lineOffset?: number },
 ): vscode.Uri {
+  ensureDiffProvider();
   const ext = extensionForFile(step.file);
   const slug = sanitizePathPart(`${step.title}-${label}`) || "step";
   const uri = vscode.Uri.from({
