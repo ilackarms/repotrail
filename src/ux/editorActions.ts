@@ -5,6 +5,7 @@ import { readGitBlobText } from "../gitBlob";
 import { normalizeWorkspaceFile, resolveStepUri, resolveStepWorkspaceFolder } from "../workspace";
 import { mapDiffPositionToSource, sameDocumentText } from "./diffPositionMap";
 import { diffRevealTargetForRange } from "./diffReveal";
+import { plainMessageText } from "./messageText";
 
 /**
  * Executes a TourStep's declarative actions against the editor.
@@ -142,12 +143,12 @@ async function prepareStep(step: TourStep, opts?: StepEditorOptions): Promise<Pr
     uri = resolveStepUri(step, opts?.plan);
   } catch (err) {
     logger?.appendLine(`[editor] invalid step target ${label}: ${String(err)}`);
-    vscode.window.showErrorMessage(`RepoTrail: invalid step target ${label}.`);
+    vscode.window.showErrorMessage(`RepoTrail: invalid step target ${plainMessageText(label)}.`);
     return null;
   }
   if (!uri) {
     logger?.appendLine(`[editor] no open workspace folder for ${label}`);
-    vscode.window.showErrorMessage(`RepoTrail: cannot find workspace folder for ${label}.`);
+    vscode.window.showErrorMessage(`RepoTrail: cannot find workspace folder for ${plainMessageText(label)}.`);
     return null;
   }
 
@@ -156,7 +157,7 @@ async function prepareStep(step: TourStep, opts?: StepEditorOptions): Promise<Pr
     doc = await openStepDocument(step, uri, opts?.plan);
   } catch (err) {
     logger?.appendLine(`[editor] open failed for ${label}: ${String(err)}`);
-    vscode.window.showErrorMessage(`RepoTrail: cannot open ${label}.`);
+    vscode.window.showErrorMessage(`RepoTrail: cannot open ${plainMessageText(label)}.`);
     return null;
   }
 
