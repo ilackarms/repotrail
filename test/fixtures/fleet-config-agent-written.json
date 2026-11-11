@@ -1,0 +1,908 @@
+{
+  "repoTrailTour": 2,
+  "exportedAt": "2026-11-11T16:51:36.000Z",
+  "plan": {
+    "kind": "design-review",
+    "title": "Fleet configuration API: design review (PR #244)",
+    "summary": "A design review of `docs/design/fleet-config-api.md` from agentdesktop-dev/agentdesktop#244. The design adds a database mode in which admins change the fleet (daemon) configuration through `PUT /api/v1/daemon-config` and the controller UI, and records every content change, in both file and database mode, as a numbered revision with its author. The tour covers today's push path and its fixed revision, the revision table and its concurrency rule, file-mode replicas, startup and mode switching, the push across replicas, the API, permissions, the UI and Helm changes, the hardening-plan trade-offs, the hooks left for two-admin approval (A6.1), the work items and the open questions.",
+    "roots": {
+      "agentdesktop": { "name": "agentdesktop", "pathHint": "agentdesktop" }
+    },
+    "steps": [
+      {
+        "title": "Admins can edit the fleet configuration in the controller, and every change gets a revision",
+        "explanation": "This PR adds a design doc, not code. It gives the controller a write path for the configuration it pushes to devices, records each accepted change as a revision with its author, and keeps file mode read-only for GitOps.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 1, "startColumn": 1, "endLine": 27, "endColumn": 1 },
+        "slide": {
+          "layout": "title",
+          "eyebrow": "Design review · PR #244",
+          "subtitle": "A6.0: a database-backed write path with revisions and authors. File mode stays read-only.",
+          "blocks": [
+            {
+              "type": "text",
+              "id": "port",
+              "md": "Ports #57 onto the management auth from #220. Two-admin approval (A6.1) builds on this write path."
+            }
+          ]
+        }
+      },
+      {
+        "title": "Today a file edit ships under the same revision number",
+        "explanation": "Start with how the configuration reaches devices today. The design keeps this path and changes what feeds it.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 29, "startColumn": 1, "endLine": 61, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "Current state",
+          "layout": "stack",
+          "blocks": [
+            {
+              "type": "flow",
+              "id": "today",
+              "direction": "LR",
+              "nodes": [
+                { "id": "file", "label": "daemon.yaml", "sub": "daemonConfig.path", "shape": "file", "badge": "rev 1" },
+                { "id": "watch", "label": "daemon_config::watch", "sub": "validates with parse_daemon", "shape": "service" },
+                { "id": "store", "label": "DaemonConfigStore", "sub": "tokio watch channel", "shape": "queue" },
+                { "id": "connect", "label": "connect stream", "sub": "one per device", "shape": "service" },
+                { "id": "device", "label": "Device daemon", "sub": "checks sha256, applies", "shape": "device" },
+                { "id": "status", "label": "device_config_status", "shape": "store" }
+              ],
+              "edges": [
+                "file -> watch: change event",
+                "watch -> store: publish",
+                "store -> connect: subscribe",
+                "connect -> device: DaemonConfig",
+                "device --> status: ConfigStatus"
+              ]
+            },
+            {
+              "type": "callout",
+              "id": "problem",
+              "tone": "risk",
+              "md": "\"Revision 1 applied\" can mean any version of the file, and a revert looks like the original."
+            }
+          ],
+          "beats": [
+            {
+              "say": "A valid edit travels from the file through the store to every connected device, with no restart.",
+              "flow": ["file->watch", "watch->store", "store->connect", "connect->device"]
+            },
+            {
+              "say": "The device answers with the revision it applied, and that number is all the controller records.",
+              "flow": ["device->status"],
+              "set": { "status": { "badge": "rev 1" } }
+            },
+            {
+              "say": "Edit the file again: the content changes but the number doesn't, because it is the fixed daemonConfig.revision, which the Helm chart never sets.",
+              "set": { "file": { "sub": "edited content", "tone": "warn" } },
+              "flow": ["file->watch", "watch->store", "store->connect", "connect->device", "device->status"],
+              "pulse": ["file"]
+            },
+            {
+              "say": "So the controller can't tell which content a device applied. The design gives every content change a new, higher revision.",
+              "show": ["problem"],
+              "set": { "status": { "tone": "bad" } },
+              "focus": ["file", "status", "problem"]
+            }
+          ]
+        }
+      },
+      {
+        "title": "The store accepts any revision, including a reused one",
+        "explanation": "`publish` skips a value only when its revision *and* hash both match the active one. Anything else replaces it: a lower revision, or the same revision with different content. The second case is what every file edit produces today, because `load` (line 140) stamps the fixed `daemonConfig.revision` on whatever it reads.\n\nThe design makes `publish` move forward only, as #57 did. It ignores a revision lower than the active one, refuses to reuse a number for different content, and logs and records an error in both cases.\n\nWorth checking in review: `record_error` writes `reload_error`, which the new `GET` response documents as a file-mode field that is always `null` in database mode. Either the store needs a separate error slot for rejected publishes, or the doc should say database mode can report one. Note too that `publish` clears `reload_error` on every call, even an unchanged one (lines 49-52).",
+        "root": "agentdesktop",
+        "file": "crates/controller/src/daemon_config.rs",
+        "range": { "startLine": 45, "startColumn": 1, "endLine": 58, "endColumn": 1 },
+        "viewMode": "code"
+      },
+      {
+        "title": "Both sources write one revision table; only the writer differs",
+        "explanation": "Database mode is opt-in. File mode stays as it is for deployments that keep the configuration in Git.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 84, "startColumn": 1, "endLine": 102, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "Sources",
+          "layout": "stack",
+          "blocks": [
+            {
+              "type": "table",
+              "id": "modes",
+              "columns": ["", "File", "Database"],
+              "rows": [
+                { "id": "cfg", "cells": ["`controller.yaml`", "`daemonConfig: { path, revision }`", "`daemonConfig: { database: { seedPath } }`"] },
+                { "id": "writer", "cells": ["Writes revisions", "the file watcher", "`PUT /api/v1/daemon-config`"] },
+                { "id": "api", "cells": ["API and UI", "read-only; `PUT` returns 405", "read and write"] },
+                { "id": "when", "cells": ["Use it when", "the config is in Git, changed by PR", "no GitOps pipeline, e.g. a VM"] }
+              ]
+            },
+            {
+              "type": "callout",
+              "id": "exclusive",
+              "tone": "decision",
+              "md": "`path` and `database` are mutually exclusive: a struct with optional fields plus a check in `parse_controller`, not #57's untagged enum."
+            }
+          ],
+          "beats": [
+            {
+              "say": "The modes differ only in who may write. Because both append to the same table, switching later is cheap.",
+              "focus": ["writer"]
+            },
+            {
+              "say": "An untagged serde enum under deny_unknown_fields gives vague errors, so the design uses a struct and an explicit check that names the problem.",
+              "show": ["exclusive"],
+              "focus": ["cfg", "exclusive"]
+            }
+          ]
+        }
+      },
+      {
+        "title": "Every published configuration is an append-only row with its author",
+        "explanation": "One history table replaces #57's single row. The latest row is the active configuration in both modes.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 131, "startColumn": 1, "endLine": 177, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "Revisions",
+          "layout": "columns",
+          "blocks": [
+            {
+              "type": "code",
+              "id": "schema",
+              "language": "sql",
+              "startLine": 137,
+              "span": 3,
+              "code": "CREATE TABLE daemon_config_revisions (\n    revision BIGINT PRIMARY KEY CHECK (revision > 0),\n    yaml TEXT NOT NULL,\n    sha256 TEXT NOT NULL,       -- hex, over the exact YAML bytes\n    created_at BIGINT NOT NULL,\n    author_kind TEXT NOT NULL,  -- local | human | service | file | seed\n    author_issuer TEXT NOT NULL,\n    author_subject TEXT NOT NULL,\n    author_client_id TEXT,      -- service credentials only\n    author_display TEXT,        -- e.g. the email claim at the time of the change\n    message TEXT NOT NULL DEFAULT ''\n);"
+            },
+            {
+              "type": "bullets",
+              "id": "rules",
+              "title": "Rules",
+              "span": 2,
+              "items": [
+                { "id": "up", "text": "Revisions only go up" },
+                { "id": "same", "text": "Identical YAML inserts nothing" },
+                { "id": "bytes", "text": "Stored byte for byte, comments included" },
+                { "id": "restore", "text": "Restore means saving the old YAML again" }
+              ]
+            }
+          ],
+          "beats": [
+            {
+              "say": "The revision is the primary key. That constraint, not a lock, is what finally rejects a second save of the same number.",
+              "show": ["up"],
+              "highlight": ["schema:L138"]
+            },
+            {
+              "say": "The hash covers the exact stored bytes, which is what the daemon already checks, so comments survive and identical saves are a no-op.",
+              "show": ["same", "bytes"],
+              "highlight": ["schema:L139-140"]
+            },
+            {
+              "say": "The author comes from the principal that passed the permission check, with the display claim copied at save time. In local mode every save is the same loopback identity.",
+              "highlight": ["schema:L142-146"]
+            },
+            {
+              "say": "History is never rewritten: restoring an old revision creates a new, higher one.",
+              "show": ["restore"],
+              "pulse": ["restore"]
+            }
+          ]
+        }
+      },
+      {
+        "title": "Two saves from the same base: one gets 200, the other 409",
+        "explanation": "A save carries the revision it started from. This is the whole concurrency story, so check that it holds on both databases.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 153, "startColumn": 1, "endLine": 166, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "Revisions · optimistic concurrency",
+          "layout": "stack",
+          "blocks": [
+            {
+              "type": "sequence",
+              "id": "race",
+              "participants": [
+                { "id": "a1", "label": "Admin 1", "shape": "actor" },
+                { "id": "a2", "label": "Admin 2", "shape": "actor" },
+                { "id": "ctl", "label": "Controller", "shape": "service" },
+                { "id": "db", "label": "Postgres", "shape": "store" }
+              ],
+              "messages": [
+                { "id": "put1", "from": "a1", "to": "ctl", "label": "PUT base_revision 8" },
+                { "id": "put2", "from": "a2", "to": "ctl", "label": "PUT base_revision 8" },
+                { "id": "ins1", "from": "ctl", "to": "db", "label": "INSERT 9 WHERE max = 8" },
+                { "id": "ins2", "from": "ctl", "to": "db", "label": "INSERT 9 WHERE max = 8" },
+                { "id": "rc", "note": "Read committed: both can pass the WHERE", "over": ["ctl", "db"] },
+                { "id": "ok", "from": "db", "to": "ctl", "label": "1 row", "reply": true, "tone": "good" },
+                { "id": "pk", "from": "db", "to": "ctl", "label": "primary key violation", "reply": true, "tone": "bad" },
+                { "id": "r200", "from": "ctl", "to": "a1", "label": "200, revision 9", "reply": true, "tone": "good" },
+                { "id": "r409", "from": "ctl", "to": "a2", "label": "409 revision_conflict", "reply": true, "tone": "bad" }
+              ]
+            },
+            {
+              "type": "callout",
+              "id": "pgtest",
+              "tone": "risk",
+              "md": "Unit tests run on SQLite only. The primary-key backstop needs its own Postgres concurrency test."
+            }
+          ],
+          "beats": [
+            {
+              "say": "Both admins loaded revision 8, and both save.",
+              "show": ["put1", "put2"]
+            },
+            {
+              "say": "Each save inserts base plus one only if base is still the latest. Under Postgres read committed, both can see 8 and pass that check.",
+              "show": ["ins1", "ins2", "rc"]
+            },
+            {
+              "say": "The primary key rejects the second insert. No row or a key violation both mean someone saved first, so both become 409, with no advisory locks.",
+              "show": ["ok", "pk", "r200", "r409"]
+            },
+            {
+              "say": "That backstop only matters on Postgres, which the controller's unit tests never run.",
+              "show": ["pgtest"],
+              "focus": ["rc", "pk", "pgtest"]
+            }
+          ]
+        }
+      },
+      {
+        "title": "In file mode, a replica writes a revision only when its own file changes",
+        "explanation": "The watcher keeps validating and publishing as today, but takes its revision from the table. The subtle part is which replica may write.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 179, "startColumn": 1, "endLine": 207, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "File mode revisions",
+          "layout": "stack",
+          "blocks": [
+            {
+              "type": "flow",
+              "id": "fm",
+              "direction": "LR",
+              "groups": [
+                { "id": "ra", "label": "Replica A" },
+                { "id": "rb", "label": "Replica B" }
+              ],
+              "nodes": [
+                { "id": "cm", "label": "ConfigMap", "sub": "daemon.yaml", "shape": "file" },
+                { "id": "fa", "label": "Projected file", "sub": "updated", "shape": "file", "group": "ra" },
+                { "id": "wa", "label": "Watcher A", "shape": "service", "group": "ra" },
+                { "id": "fb", "label": "Projected file", "sub": "still the old content", "shape": "file", "group": "rb", "tone": "warn" },
+                { "id": "wb", "label": "Watcher B", "shape": "service", "group": "rb" },
+                { "id": "db", "label": "Revision table", "shape": "store", "badge": "rev 7" }
+              ],
+              "edges": [
+                "cm -> fa: projected",
+                "cm --> fb: projected late",
+                "fa -> wa: change event",
+                "fb -> wb",
+                { "id": "insA", "from": "wa", "to": "db", "label": "insert rev 8" },
+                { "id": "stale", "from": "wb", "to": "db", "label": "write old content back?", "style": "dashed", "tone": "bad" },
+                { "id": "poll", "from": "db", "to": "wb", "label": "latest is 8", "style": "dashed" }
+              ]
+            },
+            {
+              "type": "callout",
+              "id": "start",
+              "tone": "info",
+              "md": "`daemonConfig.revision` now only sets the starting number for an empty table, so a fleet that knows the content as revision 7 keeps 7."
+            }
+          ],
+          "beats": [
+            {
+              "say": "A ConfigMap update reaches replica A first. A saw its own file change and the content differs from the latest row, so it inserts the next revision with author kind file.",
+              "flow": ["cm->fa", "fa->wa", "insA"],
+              "set": { "db": { "badge": "rev 8", "tone": "good" } }
+            },
+            {
+              "say": "Replica B's projection lags. If B inserted whenever its file differed from the latest row, it would write the old content back as revision 9.",
+              "show": ["stale"],
+              "flow": [{ "edge": "stale", "tone": "bad" }],
+              "set": { "db": { "badge": "rev 9: old", "tone": "bad" } },
+              "focus": ["fb", "wb", "stale", "db"]
+            },
+            {
+              "say": "So B inserts only on its own change event. Until then it adopts the latest row, and when its file catches up the content already matches.",
+              "hide": ["stale"],
+              "set": { "db": { "badge": "rev 8", "tone": "good" } },
+              "flow": ["poll"]
+            },
+            {
+              "say": "GitOps users get a real revision per change without touching their files. If the insert fails, the previous revision stays active and the watcher retries.",
+              "show": ["start"]
+            }
+          ]
+        }
+      },
+      {
+        "title": "An empty database with no seed pushes nothing, not an empty config",
+        "explanation": "Database mode has to decide what is active before anyone has saved. There are three cases.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 104, "startColumn": 1, "endLine": 114, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "Database mode startup",
+          "layout": "stack",
+          "blocks": [
+            {
+              "type": "flow",
+              "id": "boot",
+              "direction": "TB",
+              "nodes": [
+                { "id": "start", "label": "Controller starts" },
+                { "id": "rows", "label": "Table has rows?", "shape": "decision" },
+                { "id": "latest", "label": "Latest row is active", "sub": "seedPath ignored", "tone": "good" },
+                { "id": "seed", "label": "seedPath set?", "shape": "decision" },
+                { "id": "valid", "label": "Seed valid?", "shape": "decision" },
+                { "id": "first", "label": "Seed is the first revision", "sub": "author kind seed", "tone": "good" },
+                { "id": "fail", "label": "Startup fails", "tone": "bad" },
+                { "id": "none", "label": "No active config", "sub": "nothing pushed until a save", "tone": "warn" },
+                { "id": "old", "label": "#57 pushed programs: {}", "sub": "daemons drop their programs", "shape": "note", "tone": "bad" }
+              ],
+              "edges": [
+                "start -> rows",
+                "rows -> latest: yes",
+                "rows -> seed: no",
+                "seed -> valid: yes",
+                "valid -> first: yes",
+                "valid -> fail: no",
+                "seed -> none: no",
+                "none -- old: instead of"
+              ]
+            }
+          ],
+          "beats": [
+            {
+              "say": "After the first start the table decides, so changing the seed later has no effect. The Helm notes have to say so.",
+              "focus": ["start", "rows", "latest", "start->rows", "rows->latest"]
+            },
+            {
+              "say": "On a fresh install the seed is validated like any save, and a bad seed stops startup instead of silently starting empty.",
+              "focus": ["rows", "seed", "valid", "first", "fail", "rows->seed", "seed->valid", "valid->first", "valid->fail"]
+            },
+            {
+              "say": "With no seed, pushing an empty configuration would make every connected daemon stop managing its programs, so this design pushes nothing until the first save.",
+              "show": ["old"],
+              "focus": ["seed", "none", "old", "seed->none", "none->old"]
+            }
+          ]
+        }
+      },
+      {
+        "title": "Switching from database to file mode drops UI edits unless you export first",
+        "explanation": "Because both modes share the revision table, switching is a `controller.yaml` change and a restart, with no re-seeding. That retires #57's `seedRevision`.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 116, "startColumn": 1, "endLine": 129, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "Switching modes",
+          "layout": "stack",
+          "blocks": [
+            {
+              "type": "table",
+              "id": "switch",
+              "columns": ["Switch", "Active after restart", "Pushed", "Do first"],
+              "rows": [
+                { "id": "f2d", "cells": ["File → database", "the latest file revision", "nothing", "retire the file in Git"] },
+                { "id": "d2f", "cells": ["Database → file", "the file, as a new revision if it differs", "the file", "export `GET` YAML and commit it"] }
+              ]
+            },
+            {
+              "type": "callout",
+              "id": "lost",
+              "tone": "warn",
+              "md": "UI edits that were never copied into the file stop being active. History still has them."
+            }
+          ],
+          "beats": [
+            {
+              "say": "File to database is quiet: devices receive nothing new, and the next save follows on from the file's revision.",
+              "focus": ["f2d"]
+            },
+            {
+              "say": "The other direction is the risky one. The file wins at startup, so anything saved only in the UI quietly leaves the fleet.",
+              "focus": ["d2f", "lost"],
+              "show": ["lost"]
+            }
+          ]
+        }
+      },
+      {
+        "title": "A save reaches devices on other replicas one poll interval later",
+        "explanation": "After the insert, the push path is unchanged: the store, each device's connect stream, and ConfigStatus. What's new is a second replica.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 326, "startColumn": 1, "endLine": 364, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "Pushing to devices · Replicas",
+          "layout": "stack",
+          "blocks": [
+            {
+              "type": "sequence",
+              "id": "push",
+              "participants": [
+                { "id": "ui", "label": "Controller UI", "shape": "actor" },
+                { "id": "da", "label": "Devices on A", "shape": "device" },
+                { "id": "a", "label": "Replica A", "shape": "service" },
+                { "id": "db", "label": "Database", "shape": "store" },
+                { "id": "b", "label": "Replica B", "shape": "service" },
+                { "id": "dbv", "label": "Devices on B", "shape": "device" }
+              ],
+              "messages": [
+                { "id": "put", "from": "ui", "to": "a", "label": "PUT base_revision 8" },
+                { "id": "check", "from": "a", "to": "a", "label": "require update, parse_daemon" },
+                { "id": "ins", "from": "a", "to": "db", "label": "insert 9 if latest is 8" },
+                { "id": "pubA", "from": "a", "to": "a", "label": "publish 9 to store" },
+                { "id": "ok", "from": "a", "to": "ui", "label": "200, revision 9", "reply": true },
+                { "id": "sendA", "from": "a", "to": "da", "label": "DaemonConfig 9" },
+                { "id": "poll", "from": "b", "to": "db", "label": "poll MAX(revision)" },
+                { "id": "pubB", "from": "b", "to": "b", "label": "publish 9" },
+                { "id": "sendB", "from": "b", "to": "dbv", "label": "DaemonConfig 9" },
+                { "id": "status", "from": "da", "to": "a", "label": "ConfigStatus 9 applied", "reply": true }
+              ]
+            },
+            {
+              "type": "callout",
+              "id": "listen",
+              "tone": "decision",
+              "md": "Polling, not `LISTEN/NOTIFY`, which would need a dedicated Postgres connection outside the `Any` pool."
+            }
+          ],
+          "beats": [
+            {
+              "say": "Authorization comes first, then the same parse_daemon the daemon runs, so anything the controller accepts a same-version daemon can parse.",
+              "show": ["put", "check"]
+            },
+            {
+              "say": "The replica that won the insert publishes to its own store, so its devices get the change at once over their open streams.",
+              "show": ["ins", "pubA", "ok", "sendA"]
+            },
+            {
+              "say": "Replica B only learns of it by polling, so its devices lag by up to one interval. GET reads the table rather than the store, so the API itself never lags.",
+              "show": ["poll", "pubB", "sendB", "listen"]
+            },
+            {
+              "say": "Devices report what they applied, which the UI turns into rollout counts. A device with a busy stream skips straight to the newest revision.",
+              "show": ["status"]
+            }
+          ]
+        }
+      },
+      {
+        "title": "PUT separates a stale base (409) from a bad document (422)",
+        "explanation": "The request carries the revision the edit started from. Each failure gets its own status so the UI can recover from it differently.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 263, "startColumn": 1, "endLine": 289, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "API",
+          "layout": "columns",
+          "blocks": [
+            {
+              "type": "code",
+              "id": "body",
+              "title": "PUT /api/v1/daemon-config",
+              "language": "json",
+              "startLine": 268,
+              "span": 2,
+              "code": "{\n  \"base_revision\": 8,\n  \"yaml\": \"programs:\\n  claudeCode: {}\\n\",\n  \"message\": \"Enable the sandbox\"\n}"
+            },
+            {
+              "type": "table",
+              "id": "codes",
+              "span": 3,
+              "columns": ["Status", "`error`", "When"],
+              "rows": [
+                { "id": "s200", "cells": ["200", "", "Saved, or unchanged; `changed` says which"] },
+                { "id": "s400", "cells": ["400", "`invalid_request`", "Malformed JSON or a missing field"] },
+                { "id": "s403", "cells": ["401, 403", "from the provider", "Signed out, not permitted, or reauth needed"] },
+                { "id": "s405", "cells": ["405", "`read_only_source`", "File mode or no `daemonConfig`"] },
+                { "id": "s409", "cells": ["409", "`revision_conflict`", "Base isn't the latest; body has the latest"] },
+                { "id": "s413", "cells": ["413", "`too_large`", "YAML over 256 KiB"] },
+                { "id": "s422", "cells": ["422", "`invalid_daemon_config`", "`parse_daemon` rejects it"] }
+              ]
+            }
+          ],
+          "beats": [
+            {
+              "say": "The client says which revision it started from, never which revision to write. The server always picks base plus one.",
+              "highlight": ["body:L269"]
+            },
+            {
+              "say": "A conflict and an invalid document need different screens. Axum returns 422 for some malformed bodies, so the handler remaps those to 400 to keep 422 meaning one thing.",
+              "focus": ["s409", "s422", "s400"]
+            },
+            {
+              "say": "405 is checked after authorization, so a caller without the update permission gets 403 in either mode.",
+              "focus": ["s405", "s403"]
+            }
+          ]
+        }
+      },
+      {
+        "title": "Saving needs a new mutation permission that admin.read never grants",
+        "explanation": "The design adds two entries to `OPERATIONS` and reuses #220's provider contract for everything else.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 366, "startColumn": 1, "endLine": 390, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "Permissions",
+          "layout": "stack",
+          "blocks": [
+            {
+              "type": "table",
+              "id": "perms",
+              "columns": ["Route", "Permission", "Covered by `admin.read`"],
+              "rows": [
+                { "id": "get", "cells": ["`GET /daemon-config`", "`daemon-config.read`", "yes"] },
+                { "id": "list", "cells": ["`GET …/revisions`", "`daemon-config.list` (new)", "yes"] },
+                { "id": "one", "cells": ["`GET …/revisions/{n}`", "`daemon-config.read`, resource n", "yes"] },
+                { "id": "put", "cells": ["`PUT /daemon-config`", "`daemon-config.update` (new)", "no: a mutation"], "tone": "accent" }
+              ]
+            },
+            {
+              "type": "callout",
+              "id": "order",
+              "tone": "decision",
+              "md": "`PUT` calls `Context::require` before validation and before any database access."
+            }
+          ],
+          "beats": [
+            {
+              "say": "Reads stay as broad as today: anyone who can see the active config can see every old revision's full YAML. That's safe only while the config holds no secrets.",
+              "focus": ["get", "list", "one"]
+            },
+            {
+              "say": "Update is a mutation, so the admin.read umbrella can't reach it. Providers decide who gets it and can demand a recent sign-in first.",
+              "focus": ["put", "order"],
+              "show": ["order"]
+            },
+            {
+              "say": "Local access grants every operation, so the loopback operator can save, and the session lists the new permission for the UI."
+            }
+          ]
+        }
+      },
+      {
+        "title": "admin.read covers every read in OPERATIONS and no mutation",
+        "explanation": "`covered_by_admin_read` grants any non-mutating operation listed in `OPERATIONS`. So adding `(Verb::List, DAEMON_CONFIG)` gives the history list to every `admin.read` holder automatically, and adding `(Verb::Update, DAEMON_CONFIG)` can't leak to them, because `Update` is a mutation.\n\n`permission_names()` (line 83) derives the UI's capability list from the same table, which is how `/auth/session` starts listing `daemon-config.update`.\n\nA6.1 needs an approve verb. `Verb::is_mutation` (line 13) has to classify it explicitly, and the doc says it must count as a mutation, or approval becomes something `admin.read` can do.",
+        "root": "agentdesktop",
+        "file": "crates/controller/src/management/auth/authorization.rs",
+        "range": { "startLine": 49, "startColumn": 1, "endLine": 80, "endColumn": 1 },
+        "viewMode": "code"
+      },
+      {
+        "title": "The editor saves exact YAML, and each failure has its own recovery",
+        "explanation": "The Configuration view becomes an editor only when `GET` says `writable` and the session has `daemon-config.update`. Otherwise, including file mode, it stays read-only with a banner; history works in both modes.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 419, "startColumn": 1, "endLine": 456, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "UI",
+          "layout": "stack",
+          "blocks": [
+            {
+              "type": "flow",
+              "id": "ui",
+              "direction": "LR",
+              "nodes": [
+                { "id": "load", "label": "Load YAML", "sub": "yaml from GET, not config" },
+                { "id": "edit", "label": "Edit draft", "sub": "YAML tab or Builder" },
+                { "id": "review", "label": "Review", "sub": "diff, message, device count" },
+                { "id": "put", "label": "PUT", "shape": "service" },
+                { "id": "done", "label": "Rollout counts", "sub": "applied, failed, pending", "tone": "good" },
+                { "id": "conflict", "label": "409: who saved what", "sub": "reload, or keep the draft", "tone": "warn" },
+                { "id": "invalid", "label": "422: parser message", "tone": "bad" },
+                { "id": "reauth", "label": "403: sign in again", "tone": "warn" }
+              ],
+              "edges": [
+                "load -> edit",
+                "edit -> review",
+                "review -> put: confirm",
+                "put -> done: 200",
+                "put -> conflict: 409",
+                "conflict -> edit: rebase draft",
+                "put -> invalid: 422",
+                "invalid -> edit",
+                "put -> reauth: 403",
+                "reauth --> put: retry"
+              ]
+            }
+          ],
+          "beats": [
+            {
+              "say": "The YAML tab holds the bytes that will be saved. Review shows how many connected devices get the change right away, which is the moment to stop if that's the whole fleet.",
+              "flow": ["load->edit", "edit->review", "review->put", "put->done"]
+            },
+            {
+              "say": "On a conflict the editor shows who saved which revision and lets the admin rebase the draft instead of losing it.",
+              "show": ["conflict"],
+              "flow": ["put->conflict", "conflict->edit"]
+            },
+            {
+              "say": "An invalid document and a provider's demand for a fresh sign-in each get their own path, the second handled as device delete does.",
+              "show": ["invalid", "reauth"],
+              "flow": ["put->invalid", "put->reauth"]
+            }
+          ]
+        }
+      },
+      {
+        "title": "Today's builder rebuilds the YAML from form state",
+        "explanation": "`daemonConfigYaml` emits only the keys the form knows: `llmGateway`, `sandbox`, `telemetry`, `programSelection` and `programs`. Anything else in the active configuration, such as `inventoryInterval`, and every comment, is missing from the output. That's harmless while an admin copies the YAML into a file by hand, but behind a Save button it would silently delete those fields from the fleet.\n\nThe design replaces this with in-place edits through the `yaml` package's `Document` API, as #57 did. The planned Storybook test that a builder change leaves unknown fields and comments intact is the guard.\n\nAlso check line 679: the builder writes a hard-coded `allowedClientIds` list, so in-place editing has to decide whether it still overwrites a custom list.",
+        "root": "agentdesktop",
+        "file": "frontend/controller/src/views/ConfigurationView.tsx",
+        "range": { "startLine": 648, "startColumn": 1, "endLine": 727, "endColumn": 1 },
+        "viewMode": "code"
+      },
+      {
+        "title": "Moving daemon.yaml out of the checksummed ConfigMap stops needless restarts",
+        "explanation": "A new value, `daemonConfigSource`, picks the mode and defaults to `file`. The more immediate fix is where `daemon.yaml` lives.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 458, "startColumn": 1, "endLine": 473, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "Helm",
+          "layout": "columns",
+          "blocks": [
+            {
+              "type": "flow",
+              "id": "before",
+              "title": "Today",
+              "column": 1,
+              "direction": "TB",
+              "nodes": [
+                { "id": "vals", "label": "values: daemonConfig", "shape": "file" },
+                { "id": "cm", "label": "One ConfigMap", "sub": "controller.yaml + daemon.yaml" },
+                { "id": "sum", "label": "checksum/config", "sub": "pod annotation" },
+                { "id": "restart", "label": "Controller restarts", "tone": "bad" }
+              ],
+              "edges": [
+                "vals -> cm",
+                "cm -> sum: hashed",
+                "sum -> restart: changed"
+              ]
+            },
+            {
+              "type": "flow",
+              "id": "after",
+              "title": "After",
+              "column": 2,
+              "direction": "TB",
+              "nodes": [
+                { "id": "vals2", "label": "values: daemonConfig", "shape": "file" },
+                { "id": "cm2", "label": "daemon.yaml ConfigMap", "sub": "outside the checksum" },
+                { "id": "watch2", "label": "File watcher", "shape": "service" },
+                { "id": "dev2", "label": "Devices", "sub": "new revision, no restart", "shape": "device", "tone": "good" }
+              ],
+              "edges": [
+                "vals2 -> cm2",
+                "cm2 -> watch2: projected",
+                "watch2 -> dev2: publish"
+              ]
+            },
+            {
+              "type": "callout",
+              "id": "seed",
+              "column": 2,
+              "tone": "warn",
+              "md": "In database mode these values are only a seed. Changing them after the first start does nothing."
+            }
+          ],
+          "beats": [
+            {
+              "say": "Today a values change that touches only the daemon config still changes the one hashed ConfigMap, so the pod restarts instead of hot reloading.",
+              "flow": ["vals->cm", "cm->sum", "sum->restart"],
+              "pulse": ["restart"]
+            },
+            {
+              "say": "With daemon.yaml in its own ConfigMap, the watcher picks the change up live. This piece has no dependencies and can land first.",
+              "show": ["after"],
+              "flow": ["vals2->cm2", "cm2->watch2", "watch2->dev2"]
+            },
+            {
+              "say": "In database mode the same values only seed an empty table, so the chart notes must say so. The chart fails if an existing config Secret is combined with database mode.",
+              "show": ["seed"]
+            }
+          ]
+        }
+      },
+      {
+        "title": "Until A6.1, database mode lets one admin change the whole fleet",
+        "explanation": "File mode already matches the hardening plan. Database mode gives some of it up for installs with no Git pipeline.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 475, "startColumn": 1, "endLine": 496, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "Relation to the hardening plan",
+          "layout": "stack",
+          "blocks": [
+            {
+              "type": "table",
+              "id": "plan",
+              "columns": ["Control", "File mode", "Database mode"],
+              "rows": [
+                { "id": "c6", "cells": ["**C6** two approvers via GitOps", "yes, through PR review", "no, until A6.1"] },
+                { "id": "c2", "cells": ["**C2** sign the config in CI", "fits: CI signs the file", "can't, as written"] },
+                { "id": "c3", "cells": ["**C3** increasing revisions", "yes", "yes; daemons don't enforce it yet"] }
+              ]
+            },
+            {
+              "type": "callout",
+              "id": "advice",
+              "tone": "risk",
+              "md": "Deployments that need two approvers before A6.1 should stay on file mode, which stays the Helm default."
+            }
+          ],
+          "beats": [
+            {
+              "say": "File mode is the hardening plan's model and doesn't change. Database mode is opt-in and, until approval lands, gives one admin fleet-wide power.",
+              "focus": ["c6", "advice"],
+              "show": ["advice"]
+            },
+            {
+              "say": "Signing is the deeper conflict: content created inside the controller has no outside signer. Either A6.1's approvers sign, say in the browser, or C2 covers file mode only, and the design doesn't choose.",
+              "focus": ["c2"]
+            },
+            {
+              "say": "Daemons still accept any revision number. That matters once configs are signed, because an old signed revision could be replayed.",
+              "focus": ["c3"]
+            }
+          ]
+        }
+      },
+      {
+        "title": "A6.1 puts approval in front of the same apply function",
+        "explanation": "A6.0 has to leave hooks so approval can be added without changing the API shape or the revision table.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 498, "startColumn": 1, "endLine": 529, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "What A6.1 needs from this",
+          "layout": "stack",
+          "blocks": [
+            {
+              "type": "flow",
+              "id": "hooks",
+              "direction": "LR",
+              "groups": [{ "id": "a61", "label": "Added by A6.1" }],
+              "nodes": [
+                { "id": "put", "label": "PUT", "sub": "validate with parse_daemon", "shape": "service" },
+                { "id": "change", "label": "Change record", "sub": "pending, approved, …", "shape": "store", "group": "a61" },
+                { "id": "approve", "label": "Second admin approves", "sub": "issuer + subject ≠ proposer", "shape": "actor", "group": "a61" },
+                { "id": "apply", "label": "apply()", "sub": "conditional insert + publish", "shape": "service", "tone": "accent" },
+                { "id": "rev", "label": "New revision", "shape": "store", "tone": "good" },
+                { "id": "stale", "label": "Stale: rebase", "sub": "a newer revision landed", "tone": "warn" }
+              ],
+              "edges": [
+                { "id": "direct", "from": "put", "to": "apply", "label": "A6.0: 200" },
+                { "id": "propose", "from": "put", "to": "change", "label": "A6.1: 202 + change id" },
+                "change -> approve",
+                "approve -> apply",
+                "apply -> rev: base still latest",
+                "apply -> stale: base moved"
+              ]
+            }
+          ],
+          "beats": [
+            {
+              "say": "In A6.0 the handler validates, then calls one function that does the conditional insert and the publish.",
+              "flow": ["direct", "apply->rev"]
+            },
+            {
+              "say": "A6.1 sends the same save through a change record and an approval, then calls that function at approval time. API clients must treat 202 as submitted, not applied.",
+              "show": ["a61", "change", "approve"],
+              "flow": ["propose", "change->approve", "approve->apply"]
+            },
+            {
+              "say": "The base check still applies, so an approved change that lost the race goes stale instead of overwriting the newer revision.",
+              "show": ["stale"],
+              "flow": ["apply->stale"],
+              "pulse": ["stale"]
+            },
+            {
+              "say": "Blocking self-approval needs a stable issuer and subject, which local mode can't tell apart, and the new approve verb has to count as a mutation.",
+              "focus": ["approve", "change->approve"]
+            }
+          ]
+        }
+      },
+      {
+        "title": "The revision table lands first and fixes the fixed revision on its own",
+        "explanation": "Five work items. The order puts the read-only fix first, before any write path exists.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 616, "startColumn": 1, "endLine": 634, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "Work items",
+          "layout": "stack",
+          "blocks": [
+            {
+              "type": "flow",
+              "id": "work",
+              "direction": "LR",
+              "nodes": [
+                { "id": "w1", "label": "1. Revision table", "sub": "file-mode revisions, GET fields" },
+                { "id": "w2", "label": "2. Database mode + PUT", "sub": "seeding, update permission" },
+                { "id": "w3", "label": "3. History API", "sub": "revisions routes, list" },
+                { "id": "w4", "label": "4. UI editor", "sub": "YAML, builder, history" },
+                { "id": "w5", "label": "5. Helm and docs", "sub": "daemonConfigSource" },
+                { "id": "w0", "label": "Split daemon.yaml ConfigMap", "sub": "no dependencies", "tone": "good" }
+              ],
+              "edges": [
+                "w1 -> w2",
+                "w1 -> w3",
+                "w2 -> w4",
+                "w3 -> w4",
+                "w2 -> w5"
+              ]
+            }
+          ],
+          "beats": [
+            {
+              "say": "Item 1 adds no write API, yet it already gives GitOps users a revision per change, which makes it a safe first PR.",
+              "focus": ["w1"],
+              "pulse": ["w1"]
+            },
+            {
+              "say": "Database mode and the history API both build on it and can proceed in parallel.",
+              "focus": ["w1", "w2", "w3", "w1->w2", "w1->w3"]
+            },
+            {
+              "say": "The editor needs both. Helm's database option waits for PUT, but splitting out daemon.yaml can land any time.",
+              "focus": ["w4", "w5", "w0", "w2->w4", "w3->w4", "w2->w5"]
+            }
+          ]
+        }
+      },
+      {
+        "title": "Three open questions need answers before the first PRs",
+        "explanation": "The doc lists seven questions. The highlighted ones change the schema, the API names, or whether database mode can ship at all.",
+        "root": "agentdesktop",
+        "file": "docs/design/fleet-config-api.md",
+        "range": { "startLine": 636, "startColumn": 1, "endLine": 659, "endColumn": 1 },
+        "slide": {
+          "eyebrow": "Open questions",
+          "layout": "stack",
+          "blocks": [
+            {
+              "type": "bullets",
+              "id": "q",
+              "ordered": true,
+              "items": [
+                { "id": "q1", "text": "**Ship before A6.1?** Single-admin writes now, or wait for approval", "tone": "warn" },
+                { "id": "q2", "text": "**C2 in database mode?** Decides whether the table needs a signature column now", "tone": "warn" },
+                { "id": "q3", "text": "**Local mode after A6.1?** Save without approval, or authenticated only" },
+                { "id": "q4", "text": "**Route name?** `daemon-config`, or #57's `fleet-configuration` and a renamed permission class", "tone": "warn" },
+                { "id": "q5", "text": "**Version skew?** Warn on `agent_version`, or block per field" },
+                { "id": "q6", "text": "**History retention?** Keep everything, or prune by count or age" },
+                { "id": "q7", "text": "**Service credentials?** Allow scripted saves, or people only" }
+              ]
+            }
+          ],
+          "beats": [
+            {
+              "say": "Question 2 shapes the migration in work item 1, the very first PR. A signature column added later means a second migration.",
+              "focus": ["q2"]
+            },
+            {
+              "say": "Question 4 fixes the route and the permission names that providers and the UI will depend on, so settle it before PUT ships.",
+              "focus": ["q4"]
+            },
+            {
+              "say": "Question 1 decides whether database mode can be released before A6.1. The rest can be answered during or after implementation.",
+              "focus": ["q1"]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

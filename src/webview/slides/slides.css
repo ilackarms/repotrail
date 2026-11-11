@@ -95,10 +95,10 @@ body {
 .layout-stack .rt-block,
 .layout-title .rt-block,
 .rt-column > .rt-block { flex: 0 0 auto; }
-.layout-stack .rt-block-flow { flex: 1 1 0; min-height: 150px; }
+.layout-stack :is(.rt-block-flow, .rt-block-sequence) { flex: 1 1 0; min-height: 150px; }
 .rt-column { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 20px; }
-.rt-column > .rt-block-flow { flex: 1 1 0; min-height: 120px; }
-.rt-block-flow { display: flex; flex-direction: column; }
+.rt-column > :is(.rt-block-flow, .rt-block-sequence) { flex: 1 1 0; min-height: 120px; }
+:is(.rt-block-flow, .rt-block-sequence) { display: flex; flex-direction: column; }
 
 .rt-block-title {
   font-size: calc(13px * var(--fit));

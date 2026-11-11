@@ -1,6 +1,7 @@
 # Slides: animated diagrams in RepoTrail tours
 
-Status: phases 0 (static slides) and 1 (beats and motion) are implemented.
+Status: phases 0 (static slides), 1 (beats and motion) and 2 (the authoring
+API) are implemented.
 Target: RepoTrail 0.14+.
 
 ## Why
@@ -418,7 +419,8 @@ frame builder. `executeStep` already returns early when `file` is missing.
 
 Older RepoTrail versions drop steps without a `file` in `normalizeStep`. A
 mixed tour degrades to its code stops, and a tour of only slides doesn't load.
-New tours write `repoTrailTour: 3`. Readers accept 2 and 3.
+Tours keep `repoTrailTour: 2`: no reader checks the number, so a bump would
+signal nothing, and the schema describes both kinds of tour.
 
 ## Skill guidance (summary for SKILL.md)
 
@@ -514,7 +516,17 @@ Still to check by hand: the panel and sidebar inside VS Code.
 `tour.schema.json` with `jsonValidation`, the `design-review` kind, Agent setup
 prompt, schema fixture tests. Then an agent writes the PR #244 tour from the
 skill alone, with no hand edits.
-*Done when* that tour needs no fixes.
+*Done when* that tour needs no fixes. **Done.** A fresh agent with only
+SKILL.md, the schema and the PR checkout wrote a 20-stop tour (17 slides, 3
+code stops; `test/fixtures/fleet-config-agent-written.json`) that validated,
+read with no warnings, and needed no edits. Rendering it found one RepoTrail
+bug (sequence blocks didn't get the leftover height, so they overflowed) and
+one gap in the skill (no text budgets: its headlines ran to three lines). The
+agent's list of unclear points drove a second pass on the skill: text
+budgets, range end columns, default-id details, how `focus` treats newly shown
+elements, what `set` can change, pinning sources on PR tours, and where the
+schema lives. Its main request is a checker for beat ids, which is phase 3's
+`lint`.
 
 **Phase 3: export and the agent loop.** Slides in the animated HTML export
 (shared runtime) and the markdown export (mermaid), the `cli.ts` `lint` and

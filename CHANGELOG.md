@@ -22,6 +22,12 @@
   reveals bullets, table rows, or sequence messages one beat at a time.
 - New settings: `repoTrail.slides.motion` (`full`, `reduced`, `off`) and
   `repoTrail.slides.captions`.
+- The agent skill has a "Design Reviews And Slides" section: when a design doc
+  or RFC should become a slide tour, the slide format, text budgets, and a
+  method for building a design review. **Agent setup** sends design docs to
+  slide tours and includes the path of the new JSON Schema,
+  `harness/tour.schema.json`, which VS Code now uses to check
+  `.repotrail/*.json` files.
 
 ## 0.13.0 - 2026-11-11
 

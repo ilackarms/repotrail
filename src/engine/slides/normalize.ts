@@ -62,6 +62,17 @@ const SHAPES: readonly SlideNodeShape[] = [
   "decision",
   "note",
 ];
+const BLOCK_TYPES = ["text", "bullets", "table", "code", "callout", "flow", "sequence"] as const;
+
+/** The closed vocabularies a slide may use; harness/tour.schema.json must match. */
+export const SLIDE_VOCABULARY = {
+  tones: TONES,
+  calloutTones: CALLOUT_TONES,
+  layouts: LAYOUTS,
+  shapes: SHAPES,
+  blockTypes: BLOCK_TYPES,
+} as const;
+
 const ID_PATTERN = /^[^\s:]{1,64}$/;
 const EDGE_PATTERN = /^(.+?)\s*(<-->|<->|-->|->|--)\s*(.+?)\s*(?::\s*(.*))?$/;
 const CODE_LINE_REF = /^(.+):L(\d+)(?:-(\d+))?$/;
@@ -194,9 +205,8 @@ function normalizeBlock(value: unknown, index: number, ctx: SlideContext): Slide
     return undefined;
   }
   const type = value.type;
-  const known = ["text", "bullets", "table", "code", "callout", "flow", "sequence"];
-  if (typeof type !== "string" || !known.includes(type)) {
-    ctx.warn(`${where}: unknown type ${describe(type)}. This RepoTrail version shows ${known.join(", ")}.`);
+  if (typeof type !== "string" || !(BLOCK_TYPES as readonly string[]).includes(type)) {
+    ctx.warn(`${where}: unknown type ${describe(type)}. This RepoTrail version shows ${BLOCK_TYPES.join(", ")}.`);
     return undefined;
   }
   const id = ctx.claim(value.id, `b${index + 1}`, where, true);

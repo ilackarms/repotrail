@@ -202,7 +202,7 @@ function defaultActions(
   return actions;
 }
 
-const KINDS: TourKind[] = [
+export const KINDS: TourKind[] = [
   "architecture",
   "pr-diff",
   "file-walkthrough",

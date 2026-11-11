@@ -1,0 +1,1333 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RepoTrail tour",
+  "description": "A RepoTrail tour file: the {repoTrailTour, exportedAt, plan} envelope or a bare plan.",
+  "if": {
+    "type": "object",
+    "required": [
+      "plan"
+    ]
+  },
+  "then": {
+    "$ref": "#/definitions/envelope"
+  },
+  "else": {
+    "$ref": "#/definitions/plan"
+  },
+  "definitions": {
+    "envelope": {
+      "type": "object",
+      "required": [
+        "plan"
+      ],
+      "properties": {
+        "repoTrailTour": {
+          "type": "integer",
+          "description": "Schema version marker. Use 2."
+        },
+        "exportedAt": {
+          "type": "string",
+          "description": "ISO timestamp."
+        },
+        "plan": {
+          "$ref": "#/definitions/plan"
+        }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "required": [
+        "steps"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "architecture",
+            "pr-diff",
+            "file-walkthrough",
+            "request-lifecycle",
+            "bug-investigation",
+            "design-review"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "roots": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/rootRef"
+          }
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/step"
+          }
+        }
+      }
+    },
+    "rootRef": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "pathHint": {
+          "type": "string"
+        },
+        "workspaceFolder": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      }
+    },
+    "step": {
+      "type": "object",
+      "description": "A code or diff stop (needs `file`), or a slide stop (needs `slide`; `file` is then the slide's source).",
+      "required": [
+        "title"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "file"
+          ]
+        },
+        {
+          "required": [
+            "slide"
+          ]
+        }
+      ],
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "explanation": {
+          "type": "string",
+          "description": "Markdown narration. On a slide, what's said before the first beat."
+        },
+        "root": {
+          "type": "string"
+        },
+        "workspaceFolder": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string",
+          "pattern": "^(?![A-Za-z]:|/|\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+          "description": "Workspace-relative forward-slash path. No absolute paths or '..'."
+        },
+        "range": {
+          "$ref": "#/definitions/range"
+        },
+        "viewMode": {
+          "enum": [
+            "code",
+            "diff",
+            "both"
+          ]
+        },
+        "diff": {
+          "$ref": "#/definitions/diff"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "anchor": {
+          "type": "string"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "slide": {
+          "$ref": "#/definitions/slide"
+        }
+      }
+    },
+    "range": {
+      "type": "object",
+      "required": [
+        "startLine",
+        "endLine"
+      ],
+      "properties": {
+        "startLine": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "startColumn": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "endLine": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "endColumn": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "diff": {
+      "type": "object",
+      "properties": {
+        "baseRef": {
+          "type": "string"
+        },
+        "headRef": {
+          "type": "string"
+        },
+        "baseFile": {
+          "type": "string"
+        },
+        "headFile": {
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "hunk",
+            "file"
+          ]
+        },
+        "beforeText": {
+          "type": "string"
+        },
+        "afterText": {
+          "type": "string"
+        },
+        "beforeLabel": {
+          "type": "string"
+        },
+        "afterLabel": {
+          "type": "string"
+        },
+        "languageId": {
+          "type": "string"
+        }
+      }
+    },
+    "slide": {
+      "type": "object",
+      "description": "Shown in the RepoTrail Slides panel on a fixed 1280x720 canvas.",
+      "additionalProperties": false,
+      "properties": {
+        "layout": {
+          "enum": [
+            "stack",
+            "columns",
+            "title"
+          ],
+          "description": "stack (default): top to bottom. columns: side by side. title: big centered title and at most one block."
+        },
+        "eyebrow": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Small label above the title, e.g. the doc section."
+        },
+        "subtitle": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "blocks": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "$ref": "#/definitions/block"
+          }
+        },
+        "beats": {
+          "type": "array",
+          "maxItems": 40,
+          "items": {
+            "$ref": "#/definitions/beat"
+          }
+        }
+      }
+    },
+    "block": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "text",
+            "bullets",
+            "table",
+            "code",
+            "callout",
+            "flow",
+            "sequence"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "text"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/definitions/textBlock"
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "bullets"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/definitions/bulletsBlock"
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "table"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/definitions/tableBlock"
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "code"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/definitions/codeBlock"
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "callout"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/definitions/calloutBlock"
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "flow"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/definitions/flowBlock"
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "sequence"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/definitions/sequenceBlock"
+          }
+        }
+      ]
+    },
+    "textBlock": {
+      "type": "object",
+      "description": "Markdown: paragraphs, lists, bold, italics, inline code. No links, images or HTML.",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "md"
+      ],
+      "properties": {
+        "type": {
+          "const": "text"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[^\\s:]{1,64}$",
+          "description": "Unique on the slide: 1-64 characters, no spaces or colons."
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Small heading above the block (inside the box for callouts)."
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "description": "columns layout: the 1-based column. Blocks sharing a column stack. Without it, a block starts the column after the previous block's."
+        },
+        "span": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 12,
+          "description": "columns layout: column width weight (default 1)."
+        },
+        "build": {
+          "type": "boolean",
+          "description": "Reveal bullets, table rows or sequence messages one beat each. Ignored when the slide has beats."
+        },
+        "md": {
+          "type": "string",
+          "maxLength": 4000
+        }
+      }
+    },
+    "bulletsBlock": {
+      "type": "object",
+      "description": "Bullets. Item ids default to <block>.1, <block>.2, ...",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "items"
+      ],
+      "properties": {
+        "type": {
+          "const": "bullets"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[^\\s:]{1,64}$",
+          "description": "Unique on the slide: 1-64 characters, no spaces or colons."
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Small heading above the block (inside the box for callouts)."
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "description": "columns layout: the 1-based column. Blocks sharing a column stack. Without it, a block starts the column after the previous block's."
+        },
+        "span": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 12,
+          "description": "columns layout: column width weight (default 1)."
+        },
+        "build": {
+          "type": "boolean",
+          "description": "Reveal bullets, table rows or sequence messages one beat each. Ignored when the slide has beats."
+        },
+        "ordered": {
+          "type": "boolean"
+        },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 40,
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "$ref": "#/definitions/bulletItem"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "bulletItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "text"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[^\\s:]{1,64}$",
+          "description": "Unique on the slide: 1-64 characters, no spaces or colons."
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "tone": {
+          "enum": [
+            "default",
+            "accent",
+            "good",
+            "warn",
+            "bad",
+            "muted"
+          ],
+          "description": "Theme color: accent, good, warn, bad or muted."
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "$ref": "#/definitions/bulletItem"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "tableBlock": {
+      "type": "object",
+      "description": "Table. Cells take inline markdown. Row ids default to <block>.1, <block>.2, ...",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "rows"
+      ],
+      "properties": {
+        "type": {
+          "const": "table"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[^\\s:]{1,64}$",
+          "description": "Unique on the slide: 1-64 characters, no spaces or colons."
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Small heading above the block (inside the box for callouts)."
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "description": "columns layout: the 1-based column. Blocks sharing a column stack. Without it, a block starts the column after the previous block's."
+        },
+        "span": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 12,
+          "description": "columns layout: column width weight (default 1)."
+        },
+        "build": {
+          "type": "boolean",
+          "description": "Reveal bullets, table rows or sequence messages one beat each. Ignored when the slide has beats."
+        },
+        "columns": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string"
+          }
+        },
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 40,
+          "items": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "string",
+                    "number"
+                  ]
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "cells"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[^\\s:]{1,64}$",
+                    "description": "Unique on the slide: 1-64 characters, no spaces or colons."
+                  },
+                  "cells": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "string",
+                        "number"
+                      ]
+                    }
+                  },
+                  "tone": {
+                    "enum": [
+                      "default",
+                      "accent",
+                      "good",
+                      "warn",
+                      "bad",
+                      "muted"
+                    ],
+                    "description": "Theme color: accent, good, warn, bad or muted."
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "codeBlock": {
+      "type": "object",
+      "description": "A short literal snippet (about 25 lines at most), such as SQL from a design doc. For real source code, use a code stop.",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "code"
+      ],
+      "properties": {
+        "type": {
+          "const": "code"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[^\\s:]{1,64}$",
+          "description": "Unique on the slide: 1-64 characters, no spaces or colons."
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Small heading above the block (inside the box for callouts)."
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "description": "columns layout: the 1-based column. Blocks sharing a column stack. Without it, a block starts the column after the previous block's."
+        },
+        "span": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 12,
+          "description": "columns layout: column width weight (default 1)."
+        },
+        "build": {
+          "type": "boolean",
+          "description": "Reveal bullets, table rows or sequence messages one beat each. Ignored when the slide has beats."
+        },
+        "code": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "startLine": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "calloutBlock": {
+      "type": "object",
+      "description": "A boxed note. tone: info (default), warn, risk, decision, question.",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "md"
+      ],
+      "properties": {
+        "type": {
+          "const": "callout"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[^\\s:]{1,64}$",
+          "description": "Unique on the slide: 1-64 characters, no spaces or colons."
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Small heading above the block (inside the box for callouts)."
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "description": "columns layout: the 1-based column. Blocks sharing a column stack. Without it, a block starts the column after the previous block's."
+        },
+        "span": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 12,
+          "description": "columns layout: column width weight (default 1)."
+        },
+        "build": {
+          "type": "boolean",
+          "description": "Reveal bullets, table rows or sequence messages one beat each. Ignored when the slide has beats."
+        },
+        "tone": {
+          "enum": [
+            "info",
+            "warn",
+            "risk",
+            "decision",
+            "question"
+          ]
+        },
+        "md": {
+          "type": "string",
+          "maxLength": 4000
+        }
+      }
+    },
+    "flowBlock": {
+      "type": "object",
+      "description": "Boxes and arrows with automatic layout.",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "nodes"
+      ],
+      "properties": {
+        "type": {
+          "const": "flow"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[^\\s:]{1,64}$",
+          "description": "Unique on the slide: 1-64 characters, no spaces or colons."
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Small heading above the block (inside the box for callouts)."
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "description": "columns layout: the 1-based column. Blocks sharing a column stack. Without it, a block starts the column after the previous block's."
+        },
+        "span": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 12,
+          "description": "columns layout: column width weight (default 1)."
+        },
+        "build": {
+          "type": "boolean",
+          "description": "Reveal bullets, table rows or sequence messages one beat each. Ignored when the slide has beats."
+        },
+        "direction": {
+          "enum": [
+            "LR",
+            "TB"
+          ],
+          "description": "LR (default) for pipelines, TB for decision trees and hierarchies."
+        },
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 40,
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[^\\s:]{1,64}$",
+                "description": "Unique on the slide: 1-64 characters, no spaces or colons."
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[^\\s:]{1,64}$",
+                    "description": "Unique on the slide: 1-64 characters, no spaces or colons."
+                  },
+                  "label": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "sub": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "description": "Second, smaller line."
+                  },
+                  "shape": {
+                    "enum": [
+                      "box",
+                      "service",
+                      "store",
+                      "file",
+                      "actor",
+                      "device",
+                      "queue",
+                      "external",
+                      "decision",
+                      "note"
+                    ]
+                  },
+                  "tone": {
+                    "enum": [
+                      "default",
+                      "accent",
+                      "good",
+                      "warn",
+                      "bad",
+                      "muted"
+                    ],
+                    "description": "Theme color: accent, good, warn, bad or muted."
+                  },
+                  "badge": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "description": "Corner chip, e.g. rev 8."
+                  },
+                  "group": {
+                    "type": "string",
+                    "description": "Id of a group in `groups`."
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "edges": {
+          "type": "array",
+          "maxItems": 80,
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "(<-->|<->|-->|->|--)",
+                "description": "\"a -> b: label\". --> dashed, <-> both ends, -- no arrow. Id defaults to a->b."
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[^\\s:]{1,64}$",
+                    "description": "Unique on the slide: 1-64 characters, no spaces or colons."
+                  },
+                  "from": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "style": {
+                    "enum": [
+                      "solid",
+                      "dashed"
+                    ]
+                  },
+                  "dashed": {
+                    "type": "boolean"
+                  },
+                  "arrow": {
+                    "enum": [
+                      "end",
+                      "both",
+                      "none"
+                    ]
+                  },
+                  "tone": {
+                    "enum": [
+                      "default",
+                      "accent",
+                      "good",
+                      "warn",
+                      "bad",
+                      "muted"
+                    ],
+                    "description": "Theme color: accent, good, warn, bad or muted."
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "groups": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[^\\s:]{1,64}$",
+                "description": "Unique on the slide: 1-64 characters, no spaces or colons."
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[^\\s:]{1,64}$",
+                    "description": "Unique on the slide: 1-64 characters, no spaces or colons."
+                  },
+                  "label": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "tone": {
+                    "enum": [
+                      "default",
+                      "accent",
+                      "good",
+                      "warn",
+                      "bad",
+                      "muted"
+                    ],
+                    "description": "Theme color: accent, good, warn, bad or muted."
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "sequenceBlock": {
+      "type": "object",
+      "description": "A sequence diagram. Message and note ids default to <block>.1, <block>.2, ...",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "participants"
+      ],
+      "properties": {
+        "type": {
+          "const": "sequence"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[^\\s:]{1,64}$",
+          "description": "Unique on the slide: 1-64 characters, no spaces or colons."
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Small heading above the block (inside the box for callouts)."
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "description": "columns layout: the 1-based column. Blocks sharing a column stack. Without it, a block starts the column after the previous block's."
+        },
+        "span": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 12,
+          "description": "columns layout: column width weight (default 1)."
+        },
+        "build": {
+          "type": "boolean",
+          "description": "Reveal bullets, table rows or sequence messages one beat each. Ignored when the slide has beats."
+        },
+        "participants": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[^\\s:]{1,64}$",
+                "description": "Unique on the slide: 1-64 characters, no spaces or colons."
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[^\\s:]{1,64}$",
+                    "description": "Unique on the slide: 1-64 characters, no spaces or colons."
+                  },
+                  "label": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "sub": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "shape": {
+                    "enum": [
+                      "box",
+                      "service",
+                      "store",
+                      "file",
+                      "actor",
+                      "device",
+                      "queue",
+                      "external",
+                      "decision",
+                      "note"
+                    ]
+                  },
+                  "tone": {
+                    "enum": [
+                      "default",
+                      "accent",
+                      "good",
+                      "warn",
+                      "bad",
+                      "muted"
+                    ],
+                    "description": "Theme color: accent, good, warn, bad or muted."
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "messages": {
+          "type": "array",
+          "maxItems": 40,
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "(-->|->)",
+                "description": "\"a -> b: label\", or \"a --> b: label\" for a reply."
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[^\\s:]{1,64}$",
+                    "description": "Unique on the slide: 1-64 characters, no spaces or colons."
+                  },
+                  "from": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "reply": {
+                    "type": "boolean"
+                  },
+                  "style": {
+                    "enum": [
+                      "solid",
+                      "dashed"
+                    ]
+                  },
+                  "tone": {
+                    "enum": [
+                      "default",
+                      "accent",
+                      "good",
+                      "warn",
+                      "bad",
+                      "muted"
+                    ],
+                    "description": "Theme color: accent, good, warn, bad or muted."
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "note",
+                  "over"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[^\\s:]{1,64}$",
+                    "description": "Unique on the slide: 1-64 characters, no spaces or colons."
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 400
+                  },
+                  "over": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  },
+                  "tone": {
+                    "enum": [
+                      "default",
+                      "accent",
+                      "good",
+                      "warn",
+                      "bad",
+                      "muted"
+                    ],
+                    "description": "Theme color: accent, good, warn, bad or muted."
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "patch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "sub": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "badge": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "tone": {
+          "enum": [
+            "default",
+            "accent",
+            "good",
+            "warn",
+            "bad",
+            "muted"
+          ],
+          "description": "Theme color: accent, good, warn, bad or muted."
+        }
+      }
+    },
+    "flowEffect": {
+      "anyOf": [
+        {
+          "type": "string",
+          "description": "Edge id."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "edge"
+          ],
+          "properties": {
+            "edge": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "tone": {
+              "enum": [
+                "default",
+                "accent",
+                "good",
+                "warn",
+                "bad",
+                "muted"
+              ],
+              "description": "Theme color: accent, good, warn, bad or muted."
+            },
+            "reverse": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "beat": {
+      "type": "object",
+      "description": "One build step. show, hide and set carry forward; focus and highlight last one beat; flow and pulse play once.",
+      "additionalProperties": false,
+      "properties": {
+        "say": {
+          "type": "string",
+          "maxLength": 4000,
+          "description": "This beat's narration: one or two sentences."
+        },
+        "show": {
+          "description": "Reveal. Anything a beat shows starts hidden.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "hide": {
+          "description": "Element ids: blocks, bullets, rows, nodes, edges, groups, participants, messages, or code lines as <block>:L3 / <block>:L3-5.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "set": {
+          "type": "object",
+          "description": "Element id -> new label, sub, badge or tone.",
+          "additionalProperties": {
+            "$ref": "#/definitions/patch"
+          }
+        },
+        "focus": {
+          "description": "Spotlight these and dim everything else, for this beat only.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "highlight": {
+          "description": "Accent ring, for this beat only.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "flow": {
+          "description": "Tokens along edges. A flow starting where the previous one ended waits for it; others start together.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/flowEffect"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/flowEffect"
+              }
+            }
+          ]
+        },
+        "pulse": {
+          "description": "Element ids: blocks, bullets, rows, nodes, edges, groups, participants, messages, or code lines as <block>:L3 / <block>:L3-5.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -114,6 +114,29 @@ request-path, or architecture tours unrelated to a window of changes. A
 change-review tour may include highlight-only orientation/context stops, but
 stops that review changed code should be diffs.
 
+## Slide Stops And Design Reviews
+
+A step with a `slide` object is a slide stop: RepoTrail shows it in a
+RepoTrail Slides tab in the editor area instead of opening a file. On a slide
+stop `file` is optional and names the slide's source (the doc section it
+summarizes), which "Open source file" opens. Slides hold `text`, `bullets`,
+`table`, `code`, `callout`, `flow` and `sequence` blocks and build up in
+`beats`. Use them for design reviews (`kind: "design-review"`) and for the
+shape of a change at the start of a PR tour. The format is in the skill's
+"Design Reviews And Slides" section.
+
+RepoTrail reads slides forgivingly: it drops what it can't use and lists the
+problems on the slide and in the RepoTrail output channel. Versions before
+slides support skip slide stops that have no `file`.
+
+## JSON Schema
+
+`harness/tour.schema.json` (JSON Schema draft-07) describes the tour file, the
+envelope or a bare plan. It's strict inside `slide`, so a misspelled field is
+an error, and permissive elsewhere so older tours still pass. VS Code checks
+`.repotrail/*.json` files against it while RepoTrail is installed, and the
+Agent setup prompt includes its path so agents can validate what they write.
+
 ## Pull Request Comments
 
 A tour for a GitHub pull request can also be posted as a PR comment, so

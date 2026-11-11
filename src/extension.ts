@@ -553,7 +553,7 @@ function preferredRepoRootForPlan(plan: TourPlan): string | undefined {
   return best?.root;
 }
 
-function buildTourAuthoringPrompt(): string {
+function buildTourAuthoringPrompt(schemaPath: string): string {
   const infos = workspaceFolderInfos();
   const aliases = buildRootAliases(infos.map((info) => info.name));
   const rootLines = infos
@@ -617,6 +617,7 @@ function buildTourAuthoringPrompt(): string {
     "- Use diff.scope \"file\" for normal PR/commit review stops so RepoTrail reads real full-file contents from git and VS Code can show unchanged surrounding code.",
     "- Do not paste generated code into diff.beforeText/diff.afterText for git-backed reviews. Use pasted text only when there is no local git ref to compare.",
     "- Use highlight-only viewMode \"code\" only for codebase, file, subsystem, request-path, or architecture tours unrelated to a window of changes, plus optional orientation/context stops that do not review changed code.",
+    "- If the subject is a design document, RFC, ADR, proposal, or architecture plan, even one that arrives as a PR, create a design-review tour (kind \"design-review\") built from slides, as the skill's \"Design Reviews And Slides\" section describes.",
     "",
     "JSON format:",
     "```json",
@@ -628,6 +629,7 @@ function buildTourAuthoringPrompt(): string {
     "- Use workspace-relative forward-slash file paths only.",
     "- Keep ranges tight and 1-indexed.",
     "- Do not use absolute file paths in steps, empty file paths, or paths containing \"..\".",
+    `- Validate the finished file against the RepoTrail JSON Schema at ${schemaPath}.`,
   ].join("\n");
 }
 
@@ -1163,7 +1165,8 @@ async function copyTourPrompt(extensionUri: vscode.Uri, log: vscode.OutputChanne
     vscode.window.showErrorMessage("RepoTrail: open a folder/workspace first.");
     return;
   }
-  if (!await copyBundledAgentPrompt(extensionUri, buildTourAuthoringPrompt(), log)) return;
+  const schemaPath = vscode.Uri.joinPath(extensionUri, "harness", "tour.schema.json").fsPath;
+  if (!await copyBundledAgentPrompt(extensionUri, buildTourAuthoringPrompt(schemaPath), log)) return;
   await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
   vscode.window.showInformationMessage(
     "RepoTrail agent setup copied with the bundled skill. Paste it into your agent; it should write a .repotrail/*.json file.",
