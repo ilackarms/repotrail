@@ -125,6 +125,11 @@ export class TourController {
     return this.repoTourSource;
   }
 
+  /** Where the active tour's progress record is stored. */
+  get activeWorkspaceRoot(): string | null {
+    return this.workspaceRoot;
+  }
+
   /** The pull request the active tour was imported from, when known. */
   get activePullRequest(): PrRef | null {
     return this.pullRequest;
