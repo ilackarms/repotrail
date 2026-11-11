@@ -9,6 +9,19 @@ RepoTrail has no local network listener. It reads tour JSON files from
 needed to render diff steps. It does not upload workspace files or git
 contents. Hosted text-to-speech handles narration as described below.
 
+## GitHub Pull Request Tours
+
+When you open a RepoTrail review link or run **Import Tour from GitHub PR** or
+**Find Tours on a PR**, RepoTrail reads that pull request and its issue comments
+from `api.github.com`. It sends your VS Code GitHub sign-in token when you are
+already signed in or choose to sign in, and nothing else about you or your
+workspace. RepoTrail makes no GitHub requests in the background or at startup.
+
+If the tour needs commits your clone lacks, RepoTrail asks before running
+`git fetch --no-tags <remote> pull/<n>/head` against the remote you already
+configured, which uses your normal git credentials. **Copy Tour as PR Comment**
+only writes to your clipboard; RepoTrail never posts to GitHub.
+
 ## Source Code Access
 
 RepoTrail itself does not send your source code to a hosted model. Tour

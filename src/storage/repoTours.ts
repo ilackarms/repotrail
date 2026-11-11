@@ -12,9 +12,11 @@ import type { TourPlan } from "../engine/types";
  * can replay it. Files use the same export envelope as `repoTrail.exportTour`,
  * so an exported `.json` can simply be dropped into `.repotrail/`.
  *
- * The extension never mutates git state — committing (whether and when) is
- * entirely the user's call. Diff playback may read git blobs by ref so VS Code
- * can show real file contents instead of agent-generated snippets.
+ * The extension never commits, checks out, or creates branches — committing
+ * (whether and when) is entirely the user's call. Diff playback may read git
+ * blobs by ref so VS Code can show real file contents instead of
+ * agent-generated snippets. The only git write is the confirmed
+ * `git fetch <remote> pull/<n>/head` when importing a tour from a GitHub PR.
  */
 
 export const REPO_TOURS_DIR = ".repotrail";

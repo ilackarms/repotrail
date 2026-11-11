@@ -38,8 +38,13 @@ Layers stay separated:
    `~/.repotrail/tours/` and repo-shared tours under `.repotrail/`.
 4. `src/tts/` owns narration. `speechText.ts` is pure preprocessing; hosted
    audio fetches happen in the extension host.
-5. `harness/repo-trail/SKILL.md` is the generic authoring skill.
-6. `harness/README.md` documents the JSON file contract for external agents.
+5. `src/github/` is pure GitHub-side logic: PR and review-link parsing, tour
+   discovery in comment markdown, PR comment composition, and the read-only
+   REST client. It must not import `vscode`. `src/ux/prImport.ts` owns the
+   prompts; `src/gitRepo.ts` owns the remote listing, commit checks, and the
+   confirmed PR fetch (the only git write).
+6. `harness/repo-trail/SKILL.md` is the generic authoring skill.
+7. `harness/README.md` documents the JSON file contract for external agents.
 
 ## Product Rule
 

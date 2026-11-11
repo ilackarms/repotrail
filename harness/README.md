@@ -113,3 +113,34 @@ Highlight-only `viewMode: "code"` stops are for codebase, file, subsystem,
 request-path, or architecture tours unrelated to a window of changes. A
 change-review tour may include highlight-only orientation/context stops, but
 stops that review changed code should be diffs.
+
+## Pull Request Comments
+
+A tour for a GitHub pull request can also be posted as a PR comment, so
+reviewers open it with one link instead of preparing a workspace. RepoTrail
+treats an issue comment as holding a tour when one of its fenced `json` blocks
+parses as an envelope with a `repoTrailTour` key.
+
+- Pin both sides of every diff stop: `diff.baseRef` (the merge base) and
+  `diff.headRef` (the PR head), as full 40-character SHAs. Pinned stops play in
+  any clone that has the commits, whatever is checked out, and RepoTrail can
+  fetch `pull/<n>/head` when they are missing.
+- Use one root alias with a portable `name`/`pathHint`. In a single-folder
+  window, and for tours imported from a PR, an unmatched alias binds to the
+  clone the reviewer has open.
+- Produce the comment with **RepoTrail: Copy Tour as PR Comment**, or follow
+  the same format: an intro line, the review link through
+  `https://vscode.dev/redirect?url=<encoded vscode:// link>` (GitHub strips
+  `vscode://` hrefs), the raw link in a code span for `code --open-url`, a
+  collapsed agent setup prompt, and a collapsed `json` block with the envelope.
+  Stay under GitHub's 65,536-character comment limit.
+
+The review link:
+
+```text
+vscode://repotrail.repotrail/review?pr=<owner>/<repo>/<number>[&comment=<id>][&head=<sha>]
+```
+
+Add `head` only when every diff stop shares that `headRef`, and `comment` only
+once the comment exists. The extension reads GitHub and fetches only when the
+reviewer asks; it never posts.
