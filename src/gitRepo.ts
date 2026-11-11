@@ -76,6 +76,83 @@ export async function repoPathPrefix(folder: string): Promise<string | undefined
   }
 }
 
+/** `git rev-parse HEAD`: the checkout's commit, lowercase; undefined outside a repository or before the first commit. */
+export async function headCommit(folder: string): Promise<string | undefined> {
+  try {
+    const { stdout } = await git(["-C", folder, "rev-parse", "--verify", "-q", "HEAD^{commit}"], 10_000);
+    const sha = stdout.trim().toLowerCase();
+    return /^[0-9a-f]{40}$/.test(sha) ? sha : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** `git symbolic-ref --short HEAD`: the checked-out branch; undefined when detached. */
+export async function currentBranch(folder: string): Promise<string | undefined> {
+  try {
+    const { stdout } = await git(["-C", folder, "symbolic-ref", "--short", "-q", "HEAD"], 10_000);
+    return stdout.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Which of `files` (relative to `folder`) differ between `commit` and the
+ * working tree, including files missing on either side. Literal pathspecs, so
+ * a `*` in a name isn't a glob. Undefined when git fails.
+ */
+export async function filesDifferingFrom(folder: string, commit: string, files: string[]): Promise<string[] | undefined> {
+  if (!/^[0-9a-f]{40}$/i.test(commit)) return undefined;
+  if (files.length === 0) return [];
+  try {
+    const { stdout } = await git(
+      ["--literal-pathspecs", "-C", folder, "diff", "--no-renames", "--name-only", "--relative", commit, "--", ...files],
+      20_000,
+    );
+    return stdout.split("\n").map((line) => line.trim()).filter(Boolean);
+  } catch {
+    return undefined;
+  }
+}
+
+export interface GitWorktree {
+  path: string;
+  /** Lowercase commit SHA; undefined for a bare entry. */
+  head?: string;
+  /** Short branch name; undefined when detached. */
+  branch?: string;
+}
+
+/** Entries of `git worktree list --porcelain`, skipping bare and prunable ones. */
+export function parseWorktreeList(porcelain: string): GitWorktree[] {
+  const out: GitWorktree[] = [];
+  for (const record of porcelain.split(/\n\s*\n/)) {
+    let entry: GitWorktree | undefined;
+    let skip = false;
+    for (const line of record.split("\n")) {
+      if (line.startsWith("worktree ")) entry = { path: line.slice("worktree ".length) };
+      else if (line.startsWith("HEAD ") && entry) {
+        const sha = line.slice(5).trim().toLowerCase();
+        if (/^[0-9a-f]{40}$/.test(sha)) entry.head = sha;
+      } else if (line.startsWith("branch ") && entry) entry.branch = line.slice(7).trim().replace(/^refs\/heads\//, "");
+      else if (line === "bare" || line.startsWith("prunable")) skip = true;
+    }
+    if (entry && !skip) out.push(entry);
+  }
+  return out;
+}
+
+/** `git worktree list --porcelain` for the repository that holds `folder`. */
+export async function listWorktrees(folder: string): Promise<GitWorktree[]> {
+  try {
+    const { stdout } = await git(["-C", folder, "worktree", "list", "--porcelain"], 10_000);
+    return parseWorktreeList(stdout);
+  } catch {
+    return [];
+  }
+}
+
 export function pullRequestFetchArgs(remote: string, prNumber: number, shas: string[] = []): string[] {
   if (!REMOTE_NAME_PATTERN.test(remote)) throw new Error(`"${remote}" isn't a usable git remote name.`);
   if (!Number.isSafeInteger(prNumber) || prNumber < 1) throw new Error("Invalid pull request number.");
