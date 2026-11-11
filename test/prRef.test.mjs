@@ -85,6 +85,15 @@ test("parses review links and ignores keys added by redirectors", () => {
   );
 });
 
+test("accepts the decoded query VS Code delivers after vscode.dev/redirect", () => {
+  // vscode.dev answers with Location: vscode://...?pr=a%2Fb%2F1&...&url=<the link, encoded>;
+  // vscode.Uri.query decodes it, so the echoed link's keys repeat.
+  const decoded =
+    `pr=agentdesktop-dev/agentdesktop/237&comment=6781746011&head=${SHA}` +
+    `&url=vscode://repotrail.repotrail/review?pr=agentdesktop-dev/agentdesktop/237&comment=6781746011&head=${SHA}`;
+  assert.deepEqual(parseReviewLink("/review", decoded), { pr, commentId: "6781746011", head: SHA });
+});
+
 test("rejects malformed review links", () => {
   const cases = [
     ["/open", "pr=o/r/1"],
@@ -92,6 +101,7 @@ test("rejects malformed review links", () => {
     ["/review", "pr=o/r"],
     ["/review", "pr=o/r/1/2"],
     ["/review", "pr=o/r/1&pr=o/r/2"],
+    ["/review", "pr=o/r/1&comment=1&url=x?pr=o/r/1&comment=2"],
     ["/review", "pr=o/r/1&comment=abc"],
     ["/review", "pr=o/r/1&comment=-1"],
     ["/review", `pr=o/r/1&head=${SHA.slice(0, 39)}`],

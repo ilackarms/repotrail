@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 import { GitDiffSide, materializeStepDiff } from "../diffMaterialize";
 import { DriftStatus, formatStepPath, TourPlan, TourStep, TourStepViewMode } from "../engine/types";
-import { resolveStepUri } from "../workspace";
+import { readGitBlobText } from "../gitBlob";
+import { normalizeWorkspaceFile, resolveStepUri, resolveStepWorkspaceFolder } from "../workspace";
 import { mapDiffPositionToSource, sameDocumentText } from "./diffPositionMap";
 import { diffRevealTargetForRange } from "./diffReveal";
 
@@ -86,11 +87,13 @@ export async function executeStep(
   opts?: StepEditorOptions,
 ): Promise<ExecuteResult> {
   if (!step.file) return { drift: "ok" };
+  // Close the previous stop's diff first: its cleanup drops virtual documents
+  // no tab shows, which must not include the one prepareStep may create.
+  await closeRepoTrailDiffTabs();
   const prepared = await prepareStep(step, opts);
   if (!prepared) return { drift: "missing" };
 
   const viewMode = effectiveViewMode(step);
-  await closeRepoTrailDiffTabs();
   if (viewMode !== "diff") {
     await showSourceDocument(step, prepared.doc, prepared.range, opts, true);
   }
@@ -113,10 +116,10 @@ export async function openStepSource(
   opts?: StepEditorOptions,
 ): Promise<ExecuteResult> {
   if (!step.file) return { drift: "ok" };
+  await closeRepoTrailDiffTabs();
   const prepared = await prepareStep(step, opts);
   if (!prepared) return { drift: "missing" };
 
-  await closeRepoTrailDiffTabs();
   await showSourceDocument(step, prepared.doc, prepared.range, opts, false);
 
   logger?.appendLine(
@@ -150,7 +153,7 @@ async function prepareStep(step: TourStep, opts?: StepEditorOptions): Promise<Pr
 
   let doc: vscode.TextDocument;
   try {
-    doc = await vscode.workspace.openTextDocument(uri);
+    doc = await openStepDocument(step, uri, opts?.plan);
   } catch (err) {
     logger?.appendLine(`[editor] open failed for ${label}: ${String(err)}`);
     vscode.window.showErrorMessage(`RepoTrail: cannot open ${label}.`);
@@ -173,6 +176,52 @@ async function prepareStep(step: TourStep, opts?: StepEditorOptions): Promise<Pr
   }
 
   return { doc, range, drift, capturedAnchor };
+}
+
+/**
+ * Open the document a step's range refers to. Normally the working-tree file.
+ * A diff stop that pins both sides (baseRef and headRef) doesn't depend on
+ * what is checked out, so when its file isn't in the working tree (new in the
+ * change, or the clone is on another branch) this opens the file at headRef,
+ * or at baseRef for a file the change deletes, read from git.
+ */
+async function openStepDocument(step: TourStep, uri: vscode.Uri, plan?: TourPlan): Promise<vscode.TextDocument> {
+  try {
+    return await vscode.workspace.openTextDocument(uri);
+  } catch (err) {
+    const revision = await openStepRevision(step, uri, plan);
+    if (revision) return revision;
+    throw err;
+  }
+}
+
+async function openStepRevision(step: TourStep, uri: vscode.Uri, plan?: TourPlan): Promise<vscode.TextDocument | null> {
+  const diff = step.diff;
+  if (!diff?.baseRef || !diff.headRef || effectiveViewMode(step) !== "diff") return null;
+  const folder = resolveStepWorkspaceFolder(step, plan);
+  if (!folder) return null;
+  const sides = [
+    { ref: diff.headRef, file: diff.headFile ?? step.file },
+    { ref: diff.baseRef, file: diff.baseFile ?? step.file },
+  ];
+  for (const side of sides) {
+    try {
+      const file = normalizeWorkspaceFile(side.file);
+      const blob = await readGitBlobText(folder.uri.fsPath, side.ref, file);
+      if (blob.missing) continue;
+      const fileUri = vscode.Uri.joinPath(folder.uri, ...file.split("/"));
+      const gitUri = await builtInGitUri({ fileUri, ref: side.ref }, blob.text);
+      if (gitUri) diffDocumentSources.set(gitUri.toString(), { sourceUri: uri });
+      const doc = await vscode.workspace.openTextDocument(
+        gitUri ?? virtualDiffUri(step, side.ref.slice(0, 12), blob.text, { sourceUri: uri }),
+      );
+      logger?.appendLine(`[editor] ${formatStepPath(step)} isn't in the working tree; using it at ${side.ref}`);
+      return doc;
+    } catch (err) {
+      logger?.appendLine(`[editor] could not read ${side.file} at ${side.ref}: ${String(err)}`);
+    }
+  }
+  return null;
 }
 
 async function showSourceDocument(
@@ -550,7 +599,7 @@ export async function checkStepDrift(
   if (!uri) return { drift: "missing" };
   let doc: vscode.TextDocument;
   try {
-    doc = await vscode.workspace.openTextDocument(uri);
+    doc = await openStepDocument(step, uri, plan);
   } catch {
     return { drift: "missing" };
   }

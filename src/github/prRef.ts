@@ -123,16 +123,20 @@ export function parsePrInput(text: string): PrImportRequest {
 
 /**
  * Parse the path and query of a review link. The query is
- * `pr=<owner>/<repo>/<n>[&comment=<id>][&head=<sha>]`. Each known key may
- * appear once. Other keys are ignored because redirectors add their own (for
- * example vscode.dev/redirect appends `url=`); they are never read.
+ * `pr=<owner>/<repo>/<n>[&comment=<id>][&head=<sha>]`. Other keys are ignored
+ * because redirectors add their own; they are never read.
+ *
+ * VS Code passes the handler an already-decoded query, so the copy of the link
+ * that vscode.dev/redirect appends as `url=` arrives as a second `comment=`
+ * and `head=`. A key may therefore repeat with the same value; conflicting
+ * values are rejected.
  */
 export function parseReviewLink(path: string, query: string): PrImportRequest {
   if (path !== REVIEW_LINK_PATH) throw new Error(`Unknown RepoTrail link path "${clip(path)}".`);
   const params = new URLSearchParams(query);
   const one = (key: string): string | undefined => {
     const values = params.getAll(key);
-    if (values.length > 1) throw new Error(`The link repeats "${key}".`);
+    if (new Set(values).size > 1) throw new Error(`The link has conflicting values for "${key}".`);
     return values[0];
   };
   const pr = one("pr");
