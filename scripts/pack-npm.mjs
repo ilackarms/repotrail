@@ -1,6 +1,5 @@
 // Assembles the `repotrail` npm package in dist/npm from a finished build:
-// the CLI, the slide runtime, the hosted player (which jsDelivr serves to
-// `render --artifact` pages) and the tour schema. Publish with
+// the CLI, the slide runtime it inlines into exports, and the tour schema. Publish with
 // `npm publish dist/npm`. The version follows package.json, so the npm
 // package, the extension and the skill's pinned `npx repotrail@<version>`
 // always match.
@@ -16,7 +15,6 @@ const files = [
   "out/cli.js",
   "out/slides.js",
   "out/slides.css",
-  "out/player.js",
   "harness/tour.schema.json",
   "LICENSE",
 ];

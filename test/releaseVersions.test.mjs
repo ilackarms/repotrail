@@ -5,8 +5,8 @@ import { test } from "node:test";
 const read = (file) => readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
 const { version } = JSON.parse(read("package.json"));
 
-// The skill runs `npx repotrail@<version>`, and the page it renders loads the
-// player from that version on jsDelivr, so a release bumps all of them at once.
+// The skill runs `npx repotrail@<version>`, so the npm package, the skill and
+// the plugin are released together.
 test("the skill pins the npm CLI to this release", () => {
   const pins = [...read("harness/repo-trail/SKILL.md").matchAll(/repotrail@(\d+\.\d+\.\d+)/g)].map((m) => m[1]);
   assert.ok(pins.length > 0, "the skill names a pinned repotrail version");

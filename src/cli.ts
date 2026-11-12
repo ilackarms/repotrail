@@ -9,10 +9,10 @@
  *
  * `lint` reports what RepoTrail can't use and where text runs over budget.
  * `render` writes the animated HTML export, with slides, which any browser
- * opens at a position through `#stop=<n>&beat=<k>`. With `--artifact` the page
- * loads the player from jsDelivr instead of inlining it, small enough to read
- * and publish as a Claude Artifact. No `vscode` here: files come from disk
- * and diffs from `git show`, read-only.
+ * opens at a position through `#stop=<n>&beat=<k>`. With `--artifact` it
+ * writes a static page instead (HTML and SVG, no script) to publish as a
+ * Claude Artifact. No `vscode` here: files come from disk and diffs from
+ * `git show`, read-only.
  */
 
 import Ajv from "ajv";
@@ -22,12 +22,12 @@ import * as path from "node:path";
 import {
   buildAnimatedDiffFrame,
   codeFrameFromLines,
-  hostedPlayerUrl,
   planToAnimatedHtml,
   STANDALONE_CODE_LIMITS,
   type AnimatedTourFrame,
 } from "./engine/animatedHtml";
 import { formatLintReport, lintTour } from "./engine/slides/lint";
+import { planToStaticHtml } from "./engine/staticTourHtml";
 import { slideBeats } from "./engine/slides/timeline";
 import { parseTourJson, stepLocation } from "./engine/tourSerialize";
 import type { TourPlan, TourStep } from "./engine/types";
@@ -44,11 +44,10 @@ lint        Report what RepoTrail can't use (errors, exit code 1) and text over
 render      Write a standalone HTML player for the tour. Open it in a browser
             at <file.html>#stop=<n>&beat=<k> to see any slide at any beat.
 
---artifact  Write a page to publish as a Claude Artifact or share without VS
-            Code: more code around each stop, the browser's own voice only,
-            and the player loaded from cdn.jsdelivr.net (pinned to this
-            version) instead of inlined, so the page stays small.
---player    Load the player from this URL instead (implies --artifact).
+--artifact  Write a static page (HTML and SVG, no script) to publish as a
+            Claude Artifact or read without VS Code: every stop on one
+            scrolling page, more code around each stop, and slides drawn as
+            they stand after their last beat, with the beats listed below.
 --root      Where the tour's files live. Defaults to the folder that holds the
             tour's .repotrail directory, or the current directory. Repeat as
             <alias>=<dir> for the root aliases in plan.roots.
@@ -59,9 +58,8 @@ interface Options {
   tour: string;
   out?: string;
   json: boolean;
-  /** Render for an Artifact: hosted player, more code context. */
+  /** Render a static page for an Artifact: no script, more code context. */
   artifact: boolean;
-  player?: string;
   roots: Map<string, string>;
   defaultRoot: string;
 }
@@ -119,13 +117,12 @@ function render(options: Options, text: string): number {
   }
   const frames = plan.steps.map((step, index) => frameFor(options, plan, step, index));
   if (options.artifact) {
-    const playerUrl = options.player ?? hostedPlayerUrl(version());
-    const html = planToAnimatedHtml({ plan, exportedAt: new Date().toISOString(), frames, playerUrl });
+    const slidesCss = plan.steps.some((step) => step.slide) ? readSlidesCss() : undefined;
+    const html = planToStaticHtml({ plan, exportedAt: new Date().toISOString(), frames, slidesCss });
     writeFileSync(options.out, html);
     process.stdout.write(
-      `Wrote ${options.out}: ${plan.steps.length} stops, ${Math.ceil(Buffer.byteLength(html) / 1024)} KB.\n` +
-        `The page loads the RepoTrail player from ${playerUrl}.\n` +
-        `Publish it as an Artifact, or open it in a browser with network access.\n`,
+      `Wrote ${options.out}: ${plan.steps.length} stops, ${Math.ceil(Buffer.byteLength(html) / 1024)} KB, no script.\n` +
+        `Publish it as an Artifact, or open it in any browser.\n`,
     );
     return 0;
   }
@@ -223,6 +220,16 @@ function version(): string {
   }
 }
 
+/** The slide stylesheet beside cli.js, which static pages inline. */
+function readSlidesCss(): string | undefined {
+  try {
+    return readFileSync(path.join(__dirname, "slides.css"), "utf8");
+  } catch {
+    process.stderr.write("The slide stylesheet (slides.css) isn't next to cli.js; slides will be unstyled.\n");
+    return undefined;
+  }
+}
+
 function readRuntime(): { script: string; css: string } | undefined {
   try {
     return {
@@ -270,11 +277,7 @@ function parseArgs(argv: string[]): Options | null {
     const arg = rest[i];
     if (arg === "--json") options.json = true;
     else if (arg === "--artifact") options.artifact = true;
-    else if (arg === "--player") {
-      options.player = rest[++i];
-      options.artifact = true;
-      if (!options.player) return null;
-    } else if (arg === "--out") options.out = rest[++i];
+    else if (arg === "--out") options.out = rest[++i];
     else if (arg === "--root") {
       const value = rest[++i];
       if (!value) return null;

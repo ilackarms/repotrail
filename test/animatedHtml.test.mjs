@@ -51,54 +51,6 @@ test("code snapshots keep the range plus context", async () => {
   assert.deepEqual(codeFrameFromLines([], undefined, "md").frame, { text: "", startLine: 1, languageId: "md" });
 });
 
-test("a hosted page loads the player from a URL and offers only the browser voice", async () => {
-  const { planToAnimatedHtml: toHtml } = await import("../out-test/engine/animatedHtml.js");
-  const html = toHtml({
-    plan: { kind: "pr-walkthrough", title: "PR <tour>", summary: "", steps: [] },
-    exportedAt: "now",
-    frames: [
-      {
-        index: 0,
-        title: "Change",
-        location: "a.ts:1-2",
-        explanation: "</script> stays inert",
-        viewLabel: "Diff",
-        diff: { beforeLabel: "base", afterLabel: "head", beforeText: "a", afterText: "b", rows: [{ before: "a", type: "delete" }, { after: "b", type: "insert" }] },
-        warnings: [],
-      },
-    ],
-    slideRuntime: { script: "window.RepoTrailSlides = {};", css: ".rt-slide {}" },
-    playerUrl: "https://cdn.jsdelivr.net/npm/repotrail@9.9.9/out/player.js",
-  });
-  assert.ok(html.includes('<script src="https://cdn.jsdelivr.net/npm/repotrail@9.9.9/out/player.js"></script>'));
-  assert.ok(html.includes("<title>PR &lt;tour&gt;</title>"));
-  assert.equal(html.includes("window.RepoTrailSlides"), false, "the slide runtime comes with the player");
-  assert.equal(html.includes("<style"), false, "styles come with the player");
-  assert.equal(html.includes('id="ttsPanel"'), false);
-  assert.equal(html.includes("</script> stays inert"), false);
-  const data = JSON.parse(html.match(/<script id="tour-data" type="application\/json">\n([\s\S]*?)\n<\/script>/)[1]);
-  assert.deepEqual(data.ttsProviders, ["off", "system"]);
-  assert.equal(data.ttsDefaults.provider, "system");
-  assert.equal(data.frames[0].diff.beforeText, undefined, "the player draws diffs from rows");
-  assert.equal(data.frames[0].diff.rows.length, 2);
-  assert.ok(html.includes('\n "frames": ['), "data is indented so it reads line by line");
-});
-
-test("the hosted player bundle injects styles, carries the slide runtime and starts on DOM ready", async () => {
-  const { hostedPlayerScript } = await import("../out-test/engine/animatedHtml.js");
-  const bundle = hostedPlayerScript({
-    script: "window.RepoTrailSlides = { ok: true };\n//# sourceMappingURL=slides.js.map\n",
-    css: ".rt-slide { color: red }\n/*# sourceMappingURL=slides.css.map */\n",
-  });
-  assert.doesNotThrow(() => new Function(bundle));
-  assert.ok(bundle.includes("window.RepoTrailSlides = { ok: true };"));
-  assert.equal(bundle.includes("sourceMappingURL"), false);
-  assert.ok(bundle.includes(".rt-slide { color: red }"));
-  assert.ok(bundle.includes("--accent"), "page styles are injected too");
-  assert.ok(bundle.includes("window.RepoTrailPlayer = true"));
-  assert.ok(bundle.includes('document.addEventListener("DOMContentLoaded", start'));
-});
-
 test("diff snapshots fold unchanged lines so a change deep in a file shows", async () => {
   const { buildAnimatedDiffFrame } = await import("../out-test/engine/animatedHtml.js");
   const before = Array.from({ length: 1000 }, (_, i) => `line ${i + 1}`);

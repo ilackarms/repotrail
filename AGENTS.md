@@ -29,8 +29,7 @@ A release bumps the version in `package.json`, the skill's
 `npx -y repotrail@<version>` pins, and `harness/.claude-plugin/plugin.json`
 together (`test/releaseVersions.test.mjs` checks this). After merging, the
 maintainer publishes the npm package with `pnpm package:npm` and
-`npm publish dist/npm`. Pages rendered with `--artifact` load the player from
-that version on jsDelivr, so they break until it's published.
+`npm publish dist/npm`. Until then, the skill's `npx` commands fail.
 
 ## Architecture Rule
 
@@ -62,9 +61,11 @@ Layers stay separated:
    ships as `out/cli.js` in the extension and as the `repotrail` npm package
    (`scripts/pack-npm.mjs` assembles `dist/npm`). It uses `src/engine/` only
    and reads files and git directly; it never imports `vscode`. Lint rules
-   live in `src/engine/slides/lint.ts`. `render --artifact` pages load
-   `out/player.js` (built by `esbuild.mjs` from `hostedPlayerScript` in
-   `src/engine/animatedHtml.ts`) from jsDelivr at the package's version.
+   live in `src/engine/slides/lint.ts`. `render --artifact` writes a static
+   page (`src/engine/staticTourHtml.ts`, no script). Its slides come from
+   `src/engine/slides/staticSlide.ts`, a string version of the slide
+   webview's `render.ts` and `diagrams.ts`: same markup and classes, styled by
+   the same `slides.css`. Change them together.
 8. `harness/repo-trail/SKILL.md` is the generic authoring skill. `harness/` is
    also a Claude Code plugin (`harness/.claude-plugin/plugin.json`), listed
    by the repo's `.claude-plugin/marketplace.json`.

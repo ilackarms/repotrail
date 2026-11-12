@@ -1,3 +1,4 @@
+import { THEME_CSS } from "./pageTheme";
 import { TourPlan, TourRange, TourSlide } from "./types";
 import {
   BROWSER_TTS_PROVIDERS,
@@ -60,11 +61,6 @@ export interface AnimatedTourHtmlInput {
    * stays pure.
    */
   slideRuntime?: { script: string; css: string };
-  /**
-   * Load the player from this URL instead of inlining it (`render --artifact`).
-   * The page then offers only the browser's own voice.
-   */
-  playerUrl?: string;
 }
 
 export const ANIMATED_EXPORT_CONTEXT_LINES = 2;
@@ -279,25 +275,11 @@ function collapseUnchanged(rows: AnimatedTourDiffRow[]): AnimatedTourDiffRow[] {
 }
 
 /**
- * Voices a hosted page offers. Artifact pages can't load Kokoro from esm.sh
- * or call hosted voice APIs, so only the browser's own voice is left.
- */
-const HOSTED_TTS_PROVIDERS: readonly BrowserTtsProvider[] = ["off", "system"];
-
-/** Where `render --artifact` pages load the player from: the npm package, served by jsDelivr. */
-export function hostedPlayerUrl(version: string): string {
-  return `https://cdn.jsdelivr.net/npm/repotrail@${version}/out/player.js`;
-}
-
-/**
- * The HTML player for a tour. By default the page carries everything: styles,
- * the slide runtime and the player script, so it works offline. With
- * `playerUrl` the page carries only markup and tour data and loads the player
- * from that URL, which keeps it small enough to read before publishing it as
- * a Claude Artifact.
+ * The HTML player for a tour: one self-contained page with the styles, the
+ * slide runtime and the player script, so it works offline. (Static pages for
+ * readers without VS Code come from staticTourHtml.ts.)
  */
 export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
-  const hosted = Boolean(input.playerUrl);
   const ttsDefaults = {
     provider: TTS_DEFAULTS.provider,
     kokoroVoice: TTS_DEFAULTS.kokoroVoice,
@@ -312,16 +294,13 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
     kind: input.plan.kind,
     summary: input.plan.summary,
     exportedAt: input.exportedAt,
-    frames: hosted ? input.frames.map(withoutDiffText) : input.frames,
+    frames: input.frames,
     tts: input.tts ?? {},
-    ttsDefaults: hosted ? { ...ttsDefaults, provider: "system" } : ttsDefaults,
-    ttsProviders: hosted ? HOSTED_TTS_PROVIDERS : BROWSER_TTS_PROVIDERS,
+    ttsDefaults,
+    ttsProviders: BROWSER_TTS_PROVIDERS,
   };
-  // A hosted page is read line by line before it's published, so its data is indented.
-  const data = JSON.stringify(payload, null, hosted ? 1 : undefined).replace(/</g, "\\u003c");
+  const data = JSON.stringify(payload).replace(/</g, "\\u003c");
   const title = escapeHtml(input.plan.title || "RepoTrail tour");
-  if (input.playerUrl) return hostedPage(title, data, input.playerUrl);
-
   const runtime = input.slideRuntime;
   return `<!doctype html>
 <html lang="en">
@@ -334,7 +313,7 @@ ${runtime ? `<style>${runtime.css.replace(/<\/style/gi, "<\\/style")}</style>` :
 <style>${PLAYER_CSS}</style>
 </head>
 <body>
-${playerMarkup(false)}
+${PLAYER_MARKUP}
 <script id="tour-data" type="application/json">${data}</script>
 ${runtime ? `<script>${runtime.script.replace(/<\/script/gi, "<\\/script")}</script>` : ""}
 <script>
@@ -344,132 +323,8 @@ ${PLAYER_SCRIPT}
 </html>`;
 }
 
-function hostedPage(title: string, data: string, playerUrl: string): string {
-  const urlLiteral = JSON.stringify(playerUrl).replace(/</g, "\\u003c");
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="data:,">
-<title>${title}</title>
-<!-- The RepoTrail player (page styles, slide runtime, player script) from the repotrail npm package. -->
-<script src="${escapeHtml(playerUrl)}"></script>
-</head>
-<body>
-<p id="playerStatus">Loading the RepoTrail player…</p>
-${playerMarkup(true)}
-<script id="tour-data" type="application/json">
-${data}
-</script>
-<script>
-window.addEventListener("load", function () {
-  if (window.RepoTrailPlayer) return;
-  var status = document.getElementById("playerStatus");
-  if (status) status.textContent = "Couldn't load the RepoTrail player from " + ${urlLiteral} + ".";
-});
-</script>
-</body>
-</html>`;
-}
-
-/**
- * `out/player.js`, the file hosted pages load: the page styles, the slide
- * runtime and the player script. The build writes it, the npm package ships
- * it, and jsDelivr serves it.
- */
-export function hostedPlayerScript(runtime: { script: string; css: string }): string {
-  const slidesCss = runtime.css.replace(/\/\*# sourceMappingURL=\S* \*\/\s*$/, "");
-  const css = JSON.stringify(`${slidesCss}\n${PLAYER_CSS}`);
-  const slides = runtime.script.replace(/\n\/\/# sourceMappingURL=\S*\s*$/, "\n");
-  return `/* RepoTrail player for pages written by \`repotrail render --artifact\`. */
-(function () {
-  var style = document.createElement("style");
-  style.textContent = ${css};
-  (document.head || document.documentElement).appendChild(style);
-})();
-${slides}
-;(function () {
-  function start() {
-    var app = document.getElementById("app");
-    if (app) app.hidden = false;
-    var status = document.getElementById("playerStatus");
-    if (status) status.remove();
-${PLAYER_SCRIPT}
-  }
-  window.RepoTrailPlayer = true;
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, { once: true });
-  else start();
-})();
-`;
-}
-
-/** A hosted page's frames leave out the diff texts; the player draws diffs from rows. */
-function withoutDiffText(frame: AnimatedTourFrame): AnimatedTourFrame {
-  if (!frame.diff) return frame;
-  const { beforeText: _before, afterText: _after, ...diff } = frame.diff;
-  return { ...frame, diff: diff as AnimatedTourDiffFrame };
-}
-
-const DARK_TOKENS = `
-    color-scheme: dark;
-    --bg: #171717;
-    --panel: #232323;
-    --panel-2: #2d2a25;
-    --chrome: #1c1b19;
-    --line: #403d38;
-    --rule: rgba(255, 255, 255, 0.03);
-    --text: #f4f0e8;
-    --text-soft: #dfd8ce;
-    --muted: #afa89e;
-    --accent: #2fb7a3;
-    --on-accent: #071412;
-    --accent-2: #f0b84d;
-    --danger: #ef7466;
-    --danger-fg: #f6c8c1;
-    --code-bg: #101010;
-    --gutter-bg: #151515;
-    --gutter-fg: #7c776f;
-    --code-hi: rgba(47, 183, 163, 0.2);
-    --delete-bg: rgba(239, 116, 102, 0.16);
-    --insert-bg: rgba(47, 183, 163, 0.16);
-    --track: #2a2927;
-    --shadow: 0 18px 44px rgba(0, 0, 0, 0.42);`;
-
 const PLAYER_CSS = `
-  :root {
-    color-scheme: light;
-    --bg: #f6f4ef;
-    --panel: #ffffff;
-    --panel-2: #e8f3f0;
-    --chrome: #efece6;
-    --line: #dcd6cc;
-    --rule: rgba(0, 0, 0, 0.05);
-    --text: #1f1c18;
-    --text-soft: #34302a;
-    --muted: #6c665d;
-    --accent: #0f7f6f;
-    --on-accent: #ffffff;
-    --accent-2: #8f5a00;
-    --danger: #b93a2b;
-    --danger-fg: #8c2a1e;
-    --code-bg: #fbfaf7;
-    --gutter-bg: #f1eee8;
-    --gutter-fg: #9b958b;
-    --code-hi: rgba(15, 127, 111, 0.13);
-    --delete-bg: rgba(185, 58, 43, 0.12);
-    --insert-bg: rgba(15, 127, 111, 0.13);
-    --track: #e2ddd4;
-    --shadow: 0 18px 44px rgba(0, 0, 0, 0.16);
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {${DARK_TOKENS}
-    }
-  }
-
-  :root[data-theme="dark"] {${DARK_TOKENS}
-  }
+${THEME_CSS}
 
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -1015,11 +870,10 @@ const TTS_PANEL = `  <section id="ttsPanel" class="tts-panel" aria-label="Text t
     <p class="tts-note">System and Kokoro run in the browser. Hosted voices need your API key here because exported HTML cannot safely carry VS Code secrets. Command-based voices such as macOS say cannot run from a browser page.</p>
   </section>`;
 
-function playerMarkup(hosted: boolean): string {
-  return `<div id="app" class="app"${hosted ? " hidden" : ""}>
+const PLAYER_MARKUP = `<div class="app">
   <header class="topbar">
     <div>
-      <div class="eyebrow">${hosted ? "RepoTrail tour" : "RepoTrail animated export"}</div>
+      <div class="eyebrow">RepoTrail animated export</div>
       <h1 id="tourTitle"></h1>
       <div id="tourSummary" class="summary"></div>
     </div>
@@ -1027,10 +881,10 @@ function playerMarkup(hosted: boolean): string {
       <button id="prevBtn" title="Previous stop">Back</button>
       <button id="nextBtn" title="Next stop">Next</button>
       <button id="speakBtn" title="Read the current stop aloud">Speak</button>
-      ${hosted ? "" : '<button id="ttsSettingsBtn" class="secondary" title="Configure speech for this exported tour">TTS</button>'}
+      <button id="ttsSettingsBtn" class="secondary" title="Configure speech for this exported tour">TTS</button>
     </div>
   </header>
-${hosted ? "" : TTS_PANEL}
+${TTS_PANEL}
   <div class="layout">
     <aside class="rail">
       <p id="railMeta" class="rail-meta"></p>
@@ -1066,7 +920,6 @@ ${hosted ? "" : TTS_PANEL}
     </main>
   </div>
 </div>`;
-}
 
 const PLAYER_SCRIPT = `(() => {
   const data = JSON.parse(document.getElementById("tour-data").textContent || "{}");

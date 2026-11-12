@@ -44,9 +44,9 @@ extension) reads the tour, the files it names and local git objects, and
 writes one HTML file. It makes no network requests. Running it with `npx`
 downloads the package from the npm registry.
 
-A page rendered with `render --artifact` loads the RepoTrail player script from
-`cdn.jsdelivr.net` each time someone opens it. The page contains excerpts of
-the code, diffs and narration in the tour. Publishing it, for example as a
+A page rendered with `render --artifact` is static HTML and SVG: it runs no
+script and loads nothing when opened. It contains excerpts of the code, diffs
+and narration in the tour. Publishing it, for example as a
 Claude Artifact, shares those excerpts with everyone who can open it.
 
 ## Source Code Access

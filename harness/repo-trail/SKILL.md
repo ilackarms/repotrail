@@ -96,11 +96,11 @@ later and runs as `npx -y repotrail@0.15.0`.
    npx -y repotrail@0.15.0 render <project>/.repotrail/<slug>.json --artifact --out <scratch>/<slug>.html
    ```
 
-   Put the page in your scratch or temp directory, not in the repo. The page
-   holds the tour's data (code around each stop, diffs, slides, narration)
-   and one script tag that loads the RepoTrail player, pinned to this version,
-   from `cdn.jsdelivr.net/npm/repotrail@0.15.0/out/player.js`. It plays with
-   Back/Next, arrow keys and the browser's own voice, in light or dark mode.
+   Put the page in your scratch or temp directory, not in the repo. It's
+   static HTML and SVG with no script: every stop on one scrolling page, with
+   the code around each stop, diffs read from git, and narration. Slides are
+   drawn as they stand after their last beat, with the beats' `say` captions
+   listed below, so make sure a slide's final state shows what matters.
 5. Publish it. If you have a tool that publishes an HTML page as a Claude
    Artifact, read the rendered page and publish it, named after the tour's
    title. Don't edit the page by hand: change the JSON and render again. The

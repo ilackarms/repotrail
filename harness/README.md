@@ -177,12 +177,11 @@ node <extension>/out/cli.js lint <tour.json>
 - `render` writes the same standalone HTML player as **Export Tour → Animated
   HTML**, with slides, code read from disk, and diffs from `git show`. Open it
   at `#stop=<n>&beat=<k>` to see any position.
-- `render --artifact` writes a page for readers without VS Code. It holds the
-  tour's data and loads the player from
-  `cdn.jsdelivr.net/npm/repotrail@<version>/out/player.js`, so it stays small
-  enough to read and publish as a Claude Artifact. Code stops carry more
-  context, diff stops center on their range, and narration uses the browser's
-  own voice. `--player <url>` loads the player from somewhere else.
+- `render --artifact` writes a static page for readers without VS Code, to
+  publish as a Claude Artifact: HTML and SVG, no script, every stop on one
+  scrolling page. Code stops carry more context, diff stops center on their
+  range, and slides are drawn after their last beat with the beats' captions
+  listed below.
 - Files resolve against the folder that holds the tour's `.repotrail/`
   directory, or the current directory. `--root` overrides that, per alias if
   needed. Neither command writes anything but `--out`.

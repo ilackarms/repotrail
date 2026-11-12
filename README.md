@@ -85,14 +85,16 @@ Walk me through how this repo handles auth. Publish it as a page I can share.
 Claude writes the tour to `.repotrail/` as usual, checks it with
 `npx repotrail lint`, renders it with `npx repotrail render --artifact`, and
 publishes the page as a Claude Artifact. The Artifact is private until you
-share it. The page plays the whole tour, with Back and Next, arrow keys, a
-Speak button that uses the browser's voice, and light and dark themes:
+share it. The page is plain HTML and SVG with no script: every stop on one
+scrolling page, a contents list at the top, and light and dark themes.
 
 - **Code stops** show the range with a dozen lines of context on each side.
 - **Diff stops** show the change side by side, read from git, centered on
   the stop's range. Unchanged runs fold into "N unchanged lines" rows, and
-  changes outside the range into "more changes above/below".
-- **Slides** play their beats as in VS Code.
+  changes outside the range into "more changes above/below". On a phone they
+  switch to one column.
+- **Slides** are drawn as they stand after their last beat, with each beat's
+  caption listed underneath. They don't animate.
 
 The page is a snapshot. Code is copied in when it's rendered, so it can't
 jump to the real file the way VS Code does. To update it, ask Claude to
@@ -105,8 +107,9 @@ npx -y repotrail lint .repotrail/<tour>.json
 npx -y repotrail render .repotrail/<tour>.json --artifact --out <tour>.html
 ```
 
-Drop `--artifact` for a single file that works offline. It's bigger, because
-it carries the player inside.
+Drop `--artifact` for the interactive player instead: one file that steps
+through the tour with Back and Next, plays slide beats, and reads narration
+aloud. It's bigger, because it carries its script.
 
 ## Three kinds of stops
 
@@ -446,9 +449,8 @@ gutter; for those, Comment on PR opens the file itself.
 
   `lint` checks the schema, beat ids, that every file and range exists, and
   the skill's text budgets, and exits 1 on errors. `render` writes the same
-  HTML player as Export. With `--artifact`, the page loads the player from
-  jsDelivr instead of carrying it, so it stays small enough to publish as a
-  Claude Artifact.
+  HTML player as Export. With `--artifact`, it writes a static page (HTML
+  and SVG, no script) to publish as a Claude Artifact.
 - **The Claude Code plugin** in [`harness/`](harness/) installs the skill
   with `/plugin install repotrail --marketplace ilackarms/repotrail`.
 
@@ -518,9 +520,8 @@ Use the repo-trail skill. Create a RepoTrail workspace for <repo or PR>. Check o
   RepoTrail runs no startup or background checks of its own.
 - **The command line stays offline.** It reads the tour, the files it names
   and git objects, and writes one HTML file. `npx` downloads it from npm. A
-  page rendered with `--artifact` loads the RepoTrail player from
-  `cdn.jsdelivr.net` when someone opens it, and it holds excerpts of your
-  code, so share it as you would the code.
+  page rendered with `--artifact` loads nothing when opened, but it holds
+  excerpts of your code, so share it as you would the code.
 - **Never posts to GitHub.** To tell whether a diff stop can take comments,
   RepoTrail asks the GitHub Pull Requests extension, if you have it, which PR
   a folder has checked out, passing only the folder. Asking can start that

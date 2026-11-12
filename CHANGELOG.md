@@ -7,12 +7,13 @@
   - The command line is now the `repotrail` npm package, so
     `npx repotrail lint` and `npx repotrail render` run anywhere with Node 18
     or later. It still ships inside the extension as `out/cli.js`.
-  - `render --artifact` writes a small page that loads the player from
-    jsDelivr, pinned to the CLI's version, instead of carrying it. A
-    five-stop tour that exports at 250 KB renders at about 25 KB, small
-    enough for the agent to read before publishing. These pages show a dozen lines of context around code stops
-    and offer only the browser's own voice, since Artifact pages can't reach
-    hosted voices or load Kokoro. `--player <url>` picks another player URL.
+  - `render --artifact` writes a static page to publish as a Claude Artifact:
+    HTML and SVG with no script, so it works anywhere and the agent can read
+    all of it before publishing. Every stop is a section on one scrolling
+    page with a contents list. Code stops show a dozen lines of context, and
+    slides are drawn as they stand after their last beat, with the beats'
+    captions listed below. A 16-stop design review with slides comes to about
+    90 KB.
   - The repo is a Claude Code plugin marketplace. In Claude Code, run
     `/plugin install repotrail --marketplace ilackarms/repotrail`.
   - The skill has a third mode for readers without VS Code: write the tour,

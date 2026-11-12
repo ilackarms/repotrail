@@ -18,17 +18,16 @@ npx -y repotrail render .repotrail/my-tour.json --artifact --out my-tour.html
 text over the authoring skill's budgets (warnings). Add `--json` for
 machine-readable output.
 
-`render <tour.json> --out <file.html>` writes a standalone page that plays the
-tour: code and diff stops, slides, narration. Open it at
-`<file.html>#stop=<n>&beat=<k>` to jump to a position.
+`render <tour.json> --out <file.html>` writes a standalone page with the
+tour's code and diff stops, slides and narration.
 
-- Without `--artifact`, the page carries everything it needs and works
-  offline. A tour with slides comes to about 200 KB or more.
-- With `--artifact`, the page carries only the tour and loads the player from
-  `cdn.jsdelivr.net/npm/repotrail@<version>/out/player.js`. That keeps it small
-  enough to read and publish as a Claude Artifact. It also shows more code
-  around each stop and offers only the browser's own voice.
-  `--player <url>` loads the player from somewhere else.
+- Without `--artifact`, the page is an interactive player: Back and Next,
+  animated slide beats, and narration read aloud. It works offline. Open it
+  at `<file.html>#stop=<n>&beat=<k>` to jump to a position. A tour
+  with slides comes to about 200 KB or more, most of it the player's script.
+- With `--artifact`, the page is static HTML and SVG with no script, to
+  publish as a Claude Artifact: every stop on one scrolling page, more code
+  around each stop, and slides drawn as they stand after their last beat.
 
 `--root <dir>` says where the tour's files live. It defaults to the folder
 that holds the tour's `.repotrail` directory. Repeat it as
