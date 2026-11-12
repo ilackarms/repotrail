@@ -6,7 +6,7 @@
 .playwright-mcp/**
 docs/knowledge-pack/**
 test/**
-media/sidebar.svg
+media/screenshots/**
 pnpm-workspace.yaml
 src/**
 .gitignore

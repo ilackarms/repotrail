@@ -13,7 +13,7 @@ RepoTrail works with any agent that can read your repo and write a file:
 Claude Code, Codex, Cursor, or anything similar. The extension has no model of
 its own and never uploads your source.
 
-![RepoTrail sidebar](media/sidebar.png)
+![A RepoTrail tour paused on a diff stop: the narration in the sidebar and a change from PR #6 in VS Code's diff editor](media/screenshots/diff-stop.png)
 
 ## What it's good for
 
@@ -67,6 +67,8 @@ What opens in the editor depends on the stop.
 The file opens with a range highlighted. Use these for codebase tours, request
 paths, and bug investigations.
 
+![A code stop: the highlighted range, RepoTrail's CodeLens above it, and the stop's narration in the sidebar](media/screenshots/code-stop.png)
+
 The first time a stop runs, RepoTrail remembers the first line of its range.
 If the code later moves, the highlight follows it and the stop notes that it
 was re-anchored. If the code is gone, the stop warns that the tour may be
@@ -100,6 +102,8 @@ Slides build up in **beats**. A beat can reveal or hide elements, change a
 label or color, spotlight part of the slide, pulse an element, or send a token
 along a diagram edge. Each beat has a short caption that can be read aloud.
 Next walks through a slide's beats before moving to the next stop.
+
+![A slide on its last beat: a flow diagram from coding agent to the three kinds of stops, with the beat's caption below and the beat transcript in the sidebar](media/screenshots/slide-stop.png)
 
 - Diagram nodes, sequence participants, and code blocks can name a file.
   Click one and the file opens beside the slide.

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.14.2 - 2026-11-12
+
+- Rewrote the README. It now starts with what a tour is and a quick start,
+  explains code, diff and slide stops with screenshots, and has tables for
+  keyboard shortcuts, narration providers, commands and settings. Claims were
+  checked against the code: the HTML export has a Speak button rather than
+  Play, the link confirmation applies to review links, and the privacy section
+  lists every network call.
+- PRIVACY.md now says the Kokoro voice downloads its library and model on
+  first use, and that RepoTrail keeps a copy of each tour you open under
+  `~/.repotrail/tours/`.
+
 ## 0.14.1 - 2026-11-11
 
 - Review links now notice when they open in the wrong checkout. A link opens
