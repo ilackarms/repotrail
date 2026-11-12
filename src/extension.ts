@@ -1035,6 +1035,14 @@ async function buildAnimatedStepDiff(
     beforeLabel: materialized.beforeLabel,
     afterLabel: materialized.afterLabel,
     languageId: materialized.languageId,
+    // Line numbers only match the range when both sides are whole files: read
+    // from git, or the after side from the whole workspace document.
+    focus:
+      materialized.scope === "file" &&
+      materialized.beforeGit &&
+      (materialized.afterGit || materialized.afterWorkspaceLineOffset === 0)
+        ? step.range
+        : undefined,
   });
 }
 

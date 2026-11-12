@@ -12,9 +12,19 @@ the current request.
 The prompt copied from RepoTrail includes the open workspace roots and JSON
 schema; the extension does not require a connection to the agent.
 
+This folder is also a Claude Code plugin that carries the skill, for people
+who don't use VS Code:
+
+```text
+/plugin install repotrail --marketplace ilackarms/repotrail
+```
+
+On Claude Code older than 2.1.275, run `/plugin marketplace add
+ilackarms/repotrail` and then `/plugin install repotrail@repotrail`.
+
 ## Supported Modes
 
-RepoTrail has two supported harness modes.
+RepoTrail has three supported harness modes.
 
 ### Existing VS Code Workspace
 
@@ -41,6 +51,18 @@ Use this when the user wants an agent to prepare the review or tour workspace.
 4. The agent opens the workspace with `code <workspace-file>` when available.
 5. The agent writes the tour JSON to the owning repo's `.repotrail/`
    directory.
+
+### No VS Code
+
+Use this when the user reads the tour outside VS Code, for example in the
+Claude app.
+
+1. The agent writes the tour JSON to the owning repo's `.repotrail/`
+   directory, with no workspace file.
+2. The agent lints it with `npx -y repotrail lint <tour.json>`.
+3. The agent renders it with
+   `npx -y repotrail render <tour.json> --artifact --out <file.html>`.
+4. The agent publishes the page as a Claude Artifact, or hands over the file.
 
 The global workspace directory stores launch files and manifests only. Tours
 remain repo-local so they are easy to inspect, refresh, copy, commit, or delete.
@@ -139,11 +161,13 @@ Agent setup prompt includes its path so agents can validate what they write.
 
 ## Command Line
 
-The extension ships `out/cli.js` for agents that can't see VS Code:
+RepoTrail's command line ships as the `repotrail` npm package and as
+`out/cli.js` inside the extension. Both take the same arguments:
 
 ```bash
-node <extension>/out/cli.js lint <tour.json> [--root <dir> | --root <alias>=<dir>]... [--json]
-node <extension>/out/cli.js render <tour.json> --out <file.html> [--root ...]...
+npx -y repotrail lint <tour.json> [--root <dir> | --root <alias>=<dir>]... [--json]
+npx -y repotrail render <tour.json> --out <file.html> [--artifact] [--root ...]...
+node <extension>/out/cli.js lint <tour.json>
 ```
 
 - `lint` validates against the schema and reports what RepoTrail would drop
@@ -153,6 +177,12 @@ node <extension>/out/cli.js render <tour.json> --out <file.html> [--root ...]...
 - `render` writes the same standalone HTML player as **Export Tour → Animated
   HTML**, with slides, code read from disk, and diffs from `git show`. Open it
   at `#stop=<n>&beat=<k>` to see any position.
+- `render --artifact` writes a page for readers without VS Code. It holds the
+  tour's data and loads the player from
+  `cdn.jsdelivr.net/npm/repotrail@<version>/out/player.js`, so it stays small
+  enough to read and publish as a Claude Artifact. Code stops carry more
+  context, diff stops center on their range, and narration uses the browser's
+  own voice. `--player <url>` loads the player from somewhere else.
 - Files resolve against the folder that holds the tour's `.repotrail/`
   directory, or the current directory. `--root` overrides that, per alias if
   needed. Neither command writes anything but `--out`.

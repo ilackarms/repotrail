@@ -23,3 +23,8 @@ node_modules/**
 docs/design/**
 scripts/**
 tsconfig.webview.json
+dist/**
+npm/**
+out/player.js
+.claude-plugin/**
+harness/.claude-plugin/**
