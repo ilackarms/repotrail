@@ -52,6 +52,10 @@ be generated. Keys saved with `RepoTrail: Manage TTS Credentials` live in VS
 Code SecretStorage rather than `settings.json`; environment variables remain a
 supported fallback.
 
+The local `kokoro` voice runs inside the sidebar. When you first use it, it
+downloads its speech library and the Kokoro-82M model from public CDNs and
+Hugging Face. Narration text stays on your machine.
+
 Standalone animated HTML exports cannot read VS Code SecretStorage. If you use
 a hosted voice in an export, its key is entered separately and stored only in
 that browser's local storage. RepoTrail never embeds the key in the exported
@@ -59,7 +63,8 @@ file.
 
 ## Local Files
 
-RepoTrail caches tour progress under `~/.repotrail/tours/`. It restores a tour
+RepoTrail keeps a copy of each tour you open, with your progress in it, under
+`~/.repotrail/tours/`. It restores a tour
 after a VS Code reload only when that tour was still active when the window
 closed; explicitly stopping it clears the active marker. Tour content lives
 under `.repotrail/`, and optional agent-created VS Code workspace files can live
