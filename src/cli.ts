@@ -1,13 +1,18 @@
 /**
  * RepoTrail's command line, for agents that write tours without seeing them.
  *
- *   node out/cli.js lint <tour.json> [--root <dir> | --root <alias>=<dir>]... [--json]
- *   node out/cli.js render <tour.json> --out <file.html> [--root ...]...
+ *   repotrail lint <tour.json> [--root <dir> | --root <alias>=<dir>]... [--json]
+ *   repotrail render <tour.json> --out <file.html> [--artifact] [--root ...]...
+ *
+ * Ships two ways: as out/cli.js inside the VS Code extension, and as the
+ * `repotrail` npm package (`npx repotrail`) for people without VS Code.
  *
  * `lint` reports what RepoTrail can't use and where text runs over budget.
  * `render` writes the animated HTML export, with slides, which any browser
- * opens at a position through `#stop=<n>&beat=<k>`. No `vscode` here: files
- * come from disk and diffs from `git show`, read-only.
+ * opens at a position through `#stop=<n>&beat=<k>`. With `--artifact` it
+ * writes a static page instead (HTML and SVG, no script) to publish as a
+ * Claude Artifact. No `vscode` here: files come from disk and diffs from
+ * `git show`, read-only.
  */
 
 import Ajv from "ajv";
@@ -18,9 +23,11 @@ import {
   buildAnimatedDiffFrame,
   codeFrameFromLines,
   planToAnimatedHtml,
+  STANDALONE_CODE_LIMITS,
   type AnimatedTourFrame,
 } from "./engine/animatedHtml";
 import { formatLintReport, lintTour } from "./engine/slides/lint";
+import { planToStaticHtml } from "./engine/staticTourHtml";
 import { slideBeats } from "./engine/slides/timeline";
 import { parseTourJson, stepLocation } from "./engine/tourSerialize";
 import type { TourPlan, TourStep } from "./engine/types";
@@ -28,17 +35,22 @@ import type { TourPlan, TourStep } from "./engine/types";
 const USAGE = `RepoTrail tour tools
 
 Usage:
-  node cli.js lint <tour.json> [--root <dir> | --root <alias>=<dir>]... [--json]
-  node cli.js render <tour.json> --out <file.html> [--root ...]...
+  repotrail lint <tour.json> [--root <dir> | --root <alias>=<dir>]... [--json]
+  repotrail render <tour.json> --out <file.html> [--artifact] [--root ...]...
+  repotrail --version
 
-lint     Report what RepoTrail can't use (errors, exit code 1) and text over
-         the skill's budgets (warnings).
-render   Write a standalone HTML player for the tour. Open it in a browser at
-         <file.html>#stop=<n>&beat=<k> to see any slide at any beat.
+lint        Report what RepoTrail can't use (errors, exit code 1) and text over
+            the skill's budgets (warnings).
+render      Write a standalone HTML player for the tour. Open it in a browser
+            at <file.html>#stop=<n>&beat=<k> to see any slide at any beat.
 
---root   Where the tour's files live. Defaults to the folder that holds the
-         tour's .repotrail directory, or the current directory. Repeat as
-         <alias>=<dir> for the root aliases in plan.roots.
+--artifact  Write a static page (HTML and SVG, no script) to publish as a
+            Claude Artifact or read without VS Code: every stop on one
+            scrolling page, more code around each stop, and slides drawn as
+            they stand after their last beat, with the beats listed below.
+--root      Where the tour's files live. Defaults to the folder that holds the
+            tour's .repotrail directory, or the current directory. Repeat as
+            <alias>=<dir> for the root aliases in plan.roots.
 `;
 
 interface Options {
@@ -46,11 +58,17 @@ interface Options {
   tour: string;
   out?: string;
   json: boolean;
+  /** Render a static page for an Artifact: no script, more code context. */
+  artifact: boolean;
   roots: Map<string, string>;
   defaultRoot: string;
 }
 
 function main(argv: string[]): number {
+  if (argv[0] === "--version" || argv[0] === "-v") {
+    process.stdout.write(`${version()}\n`);
+    return 0;
+  }
   const options = parseArgs(argv);
   if (!options) {
     process.stderr.write(USAGE);
@@ -98,6 +116,16 @@ function render(options: Options, text: string): number {
     return 1;
   }
   const frames = plan.steps.map((step, index) => frameFor(options, plan, step, index));
+  if (options.artifact) {
+    const slidesCss = plan.steps.some((step) => step.slide) ? readSlidesCss() : undefined;
+    const html = planToStaticHtml({ plan, exportedAt: new Date().toISOString(), frames, slidesCss });
+    writeFileSync(options.out, html);
+    process.stdout.write(
+      `Wrote ${options.out}: ${plan.steps.length} stops, ${Math.ceil(Buffer.byteLength(html) / 1024)} KB, no script.\n` +
+        `Publish it as an Artifact, or open it in any browser.\n`,
+    );
+    return 0;
+  }
   const runtime = plan.steps.some((step) => step.slide) ? readRuntime() : undefined;
   const html = planToAnimatedHtml({ plan, exportedAt: new Date().toISOString(), frames, slideRuntime: runtime });
   writeFileSync(options.out, html);
@@ -140,6 +168,8 @@ function frameFor(options: Options, plan: TourPlan, step: TourStep, index: numbe
         beforeLabel: step.diff.beforeLabel ?? step.diff.baseRef ?? "Before",
         afterLabel: step.diff.afterLabel ?? step.diff.headRef ?? "Working tree",
         languageId: step.diff.languageId,
+        // The range is in file lines, so it only applies when both sides are whole files.
+        focus: step.diff.baseRef && (step.diff.headRef || step.diff.afterText === undefined) ? step.range : undefined,
       });
       if (frame.diff.truncated) frame.warnings.push("Diff snapshot was trimmed for a compact shareable export.");
     }
@@ -150,7 +180,13 @@ function frameFor(options: Options, plan: TourPlan, step: TourStep, index: numbe
     frame.warnings.push(`Couldn't read ${step.file}.`);
     return frame;
   }
-  const snapshot = codeFrameFromLines(text.replace(/\r\n/g, "\n").split("\n"), step.range, undefined);
+  const snapshot = codeFrameFromLines(
+    text.replace(/\r\n/g, "\n").split("\n"),
+    step.range,
+    undefined,
+    "\n",
+    options.artifact ? STANDALONE_CODE_LIMITS : undefined,
+  );
   frame.code = snapshot.frame;
   frame.warnings.push(...snapshot.warnings);
   return frame;
@@ -173,6 +209,25 @@ function schemaErrors(text: string): string[] {
     .filter((e) => e.keyword !== "if" && e.keyword !== "anyOf")
     .map((e) => `${e.instancePath || "/"} ${e.message ?? ""}${e.keyword === "additionalProperties" ? `: "${(e.params as { additionalProperty?: string }).additionalProperty}"` : ""}`)
     .filter((message) => !seen.has(message) && Boolean(seen.add(message)));
+}
+
+/** This CLI's version, from the package.json beside out/ (the extension's or the npm package's). */
+function version(): string {
+  try {
+    return (JSON.parse(readFileSync(path.join(__dirname, "..", "package.json"), "utf8")) as { version: string }).version;
+  } catch {
+    return "0.0.0";
+  }
+}
+
+/** The slide stylesheet beside cli.js, which static pages inline. */
+function readSlidesCss(): string | undefined {
+  try {
+    return readFileSync(path.join(__dirname, "slides.css"), "utf8");
+  } catch {
+    process.stderr.write("The slide stylesheet (slides.css) isn't next to cli.js; slides will be unstyled.\n");
+    return undefined;
+  }
 }
 
 function readRuntime(): { script: string; css: string } | undefined {
@@ -217,10 +272,11 @@ function gitShow(root: string, ref: string, file: string): string | null {
 function parseArgs(argv: string[]): Options | null {
   const [command, tour, ...rest] = argv;
   if (!command || !tour || command.startsWith("-") || tour.startsWith("-")) return null;
-  const options: Options = { command, tour, json: false, roots: new Map(), defaultRoot: defaultRoot(tour) };
+  const options: Options = { command, tour, json: false, artifact: false, roots: new Map(), defaultRoot: defaultRoot(tour) };
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i];
     if (arg === "--json") options.json = true;
+    else if (arg === "--artifact") options.artifact = true;
     else if (arg === "--out") options.out = rest[++i];
     else if (arg === "--root") {
       const value = rest[++i];

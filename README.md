@@ -1,6 +1,6 @@
 # RepoTrail
 
-**Guided tours of your code, written by your coding agent, played in VS Code.**
+**Guided tours of your code, written by your coding agent, played in VS Code or as a page you can share.**
 
 Ask your agent to walk you through a pull request, a subsystem, or a design
 doc. It reads the code and writes a tour: an ordered list of stops, saved as a
@@ -8,6 +8,11 @@ JSON file in your repo's `.repotrail/` folder. RepoTrail plays that tour in the
 editor. Each stop opens the real file with the important lines highlighted, a
 native diff read from git, or an animated slide, and the agent's explanation
 sits beside it in the sidebar. You step through with Back and Next.
+
+No VS Code? In the Claude app or Claude Code, the RepoTrail plugin has Claude
+render the same tour as a page and publish it as a Claude Artifact: a link
+you can step through on any device and share. See
+[Without VS Code](#without-vs-code).
 
 RepoTrail works with any agent that can read your repo and write a file:
 Claude Code, Codex, Cursor, or anything similar. The extension has no model of
@@ -56,6 +61,55 @@ Turn docs/design/cache.md into a design review with slides.
 If your agent supports persistent skills, it can save the bundled skill as
 `repo-trail`. After that, "use the repo-trail skill" plus your request is
 enough, without Agent setup.
+
+### Without VS Code
+
+In the Claude app's Code tab, claude.ai/code or the Claude Code CLI, install
+the RepoTrail plugin. It carries the authoring skill:
+
+```text
+/plugin install repotrail --marketplace ilackarms/repotrail
+```
+
+On Claude Code older than 2.1.275, add the marketplace first:
+`/plugin marketplace add ilackarms/repotrail`, then
+`/plugin install repotrail@repotrail`.
+
+Then ask for a tour as a page:
+
+```text
+Give me a RepoTrail tour of PR #42 as an Artifact.
+Walk me through how this repo handles auth. Publish it as a page I can share.
+```
+
+Claude writes the tour to `.repotrail/` as usual, checks it with
+`npx repotrail lint`, renders it with `npx repotrail render --artifact`, and
+publishes the page as a Claude Artifact. The Artifact is private until you
+share it. The page is plain HTML and SVG with no script: every stop on one
+scrolling page, a contents list at the top, and light and dark themes.
+
+- **Code stops** show the range with a dozen lines of context on each side.
+- **Diff stops** show the change side by side, read from git, centered on
+  the stop's range. Unchanged runs fold into "N unchanged lines" rows, and
+  changes outside the range into "more changes above/below". On a phone they
+  switch to one column.
+- **Slides** are drawn as they stand after their last beat, with each beat's
+  caption listed underneath. They don't animate.
+
+The page is a snapshot. Code is copied in when it's rendered, so it can't
+jump to the real file the way VS Code does. To update it, ask Claude to
+change the tour, and it renders and republishes to the same link.
+
+Any other agent with Node 18 or later can do the same without the plugin:
+
+```bash
+npx -y repotrail lint .repotrail/<tour>.json
+npx -y repotrail render .repotrail/<tour>.json --artifact --out <tour>.html
+```
+
+Drop `--artifact` for the interactive player instead: one file that steps
+through the tour with Back and Next, plays slide beats, and reads narration
+aloud. It's bigger, because it carries its script.
 
 ## Three kinds of stops
 
@@ -267,6 +321,9 @@ under `~/.repotrail/tours/`, outside the repo.
   their library.
 - **Post one on a pull request.** Reviewers open it from a link. See the next
   section.
+- **Publish one as a page.** `npx repotrail render --artifact` writes a small
+  page to publish as a Claude Artifact, for readers without VS Code. See
+  [Without VS Code](#without-vs-code).
 - **Export one.** **Export tour…** writes:
   - **Animated HTML**: a single-file player with the code, diffs, slides, and
     beats, plus Back, Next, and a Speak button with its own voice settings.
@@ -379,17 +436,23 @@ gutter; for those, Comment on PR opens the file itself.
 - **[`harness/README.md`](harness/README.md)** is the file contract.
 - **[`harness/tour.schema.json`](harness/tour.schema.json)** is the JSON
   Schema (draft-07).
-- **`out/cli.js`** ships inside the extension for agents that can't see VS
-  Code. Agent setup includes its full path.
+- **The `repotrail` command line** lints and renders tours. It ships two ways:
+  as the [`repotrail`](https://www.npmjs.com/package/repotrail) npm package,
+  and as `out/cli.js` inside the extension. Agent setup includes the
+  extension's full path.
 
   ```bash
-  node <extension>/out/cli.js lint <tour.json> [--root <dir> | --root <alias>=<dir>]... [--json]
-  node <extension>/out/cli.js render <tour.json> --out <file.html> [--root ...]...
+  npx -y repotrail lint <tour.json> [--root <dir> | --root <alias>=<dir>]... [--json]
+  npx -y repotrail render <tour.json> --out <file.html> [--artifact] [--root ...]...
+  node <extension>/out/cli.js lint <tour.json>
   ```
 
   `lint` checks the schema, beat ids, that every file and range exists, and
   the skill's text budgets, and exits 1 on errors. `render` writes the same
-  HTML player as Export.
+  HTML player as Export. With `--artifact`, it writes a static page (HTML
+  and SVG, no script) to publish as a Claude Artifact.
+- **The Claude Code plugin** in [`harness/`](harness/) installs the skill
+  with `/plugin install repotrail --marketplace ilackarms/repotrail`.
 
 An agent can also set up the workspace. Ask it to check out the repos or
 worktrees it needs, save a `.code-workspace` under `~/.repotrail/workspaces/`,
@@ -455,6 +518,10 @@ Use the repo-trail skill. Create a RepoTrail workspace for <repo or PR>. Check o
   A hosted voice sends narration text to OpenAI or ElevenLabs. The Kokoro
   voice downloads its library and model from public CDNs and Hugging Face.
   RepoTrail runs no startup or background checks of its own.
+- **The command line stays offline.** It reads the tour, the files it names
+  and git objects, and writes one HTML file. `npx` downloads it from npm. A
+  page rendered with `--artifact` loads nothing when opened, but it holds
+  excerpts of your code, so share it as you would the code.
 - **Never posts to GitHub.** To tell whether a diff stop can take comments,
   RepoTrail asks the GitHub Pull Requests extension, if you have it, which PR
   a folder has checked out, passing only the folder. Asking can start that

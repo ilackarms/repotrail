@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.15.0 - 2026-11-12
+
+- RepoTrail works without VS Code. People who use the Claude app or Claude
+  Code can have Claude publish a tour as a page, usually a Claude Artifact.
+  - The command line is now the `repotrail` npm package, so
+    `npx repotrail lint` and `npx repotrail render` run anywhere with Node 18
+    or later. It still ships inside the extension as `out/cli.js`.
+  - `render --artifact` writes a static page to publish as a Claude Artifact:
+    HTML and SVG with no script, so it works anywhere and the agent can read
+    all of it before publishing. Every stop is a section on one scrolling
+    page with a contents list. Code stops show a dozen lines of context, and
+    slides are drawn as they stand after their last beat, with the beats'
+    captions listed below. A 16-stop design review with slides comes to about
+    90 KB.
+  - The repo is a Claude Code plugin marketplace. In Claude Code, run
+    `/plugin install repotrail --marketplace ilackarms/repotrail`.
+  - The skill has a third mode for readers without VS Code: write the tour,
+    lint it, render it with `--artifact`, and publish the page.
+- HTML exports, from Export Tour and from the CLI, follow the system's light
+  or dark theme. They also fit phone screens.
+- Diffs in HTML exports focus on the change. Before, they showed the first
+  140 lines of the file, so a change below line 140 didn't appear at all.
+  Unchanged runs now fold into "N unchanged lines" rows. A diff stop shows the
+  part of the file in its range, with "more changes above/below" for the rest.
+
 ## 0.14.2 - 2026-11-12
 
 - Rewrote the README. It now starts with what a tour is and a quick start,

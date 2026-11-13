@@ -2,7 +2,7 @@
   "name": "repotrail",
   "displayName": "RepoTrail",
   "description": "Agent-authored JSON codebase tours in VS Code.",
-  "version": "0.14.2",
+  "version": "0.15.0",
   "publisher": "repotrail",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -409,6 +409,7 @@
     "watch": "tsc -watch -p ./ --noEmit",
     "build": "pnpm typecheck && pnpm compile",
     "package": "pnpm build && vsce package --no-dependencies",
+    "package:npm": "pnpm build && node scripts/pack-npm.mjs",
     "install-local": "pnpm package && code --install-extension repotrail-$npm_package_version.vsix --force",
     "vscode:prepublish": "pnpm build"
   },

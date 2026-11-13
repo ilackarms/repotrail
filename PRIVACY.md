@@ -37,6 +37,18 @@ Otherwise it waits for you to pick one of its buttons:
   checkout has landed, so that it can reopen the stop.
 - **Comment on GitHub** opens the pull request in your browser.
 
+## Command Line And Shared Pages
+
+The `repotrail` command line (the npm package, or `out/cli.js` inside the
+extension) reads the tour, the files it names and local git objects, and
+writes one HTML file. It makes no network requests. Running it with `npx`
+downloads the package from the npm registry.
+
+A page rendered with `render --artifact` is static HTML and SVG: it runs no
+script and loads nothing when opened. It contains excerpts of the code, diffs
+and narration in the tour. Publishing it, for example as a
+Claude Artifact, shares those excerpts with everyone who can open it.
+
 ## Source Code Access
 
 RepoTrail itself does not send your source code to a hosted model. Tour

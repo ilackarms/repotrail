@@ -25,6 +25,12 @@ After every complete user-visible fix or feature:
 
 Skip only if the user explicitly says not to commit, package, or reinstall.
 
+A release bumps the version in `package.json`, the skill's
+`npx -y repotrail@<version>` pins, and `harness/.claude-plugin/plugin.json`
+together (`test/releaseVersions.test.mjs` checks this). After merging, the
+maintainer publishes the npm package with `pnpm package:npm` and
+`npm publish dist/npm`. Until then, the skill's `npx` commands fail.
+
 ## Architecture Rule
 
 Layers stay separated:
@@ -51,10 +57,18 @@ Layers stay separated:
    panel; `src/ux/slidePanel.ts` owns that panel and only `editorActions.ts`
    drives it. Webview code may import `src/engine/` and pure UI helpers, never
    `vscode`.
-7. `src/cli.ts` is the command line for agents (`out/cli.js lint` and
-   `render`). It uses `src/engine/` only and reads files and git directly;
-   it never imports `vscode`. Lint rules live in `src/engine/slides/lint.ts`.
-8. `harness/repo-trail/SKILL.md` is the generic authoring skill.
+7. `src/cli.ts` is the command line for agents (`lint` and `render`). It
+   ships as `out/cli.js` in the extension and as the `repotrail` npm package
+   (`scripts/pack-npm.mjs` assembles `dist/npm`). It uses `src/engine/` only
+   and reads files and git directly; it never imports `vscode`. Lint rules
+   live in `src/engine/slides/lint.ts`. `render --artifact` writes a static
+   page (`src/engine/staticTourHtml.ts`, no script). Its slides come from
+   `src/engine/slides/staticSlide.ts`, a string version of the slide
+   webview's `render.ts` and `diagrams.ts`: same markup and classes, styled by
+   the same `slides.css`. Change them together.
+8. `harness/repo-trail/SKILL.md` is the generic authoring skill. `harness/` is
+   also a Claude Code plugin (`harness/.claude-plugin/plugin.json`), listed
+   by the repo's `.claude-plugin/marketplace.json`.
 9. `harness/README.md` documents the JSON file contract for external agents.
 
 ## Product Rule

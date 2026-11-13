@@ -1,15 +1,19 @@
 ---
 name: repo-trail
-description: Create or use a VS Code workspace and generate an interactive RepoTrail tour by writing a complete .repotrail JSON file.
+description: Generate an interactive RepoTrail codebase tour (architecture, PR walkthrough, design review) by writing a complete .repotrail JSON file, then play it in VS Code or publish it as a page anyone can open, such as a Claude Artifact. Use when the user asks for a tour, walkthrough or guided review of a repo, PR, diff or design doc.
 ---
 
 # RepoTrail Agent Skill
 
-RepoTrail is the VS Code editor surface for agent-guided codebase tours. You
-are the analysis and orchestration engine. The durable tour artifact is a
-complete JSON file under the owning project's `.repotrail/` directory.
-RepoTrail watches those files, lists them in the sidebar, and plays them back in
-VS Code.
+RepoTrail plays agent-guided codebase tours. You are the analysis and
+orchestration engine. The durable tour artifact is a complete JSON file under
+the owning project's `.repotrail/` directory. Two things play it:
+
+- The RepoTrail VS Code extension watches those files, lists them in the
+  sidebar, and plays them in the editor.
+- The `repotrail` command line renders a tour as a page that plays in any
+  browser. For people without VS Code, that page is the tour: publish it as a
+  Claude Artifact or hand them the file.
 
 Install or use this skill in your current session before creating a RepoTrail
 tour. If your agent supports persistent skills, save this document as the
@@ -18,11 +22,19 @@ instructions for the current request.
 
 ## Supported Modes
 
-RepoTrail supports two operating modes. Pick the mode from the user's request.
-If the user is already in VS Code or says "current workspace", use Mode A. If
-the user asks you to prepare a workspace, check out a PR, open VS Code, or create
-a RepoTrail workspace, use Mode B. If the PR or branch is already checked out
-locally, use Mode A with that checkout and write no workspace file.
+RepoTrail supports three operating modes. Pick the mode from the user's request
+and where you're running.
+
+- The user doesn't use VS Code: you're running in the Claude app or claude.ai,
+  the user says so, or they ask for a link, a page or an Artifact. Use Mode C.
+  In a terminal with no `code` command, use Mode C too, unless the user asked
+  for a VS Code workspace (Mode B).
+- The user is already in VS Code or says "current workspace": use Mode A.
+- The user asks you to prepare a workspace, check out a PR, open VS Code, or
+  create a RepoTrail workspace: use Mode B.
+
+If the PR or branch is already checked out locally, use Mode A or C with that
+checkout and write no workspace file.
 
 ### Mode A: Existing VS Code Workspace
 
@@ -58,6 +70,48 @@ Use this when the user wants you to create the workspace as part of the flow.
 6. Write one or more complete tour JSON files into the owning repo roots'
    `.repotrail/` directories.
 7. Tell the user the workspace file path and tour file path.
+
+### Mode C: No VS Code (a page, usually a Claude Artifact)
+
+Use this when the user will read the tour outside VS Code. The tour file is
+the same; RepoTrail's command line turns it into a page. It needs Node 18 or
+later and runs as `npx -y repotrail@0.15.0`.
+
+1. Work in a local clone of the repo. For a PR, fetch it (for example
+   `git fetch origin pull/<n>/head`) so both refs your diff stops name exist
+   locally: the renderer reads them with `git show`. Use a new worktree rather
+   than switching the user's checkout.
+2. Read the repo for real and write one complete tour JSON file to the owning
+   project's `.repotrail/` directory, exactly as in the other modes. Skip the
+   workspace file.
+3. Lint it and fix every error:
+
+   ```bash
+   npx -y repotrail@0.15.0 lint <project>/.repotrail/<slug>.json
+   ```
+
+4. Render the page:
+
+   ```bash
+   npx -y repotrail@0.15.0 render <project>/.repotrail/<slug>.json --artifact --out <scratch>/<slug>.html
+   ```
+
+   Put the page in your scratch or temp directory, not in the repo. It's
+   static HTML and SVG with no script: every stop on one scrolling page, with
+   the code around each stop, diffs read from git, and narration. Slides are
+   drawn as they stand after their last beat, with the beats' `say` captions
+   listed below, so make sure a slide's final state shows what matters.
+5. Publish it. If you have a tool that publishes an HTML page as a Claude
+   Artifact, read the rendered page and publish it, named after the tour's
+   title. Don't edit the page by hand: change the JSON and render again. The
+   Artifact is private until the user shares it. Without such a tool, open
+   the page in a browser (`open <file>` on macOS) or send the user the file.
+6. Tell the user: the link (or the file), the tour file's path, and the
+   number of stops. Mention that the same file plays in VS Code with the
+   RepoTrail extension.
+
+For a follow-up, rewrite the JSON, render it again, and publish to the same
+Artifact so the link keeps working.
 
 The global workspace registry stores workspace launch files and manifests only.
 Do not store tours there. The source of truth for tours is always the repo-local
@@ -102,12 +156,12 @@ Example manifest:
 
 Write the entire tour file before reporting completion. The user opens and
 navigates it locally with Back/Next, CodeLens controls, and the RepoTrail
-sidebar. For a follow-up, rewrite the complete JSON route so the file remains a
+sidebar, or on the rendered page in Mode C. For a follow-up, rewrite the complete JSON route so the file remains a
 self-contained tour.
 
 ## Tour Workflow
 
-1. Pick Mode A or Mode B.
+1. Pick Mode A, B or C.
 2. Pick the tour kind. If unclear, infer the best kind from the request:
    architecture, pr-diff, file-walkthrough, request-lifecycle,
    bug-investigation, or design-review.
@@ -119,8 +173,9 @@ self-contained tour.
 5. Plan the route. Order stops so each one builds on the previous one.
 6. Write one complete JSON file to the owning project's `.repotrail/` directory,
    for example `.repotrail/architecture.json`.
-7. Tell the user: "Tour ready -- wrote `.repotrail/<file>.json` with X stops.
-   Open it from the RepoTrail sidebar."
+7. In Mode A or B, tell the user: "Tour ready -- wrote
+   `.repotrail/<file>.json` with X stops. Open it from the RepoTrail sidebar."
+   In Mode C, lint, render and publish it as described there.
 
 If a request spans multiple repos, write the tour into the repo that owns the
 story. Reference the other open roots with `plan.roots` aliases and each step's
@@ -449,14 +504,21 @@ Checklist before you report the tour:
 - RepoTrail's linter passes with no errors:
 
   ```bash
-  node <extension>/out/cli.js lint <project>/.repotrail/<slug>.json
+  repotrail lint <project>/.repotrail/<slug>.json
   ```
 
-  `<extension>` is the installed extension's folder, for example
-  `~/.vscode/extensions/repotrail.repotrail-<version>` (the Agent setup prompt
-  gives the exact path). Lint validates against the JSON Schema
-  (`<extension>/harness/tour.schema.json`, the complete reference for accepted
-  fields), checks every beat id, and checks that every `file` exists and every
+  `repotrail` is RepoTrail's command line. Run it one of two ways:
+
+  - `npx -y repotrail@0.15.0`: anywhere with Node 18 or later, no VS Code
+    needed.
+  - `node <extension>/out/cli.js`, when the VS Code extension is installed.
+    `<extension>` is its folder, for example
+    `~/.vscode/extensions/repotrail.repotrail-<version>`. The Agent setup
+    prompt gives the exact path.
+
+  Lint validates against the JSON Schema (`harness/tour.schema.json` in the
+  extension or the npm package, the complete reference for accepted fields),
+  checks every beat id, and checks that every `file` exists and every
   range is inside it. Errors are things RepoTrail would drop: fix all of them.
   Warnings are the text budgets above and diagrams that will render too small:
   fix them unless you have a reason not to. Lint finds files relative to the
@@ -466,7 +528,7 @@ Checklist before you report the tour:
 - If you can open a browser, look at the slides:
 
   ```bash
-  node <extension>/out/cli.js render <project>/.repotrail/<slug>.json --out /tmp/<slug>.html
+  repotrail render <project>/.repotrail/<slug>.json --out /tmp/<slug>.html
   ```
 
   Open `/tmp/<slug>.html#stop=<n>&beat=<k>` to see stop n after beat k (the
@@ -512,6 +574,12 @@ PR walkthrough:
 
 ```text
 Use the repo-trail skill. Create a PR walkthrough tour for <PR URL>. Prepare a VS Code workspace if needed, use diff-backed stops for the meaningful changed hunks, and save the tour as .repotrail/pr-walkthrough.json in the repo that owns the PR.
+```
+
+No VS Code (a page or Claude Artifact):
+
+```text
+Use the repo-trail skill in Mode C. Create a RepoTrail tour of <repo, PR URL, or subsystem>. Write the JSON tour into the owning repo's .repotrail/ directory, lint it and render it with npx repotrail --artifact, then publish the page as an Artifact and give me the link.
 ```
 
 Design review:

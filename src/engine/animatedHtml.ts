@@ -1,3 +1,4 @@
+import { THEME_CSS } from "./pageTheme";
 import { TourPlan, TourRange, TourSlide } from "./types";
 import {
   BROWSER_TTS_PROVIDERS,
@@ -17,7 +18,13 @@ export interface AnimatedTourCodeFrame {
 export interface AnimatedTourDiffRow {
   before?: string;
   after?: string;
-  type: "equal" | "delete" | "insert";
+  /**
+   * "gap" stands for `skipped` rows left out: unchanged lines between changes,
+   * or, with a `label`, the rest of the file outside the stop's range.
+   */
+  type: "equal" | "delete" | "insert" | "gap";
+  skipped?: number;
+  label?: string;
 }
 
 export interface AnimatedTourDiffFrame {
@@ -59,6 +66,17 @@ export interface AnimatedTourHtmlInput {
 export const ANIMATED_EXPORT_CONTEXT_LINES = 2;
 export const ANIMATED_EXPORT_MAX_CODE_LINES = 80;
 
+export interface CodeFrameLimits {
+  contextLines: number;
+  maxLines: number;
+}
+
+/**
+ * Code shown around a stop on a page people read without the repo open (an
+ * Artifact), where the snapshot is all the context they get.
+ */
+export const STANDALONE_CODE_LIMITS: CodeFrameLimits = { contextLines: 12, maxLines: 200 };
+
 /**
  * The code shown for a code stop: the range plus some context, capped in
  * length. `lines` is the whole file.
@@ -68,16 +86,17 @@ export function codeFrameFromLines(
   range: TourRange | undefined,
   languageId: string | undefined,
   eol = "\n",
+  limits: CodeFrameLimits = { contextLines: ANIMATED_EXPORT_CONTEXT_LINES, maxLines: ANIMATED_EXPORT_MAX_CODE_LINES },
 ): { frame: AnimatedTourCodeFrame; warnings: string[] } {
   if (lines.length === 0) return { frame: { text: "", startLine: 1, languageId }, warnings: [] };
   const clampLine = (n: number, lo: number) => Math.max(lo, Math.min(lines.length - 1, n));
   const focusStart = range ? clampLine(range.startLine - 1, 0) : 0;
   const focusEnd = range ? clampLine(range.endLine - 1, focusStart) : 0;
-  const start = range ? Math.max(0, focusStart - ANIMATED_EXPORT_CONTEXT_LINES) : 0;
+  const start = range ? Math.max(0, focusStart - limits.contextLines) : 0;
   let end = range
-    ? Math.min(lines.length - 1, focusEnd + ANIMATED_EXPORT_CONTEXT_LINES)
-    : Math.min(lines.length - 1, ANIMATED_EXPORT_MAX_CODE_LINES - 1);
-  if (end - start + 1 > ANIMATED_EXPORT_MAX_CODE_LINES) end = start + ANIMATED_EXPORT_MAX_CODE_LINES - 1;
+    ? Math.min(lines.length - 1, focusEnd + limits.contextLines)
+    : Math.min(lines.length - 1, limits.maxLines - 1);
+  if (end - start + 1 > limits.maxLines) end = start + limits.maxLines - 1;
   const truncated = start > 0 || end < lines.length - 1;
   return {
     frame: {
@@ -102,41 +121,166 @@ export interface AnimatedTourTtsDefaults {
   openAiInstructions?: string;
 }
 
-const MAX_DIFF_LINES = 140;
+/** Rows a diff snapshot shows at most, gap rows included. */
+const MAX_DIFF_ROWS = 160;
+/** Unchanged lines kept on each side of a change. */
+const DIFF_CONTEXT_LINES = 4;
+/** Past this many before × after lines, the changed region is too big to align line by line. */
+const MAX_DIFF_CELLS = 4_000_000;
 
+/**
+ * A side-by-side diff of two versions of a file, focused on what changed.
+ * Unchanged runs longer than a few lines of context collapse into gap rows,
+ * so a change deep in a long file still shows. With `focus` (the stop's range,
+ * in after-side lines) the snapshot keeps only that part of the file.
+ */
 export function buildAnimatedDiffFrame(input: {
   beforeText: string;
   afterText: string;
   beforeLabel?: string;
   afterLabel?: string;
   languageId?: string;
+  focus?: { startLine: number; endLine: number };
 }): AnimatedTourDiffFrame {
-  const beforeLines = splitLines(input.beforeText);
-  const afterLines = splitLines(input.afterText);
-  const truncated = beforeLines.length > MAX_DIFF_LINES || afterLines.length > MAX_DIFF_LINES;
-  const before = beforeLines.slice(0, MAX_DIFF_LINES);
-  const after = afterLines.slice(0, MAX_DIFF_LINES);
+  const before = splitLines(input.beforeText);
+  const after = splitLines(input.afterText);
+  let prefix = 0;
+  while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix++;
+  let suffix = 0;
+  while (
+    suffix < before.length - prefix &&
+    suffix < after.length - prefix &&
+    before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+  ) {
+    suffix++;
+  }
+  let changedBefore = before.slice(prefix, before.length - suffix);
+  let changedAfter = after.slice(prefix, after.length - suffix);
+  let truncated = false;
+  if ((changedBefore.length + 1) * (changedAfter.length + 1) > MAX_DIFF_CELLS) {
+    // Too big to align: show the start of the changed region.
+    changedBefore = changedBefore.slice(0, MAX_DIFF_ROWS);
+    changedAfter = changedAfter.slice(0, MAX_DIFF_ROWS);
+    truncated = true;
+  }
+  const equal = (text: string): AnimatedTourDiffRow => ({ before: text, after: text, type: "equal" });
+  let all = [
+    ...before.slice(0, prefix).map(equal),
+    ...diffRows(changedBefore, changedAfter),
+    ...(truncated ? [] : before.slice(before.length - suffix).map(equal)),
+  ];
+  let above: AnimatedTourDiffRow[] = [];
+  let below: AnimatedTourDiffRow[] = [];
+  const window = input.focus && !truncated ? focusWindow(all, input.focus) : undefined;
+  if (window) {
+    above = edgeGap(all.slice(0, window.start), "above");
+    below = edgeGap(all.slice(window.end), "below");
+    all = all.slice(window.start, window.end);
+  }
+  const rows = mergeGaps([...above, ...collapseUnchanged(all), ...below]);
+  if (rows.length > MAX_DIFF_ROWS) {
+    rows.length = MAX_DIFF_ROWS;
+    truncated = true;
+  }
   return {
     beforeLabel: input.beforeLabel ?? "Before",
     afterLabel: input.afterLabel ?? "After",
-    beforeText: before.join("\n"),
-    afterText: after.join("\n"),
+    beforeText: rows.flatMap((row) => (row.before === undefined ? [] : [row.before])).join("\n"),
+    afterText: rows.flatMap((row) => (row.after === undefined ? [] : [row.after])).join("\n"),
     languageId: input.languageId,
-    rows: diffRows(before, after),
+    rows: rows.length > 0 ? rows : [{ before: "", after: "", type: "equal" }],
     truncated,
   };
 }
 
+/**
+ * The rows covering after-side lines `focus`, plus context; undefined when
+ * none do. A run of changes counts as one block, so a stop on a rewritten
+ * hunk keeps all of its deleted lines too.
+ */
+function focusWindow(
+  rows: AnimatedTourDiffRow[],
+  focus: { startLine: number; endLine: number },
+): { start: number; end: number } | undefined {
+  let afterLine = 0;
+  let first = -1;
+  let last = -1;
+  let i = 0;
+  while (i < rows.length) {
+    if (rows[i].type === "equal") {
+      afterLine++;
+      if (afterLine >= focus.startLine && afterLine <= focus.endLine) {
+        if (first < 0) first = i;
+        last = i;
+      }
+      i++;
+      continue;
+    }
+    // A block of changes spans its inserted lines; a pure deletion sits at
+    // the next after-side line.
+    const blockStart = afterLine + 1;
+    let j = i;
+    while (j < rows.length && rows[j].type !== "equal") {
+      if (rows[j].type === "insert") afterLine++;
+      j++;
+    }
+    const blockEnd = Math.max(blockStart, afterLine);
+    if (blockStart <= focus.endLine && blockEnd >= focus.startLine) {
+      if (first < 0) first = i;
+      last = j - 1;
+    }
+    i = j;
+  }
+  if (first < 0) return undefined;
+  return { start: Math.max(0, first - DIFF_CONTEXT_LINES), end: Math.min(rows.length, last + 1 + DIFF_CONTEXT_LINES) };
+}
+
+/** One gap row for the part of the file outside the stop's range. */
+function edgeGap(rows: AnimatedTourDiffRow[], where: "above" | "below"): AnimatedTourDiffRow[] {
+  if (rows.length === 0) return [];
+  const changed = rows.some((row) => row.type !== "equal");
+  return [{ type: "gap", skipped: rows.length, label: changed ? `more changes ${where}` : undefined }];
+}
+
+function mergeGaps(rows: AnimatedTourDiffRow[]): AnimatedTourDiffRow[] {
+  const out: AnimatedTourDiffRow[] = [];
+  for (const row of rows) {
+    const prev = out[out.length - 1];
+    if (row.type === "gap" && prev?.type === "gap") {
+      out[out.length - 1] = { type: "gap", skipped: (prev.skipped ?? 0) + (row.skipped ?? 0), label: prev.label ?? row.label };
+    } else out.push(row);
+  }
+  return out;
+}
+
+/** Keeps DIFF_CONTEXT_LINES of unchanged lines around each change and folds the rest into gap rows. */
+function collapseUnchanged(rows: AnimatedTourDiffRow[]): AnimatedTourDiffRow[] {
+  if (!rows.some((row) => row.type !== "equal")) return rows;
+  const out: AnimatedTourDiffRow[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    if (rows[i].type !== "equal") {
+      out.push(rows[i++]);
+      continue;
+    }
+    let j = i;
+    while (j < rows.length && rows[j].type === "equal") j++;
+    const head = i === 0 ? 0 : DIFF_CONTEXT_LINES; // after a change
+    const tail = j === rows.length ? 0 : DIFF_CONTEXT_LINES; // before a change
+    if (j - i <= head + tail + 1) out.push(...rows.slice(i, j));
+    else out.push(...rows.slice(i, i + head), { type: "gap", skipped: j - i - head - tail }, ...rows.slice(j - tail, j));
+    i = j;
+  }
+  return out;
+}
+
+/**
+ * The HTML player for a tour: one self-contained page with the styles, the
+ * slide runtime and the player script, so it works offline. (Static pages for
+ * readers without VS Code come from staticTourHtml.ts.)
+ */
 export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
-  const data = JSON.stringify({
-    title: input.plan.title || "RepoTrail tour",
-    kind: input.plan.kind,
-    summary: input.plan.summary,
-    exportedAt: input.exportedAt,
-    frames: input.frames,
-    tts: input.tts ?? {},
-  }).replace(/</g, "\\u003c");
-  const browserTtsDefaults = JSON.stringify({
+  const ttsDefaults = {
     provider: TTS_DEFAULTS.provider,
     kokoroVoice: TTS_DEFAULTS.kokoroVoice,
     elevenLabsVoiceId: TTS_DEFAULTS.elevenLabsVoiceId,
@@ -144,35 +288,43 @@ export function planToAnimatedHtml(input: AnimatedTourHtmlInput): string {
     openAiModel: TTS_DEFAULTS.openAiModel,
     openAiVoice: TTS_DEFAULTS.openAiVoice,
     openAiInstructions: TTS_DEFAULTS.openAiInstructions,
-  });
-  const browserTtsProviders = JSON.stringify(BROWSER_TTS_PROVIDERS);
-
+  };
+  const payload = {
+    title: input.plan.title || "RepoTrail tour",
+    kind: input.plan.kind,
+    summary: input.plan.summary,
+    exportedAt: input.exportedAt,
+    frames: input.frames,
+    tts: input.tts ?? {},
+    ttsDefaults,
+    ttsProviders: BROWSER_TTS_PROVIDERS,
+  };
+  const data = JSON.stringify(payload).replace(/</g, "\\u003c");
+  const title = escapeHtml(input.plan.title || "RepoTrail tour");
+  const runtime = input.slideRuntime;
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
-<title>${escapeHtml(input.plan.title || "RepoTrail tour")}</title>
-${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<\\/style")}</style>` : ""}
-<style>
-  :root {
-    color-scheme: dark;
-    --bg: #171717;
-    --panel: #232323;
-    --panel-2: #2d2a25;
-    --line: #403d38;
-    --text: #f4f0e8;
-    --muted: #afa89e;
-    --accent: #2fb7a3;
-    --accent-2: #f0b84d;
-    --danger: #ef7466;
-    --code-bg: #101010;
-    --code-line: #262626;
-    --code-hi: rgba(47, 183, 163, 0.2);
-    --delete-bg: rgba(239, 116, 102, 0.16);
-    --insert-bg: rgba(47, 183, 163, 0.16);
-  }
+<title>${title}</title>
+${runtime ? `<style>${runtime.css.replace(/<\/style/gi, "<\\/style")}</style>` : ""}
+<style>${PLAYER_CSS}</style>
+</head>
+<body>
+${PLAYER_MARKUP}
+<script id="tour-data" type="application/json">${data}</script>
+${runtime ? `<script>${runtime.script.replace(/<\/script/gi, "<\\/script")}</script>` : ""}
+<script>
+${PLAYER_SCRIPT}
+</script>
+</body>
+</html>`;
+}
+
+const PLAYER_CSS = `
+${THEME_CSS}
 
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -198,8 +350,8 @@ ${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<
 
   button:hover { border-color: var(--accent); }
   button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #071412; font-weight: 700; }
-  button.secondary { background: #1d1d1c; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; }
+  button.secondary { background: var(--chrome); }
 
   .app {
     min-height: 100vh;
@@ -214,7 +366,7 @@ ${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<
     align-items: center;
     padding: 18px 22px 12px;
     border-bottom: 1px solid var(--line);
-    background: #1c1b19;
+    background: var(--chrome);
   }
 
   .eyebrow {
@@ -253,7 +405,7 @@ ${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<
 
   .rail {
     border-right: 1px solid var(--line);
-    background: #1d1d1c;
+    background: var(--chrome);
     min-height: 0;
     overflow: auto;
     padding: 12px;
@@ -318,7 +470,7 @@ ${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<
 
   .progress {
     height: 4px;
-    background: #2a2927;
+    background: var(--track);
     overflow: hidden;
   }
 
@@ -397,7 +549,7 @@ ${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<
     display: grid;
     grid-template-columns: 58px minmax(0, 1fr);
     min-height: 22px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--rule);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     font-size: 12px;
     line-height: 1.45;
@@ -405,10 +557,10 @@ ${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<
 
   .line-no {
     padding: 2px 10px;
-    color: #7c776f;
+    color: var(--gutter-fg);
     text-align: right;
     user-select: none;
-    background: #151515;
+    background: var(--gutter-bg);
   }
 
   .line-code {
@@ -440,7 +592,7 @@ ${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<
     position: sticky;
     top: 0;
     z-index: 1;
-    background: #151515;
+    background: var(--gutter-bg);
     border-bottom: 1px solid var(--line);
   }
 
@@ -462,7 +614,7 @@ ${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<
     min-width: 0;
     display: grid;
     grid-template-columns: 28px minmax(0, 1fr);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--rule);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     font-size: 12px;
     line-height: 1.45;
@@ -471,10 +623,10 @@ ${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<
 
   .diff-mark {
     padding: 2px 8px;
-    color: #8f887d;
+    color: var(--gutter-fg);
     text-align: center;
     user-select: none;
-    background: #151515;
+    background: var(--gutter-bg);
   }
 
   .diff-code {
@@ -488,6 +640,15 @@ ${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<
 
   .diff-cell.delete .diff-code { background: var(--delete-bg); }
   .diff-cell.insert .diff-code { background: var(--insert-bg); }
+
+  .diff-gap {
+    padding: 3px 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--gutter-bg);
+    color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 11px;
+  }
 
   .story {
     display: grid;
@@ -514,7 +675,7 @@ ${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<
 
   .narration {
     margin-top: 14px;
-    color: #dfd8ce;
+    color: var(--text-soft);
     line-height: 1.55;
     white-space: pre-wrap;
   }
@@ -526,11 +687,11 @@ ${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<
   }
 
   .warning {
-    border: 1px solid rgba(239, 116, 102, 0.45);
+    border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
     border-radius: 6px;
     padding: 8px 10px;
-    color: #f6c8c1;
-    background: rgba(239, 116, 102, 0.12);
+    color: var(--danger-fg);
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
     font-size: 12px;
   }
 
@@ -543,7 +704,7 @@ ${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--panel);
-    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
+    box-shadow: var(--shadow);
     padding: 12px;
   }
 
@@ -572,7 +733,7 @@ ${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<
     width: 100%;
     border: 1px solid var(--line);
     border-radius: 5px;
-    background: #171717;
+    background: var(--bg);
     color: var(--text);
     padding: 7px 8px;
     font: inherit;
@@ -616,7 +777,7 @@ ${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<
     --vscode-editor-background: var(--panel);
     --vscode-editor-foreground: var(--text);
     --vscode-descriptionForeground: var(--muted);
-    --vscode-editorWidget-background: #1d1d1c;
+    --vscode-editorWidget-background: var(--chrome);
     --vscode-editorWidget-border: var(--line);
     --vscode-textCodeBlock-background: var(--code-bg);
   }
@@ -639,27 +800,21 @@ ${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<
     .code-body { max-height: 54vh; }
   }
 
+  @media (max-width: 600px) {
+    .topbar { padding: 14px 16px 10px; }
+    h1 { font-size: 20px; }
+    .tts-panel { margin: 0 16px 14px; }
+    .rail { padding: 10px 16px; }
+    .stop-list { grid-auto-columns: minmax(200px, 1fr); }
+    .frame { padding: 14px 16px; gap: 14px; }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
   }
-</style>
-</head>
-<body>
-<div class="app">
-  <header class="topbar">
-    <div>
-      <div class="eyebrow">RepoTrail animated export</div>
-      <h1 id="tourTitle"></h1>
-      <div id="tourSummary" class="summary"></div>
-    </div>
-    <div class="controls">
-      <button id="prevBtn" title="Previous stop">Back</button>
-      <button id="nextBtn" title="Next stop">Next</button>
-      <button id="speakBtn" title="Read the current stop aloud">Speak</button>
-      <button id="ttsSettingsBtn" class="secondary" title="Configure speech for this exported tour">TTS</button>
-    </div>
-  </header>
-  <section id="ttsPanel" class="tts-panel" aria-label="Text to speech settings" hidden>
+`;
+
+const TTS_PANEL = `  <section id="ttsPanel" class="tts-panel" aria-label="Text to speech settings" hidden>
     <form id="ttsForm" autocomplete="off">
     <div class="tts-grid">
       <label class="tts-field">
@@ -713,7 +868,23 @@ ${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<
     <p id="ttsStatus" class="tts-status"></p>
     </form>
     <p class="tts-note">System and Kokoro run in the browser. Hosted voices need your API key here because exported HTML cannot safely carry VS Code secrets. Command-based voices such as macOS say cannot run from a browser page.</p>
-  </section>
+  </section>`;
+
+const PLAYER_MARKUP = `<div class="app">
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">RepoTrail animated export</div>
+      <h1 id="tourTitle"></h1>
+      <div id="tourSummary" class="summary"></div>
+    </div>
+    <div class="controls">
+      <button id="prevBtn" title="Previous stop">Back</button>
+      <button id="nextBtn" title="Next stop">Next</button>
+      <button id="speakBtn" title="Read the current stop aloud">Speak</button>
+      <button id="ttsSettingsBtn" class="secondary" title="Configure speech for this exported tour">TTS</button>
+    </div>
+  </header>
+${TTS_PANEL}
   <div class="layout">
     <aside class="rail">
       <p id="railMeta" class="rail-meta"></p>
@@ -748,14 +919,12 @@ ${input.slideRuntime ? `<style>${input.slideRuntime.css.replace(/<\/style/gi, "<
       </section>
     </main>
   </div>
-</div>
-<script id="tour-data" type="application/json">${data}</script>
-${input.slideRuntime ? `<script>${input.slideRuntime.script.replace(/<\/script/gi, "<\\/script")}</script>` : ""}
-<script>
-(() => {
+</div>`;
+
+const PLAYER_SCRIPT = `(() => {
   const data = JSON.parse(document.getElementById("tour-data").textContent || "{}");
-  const defaultTts = ${browserTtsDefaults};
-  const browserTtsProviders = ${browserTtsProviders};
+  const defaultTts = data.ttsDefaults || { provider: "system" };
+  const browserTtsProviders = Array.isArray(data.ttsProviders) ? data.ttsProviders : ["off", "system"];
   const frames = Array.isArray(data.frames) ? data.frames : [];
   const slides = window.RepoTrailSlides || null;
   let index = 0;
@@ -992,7 +1161,8 @@ ${input.slideRuntime ? `<script>${input.slideRuntime.script.replace(/<\/script/g
 
   function writeHash() {
     const hash = "#stop=" + (index + 1) + (beat ? "&beat=" + beat : "");
-    if (location.hash !== hash) history.replaceState(null, "", hash);
+    // Sandboxed frames (an Artifact page) may refuse history changes.
+    try { if (location.hash !== hash) history.replaceState(null, "", hash); } catch (e) {}
   }
 
   function readHash() {
@@ -1348,6 +1518,13 @@ ${input.slideRuntime ? `<script>${input.slideRuntime.script.replace(/<\/script/g
     wrap.appendChild(head);
 
     (diff.rows || []).forEach((row) => {
+      if (row.type === "gap") {
+        const gap = document.createElement("div");
+        gap.className = "diff-gap";
+        gap.textContent = "⋯ " + (row.label || row.skipped + " unchanged line" + (row.skipped === 1 ? "" : "s"));
+        wrap.appendChild(gap);
+        return;
+      }
       const pair = document.createElement("div");
       pair.className = "diff-row-pair";
       pair.append(
@@ -1497,22 +1674,17 @@ ${input.slideRuntime ? `<script>${input.slideRuntime.script.replace(/<\/script/g
   index = Math.max(0, Math.min(frames.length - 1, start.stop));
   beat = Math.max(0, Math.min(beatCount(frames[index]), start.beat));
   render();
-})();
-</script>
-</body>
-</html>`;
-}
+})();`;
 
+
+/** Line-by-line LCS alignment; the table is (before + 1) × (after + 1) cells. */
 function diffRows(before: string[], after: string[]): AnimatedTourDiffRow[] {
-  const table: number[][] = Array.from({ length: before.length + 1 }, () =>
-    Array.from({ length: after.length + 1 }, () => 0),
-  );
+  const width = after.length + 1;
+  const table = new Uint32Array((before.length + 1) * width);
+  const at = (i: number, j: number) => table[i * width + j];
   for (let i = before.length - 1; i >= 0; i--) {
     for (let j = after.length - 1; j >= 0; j--) {
-      table[i][j] =
-        before[i] === after[j]
-          ? table[i + 1][j + 1] + 1
-          : Math.max(table[i + 1][j], table[i][j + 1]);
+      table[i * width + j] = before[i] === after[j] ? at(i + 1, j + 1) + 1 : Math.max(at(i + 1, j), at(i, j + 1));
     }
   }
 
@@ -1524,7 +1696,7 @@ function diffRows(before: string[], after: string[]): AnimatedTourDiffRow[] {
       rows.push({ before: before[i], after: after[j], type: "equal" });
       i++;
       j++;
-    } else if (j < after.length && (i >= before.length || table[i][j + 1] >= table[i + 1][j])) {
+    } else if (j < after.length && (i >= before.length || at(i, j + 1) >= at(i + 1, j))) {
       rows.push({ after: after[j], type: "insert" });
       j++;
     } else if (i < before.length) {
@@ -1532,7 +1704,7 @@ function diffRows(before: string[], after: string[]): AnimatedTourDiffRow[] {
       i++;
     }
   }
-  return rows.length > 0 ? rows : [{ before: "", after: "", type: "equal" }];
+  return rows;
 }
 
 function splitLines(text: string): string[] {
