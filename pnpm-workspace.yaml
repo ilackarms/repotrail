@@ -1,0 +1,6 @@
+# pnpm 11 stops installing when a dependency's build script hasn't been
+# allowed or denied. esbuild's script sets up its native binary. vsce-sign's
+# fetches a signing tool that only `vsce sign` and signature checks use.
+allowBuilds:
+  esbuild: true
+  "@vscode/vsce-sign": false

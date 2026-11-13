@@ -565,6 +565,8 @@ pnpm install-local  # package and install it into VS Code
 [AGENTS.md](AGENTS.md) describes how the source is layered.
 `node scripts/preview-slides.mjs <tour.json>` renders a tour's slides to one
 HTML page for checking visuals without VS Code (run `pnpm compile` first).
+[Releasing](docs/releasing.md) explains how a version bump on main is
+published.
 
 [Changelog](CHANGELOG.md) · [Support](SUPPORT.md) · [Privacy](PRIVACY.md) ·
 [MIT License](LICENSE)
