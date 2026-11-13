@@ -21,9 +21,11 @@ node_modules/**
 **/*.ts
 !out/**/*.d.ts
 docs/design/**
+docs/releasing.md
 scripts/**
 tsconfig.webview.json
 dist/**
 npm/**
 .claude-plugin/**
 harness/.claude-plugin/**
+.github/**

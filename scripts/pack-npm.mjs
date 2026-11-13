@@ -1,8 +1,9 @@
 // Assembles the `repotrail` npm package in dist/npm from a finished build:
-// the CLI, the slide runtime it inlines into exports, and the tour schema. Publish with
-// `npm publish dist/npm`. The version follows package.json, so the npm
-// package, the extension and the skill's pinned `npx repotrail@<version>`
-// always match.
+// the CLI, the slide runtime it inlines into exports, and the tour schema.
+// The release workflow publishes it. By hand, run `npm publish ./dist/npm`
+// (without `./`, npm reads `dist/npm` as a GitHub repo). The version follows
+// package.json, so the npm package, the extension and the skill's pinned
+// `npx repotrail@<version>` always match.
 
 import { chmod, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import * as path from "node:path";
@@ -40,7 +41,8 @@ await writeFile(
       version: manifest.version,
       description: "Lint RepoTrail tours and render them as pages you can open or share without VS Code.",
       license: manifest.license,
-      repository: manifest.repository,
+      // npm checks provenance against this URL, in the form `npm pkg fix` gives it.
+      repository: { type: "git", url: manifest.repository.url.replace(/^(?!git\+)/, "git+") },
       bugs: manifest.bugs,
       homepage: manifest.homepage,
       keywords: ["code tour", "walkthrough", "onboarding", "claude", "agent"],
@@ -53,4 +55,4 @@ await writeFile(
   )}\n`,
 );
 
-console.log(`Assembled ${path.relative(root, dist)} (repotrail@${manifest.version}). Publish with: npm publish dist/npm`);
+console.log(`Assembled ${path.relative(root, dist)} (repotrail@${manifest.version}). Publish with: npm publish ./dist/npm`);
