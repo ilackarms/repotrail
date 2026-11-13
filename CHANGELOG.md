@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.15.1 - 2026-11-13
+
+- A stop's highlight now includes its last line. Ranges ending in
+  `endColumn: 1`, which most tours use, stopped at the start of `endLine`, so
+  the last line was left out and a one-line stop highlighted nothing. A range
+  now covers `startLine` through `endLine`; columns are optional and only
+  narrow the first and last line. Tours that set `endLine` to the line after
+  the last one they wanted now highlight one extra line.
+- Lint reads pinned diff stops from git when their file isn't on disk, as
+  RepoTrail plays them, so stops on files a PR adds or deletes no longer fail
+  with "can't be read". It also errors on a range that ends before it starts,
+  and warns when a code or diff stop's range covers more than 150 lines.
+- The repo-trail skill says what makes a good tour: order stops by how the
+  system works rather than by file path, open with orientation and close with
+  open points, keep the main route to about 40 stops and give mechanical
+  changes shared stops, write titles that state the point, describe the code
+  rather than the review's history, and have a fresh reviewer check long
+  tours. It adds starting shapes for PR walkthroughs, bug fixes, newcomer
+  tours and comment sign-offs, and stricter rules for tours you share.
+
 ## 0.15.0 - 2026-11-12
 
 - RepoTrail works without VS Code. People who use the Claude app or Claude

@@ -75,7 +75,7 @@ Use this when the user wants you to create the workspace as part of the flow.
 
 Use this when the user will read the tour outside VS Code. The tour file is
 the same; RepoTrail's command line turns it into a page. It needs Node 18 or
-later and runs as `npx -y repotrail@0.15.0`.
+later and runs as `npx -y repotrail@0.15.1`.
 
 1. Work in a local clone of the repo. For a PR, fetch it (for example
    `git fetch origin pull/<n>/head`) so both refs your diff stops name exist
@@ -87,13 +87,13 @@ later and runs as `npx -y repotrail@0.15.0`.
 3. Lint it and fix every error:
 
    ```bash
-   npx -y repotrail@0.15.0 lint <project>/.repotrail/<slug>.json
+   npx -y repotrail@0.15.1 lint <project>/.repotrail/<slug>.json
    ```
 
 4. Render the page:
 
    ```bash
-   npx -y repotrail@0.15.0 render <project>/.repotrail/<slug>.json --artifact --out <scratch>/<slug>.html
+   npx -y repotrail@0.15.1 render <project>/.repotrail/<slug>.json --artifact --out <scratch>/<slug>.html
    ```
 
    Put the page in your scratch or temp directory, not in the repo. It's
@@ -683,7 +683,7 @@ Checklist before you report the tour:
 
   `repotrail` is RepoTrail's command line. Run it one of two ways:
 
-  - `npx -y repotrail@0.15.0`: anywhere with Node 18 or later, no VS Code
+  - `npx -y repotrail@0.15.1`: anywhere with Node 18 or later, no VS Code
     needed.
   - `node <extension>/out/cli.js`, when the VS Code extension is installed.
     `<extension>` is its folder, for example
