@@ -37,6 +37,9 @@ export interface LintInput {
   lineCount: (step: TourStep) => number | null;
 }
 
+/** Above this many lines, a code or diff stop's highlight stops pointing at anything. */
+export const MAX_RANGE_LINES = 150;
+
 export const TEXT_BUDGETS = {
   title: 60,
   titleSlideTitle: 40,
@@ -105,6 +108,13 @@ export function lintTour(input: LintInput): LintReport {
         if (lines === null) error(`\`${step.file}\` can't be read.`);
         else if (step.range && step.range.startLine > lines) error(`The range starts at line ${step.range.startLine}, past the end of \`${step.file}\` (${lines} lines).`);
         else if (step.range && step.range.endLine > lines + 1) warn(`The range ends at line ${step.range.endLine}; \`${step.file}\` has ${lines} lines.`);
+      }
+      if (step.range && step.range.endLine < step.range.startLine) {
+        error(`The range ends at line ${step.range.endLine}, before it starts at line ${step.range.startLine}. A range covers startLine through endLine.`);
+      } else if (step.range && !step.slide && step.range.endLine - step.range.startLine + 1 > MAX_RANGE_LINES) {
+        warn(
+          `The range covers ${step.range.endLine - step.range.startLine + 1} lines. Point it at the lines the explanation is about, or split the stop; a diff still shows the rest of the file.`,
+        );
       }
     }
     if (!step.slide) return;

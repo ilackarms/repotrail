@@ -184,21 +184,26 @@
       "properties": {
         "startLine": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "description": "First highlighted line, 1-indexed."
         },
         "startColumn": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "description": "Optional. 1-indexed column where the highlight starts on startLine. Default 1."
         },
         "endLine": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "description": "Last highlighted line, 1-indexed and included."
         },
         "endColumn": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "description": "Optional. 1-indexed column just past the highlight's end on endLine. 1, or leaving it out, highlights all of endLine."
         }
-      }
+      },
+      "description": "Lines startLine through endLine, both included, 1-indexed. Columns are optional and only narrow the first and last line; leave them out to highlight whole lines."
     },
     "diff": {
       "type": "object",

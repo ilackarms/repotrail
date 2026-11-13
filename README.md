@@ -273,14 +273,14 @@ A small tour with one code stop and one diff stop:
       {
         "title": "Orders enter through one route",
         "file": "src/routes.ts",
-        "range": { "startLine": 14, "startColumn": 1, "endLine": 22, "endColumn": 1 },
+        "range": { "startLine": 14, "endLine": 22 },
         "viewMode": "code",
         "explanation": "Every order write goes through `POST /orders`, so validating here covers all callers."
       },
       {
         "title": "The handler validates first",
         "file": "src/handlers/orders.ts",
-        "range": { "startLine": 31, "startColumn": 1, "endLine": 48, "endColumn": 1 },
+        "range": { "startLine": 31, "endLine": 48 },
         "viewMode": "diff",
         "diff": { "baseRef": "main", "scope": "file" },
         "explanation": "The schema check moved ahead of the insert. A bad request now gets a 400 instead of a constraint error from the database."
@@ -296,7 +296,7 @@ The fields you'll see most:
 | --- | --- |
 | `plan.kind` | `architecture`, `pr-diff`, `file-walkthrough`, `request-lifecycle`, `bug-investigation`, or `design-review`. |
 | `step.title`, `step.explanation` | The stop's headline and its markdown narration. |
-| `step.file`, `step.range` | A workspace-relative path and a 1-indexed range. |
+| `step.file`, `step.range` | A workspace-relative path, and the lines to highlight: `startLine` through `endLine`, both included, 1-indexed. |
 | `step.viewMode` | `code` to highlight, `diff` to compare. |
 | `step.diff` | `baseRef`, optional `headRef` (leave it out to compare against your working tree), `scope: "file"`, and `baseFile` / `headFile` for renames. |
 | `step.slide` | Makes the stop a slide. |

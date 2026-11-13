@@ -238,7 +238,7 @@ engines place everything. Never try to position things by hand.
   "explanation": "Reads go through the cache. A write goes to the database first, then evicts the key.",
   "root": "project",
   "file": "docs/design/cache.md",
-  "range": { "startLine": 40, "startColumn": 1, "endLine": 72, "endColumn": 1 },
+  "range": { "startLine": 40, "endLine": 72 },
   "slide": {
     "eyebrow": "Writes",
     "layout": "stack",
@@ -669,7 +669,7 @@ the envelope keeps schema version and export time explicit.
       {
         "root": "project",
         "file": "src/example.ts",
-        "range": { "startLine": 1, "startColumn": 1, "endLine": 20, "endColumn": 1 },
+        "range": { "startLine": 1, "endLine": 20 },
         "title": "Explain one logical chunk",
         "explanation": "Markdown narration shown in the sidebar.",
         "viewMode": "code"
@@ -685,7 +685,7 @@ Git-backed change-review step example:
 {
   "root": "project",
   "file": "src/example.ts",
-  "range": { "startLine": 42, "startColumn": 1, "endLine": 68, "endColumn": 1 },
+  "range": { "startLine": 42, "endLine": 68 },
   "title": "Tighten request validation",
   "explanation": "Explain why this changed hunk matters.",
   "viewMode": "diff",
@@ -704,10 +704,9 @@ If the workspace is already checked out at the right side of the change, omit
 
 - One logical chunk equals one step.
 - Split explanations that say "first, then, then" into separate steps.
-- Ranges are 1-indexed. The highlight runs from `startLine`:`startColumn` to
-  `endLine`:`endColumn`, so `"endColumn": 1` stops at the start of `endLine`:
-  set `endLine` to the line after the last one you want, or give the real end
-  column.
+- Ranges are 1-indexed and cover `startLine` through `endLine`, both
+  included. Leave out `startColumn` and `endColumn`; they only narrow the
+  first and last line.
 - Keep ranges tight. If you did not read the file, do not invent
   a range.
 - For PRs, commits, branch comparisons, and other change-review tours, use
