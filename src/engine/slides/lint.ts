@@ -121,7 +121,7 @@ export function lintTour(input: LintInput): LintReport {
     const slide = step.slide;
     for (const warning of slide.warnings ?? []) error(warning);
     for (const ref of slideRefs(slide)) {
-      const target: TourStep = { ...step, root: ref.root ?? step.root, file: ref.file, range: ref.range, slide: undefined };
+      const target: TourStep = { ...step, root: ref.root ?? step.root, file: ref.file, range: ref.range, slide: undefined, diff: undefined };
       const lines = input.lineCount(target);
       if (lines === null) error(`ref \`${ref.file}\` can't be read.`);
       else if (ref.range && ref.range.startLine > lines) error(`ref \`${ref.file}\` starts at line ${ref.range.startLine}, past the end (${lines} lines).`);
