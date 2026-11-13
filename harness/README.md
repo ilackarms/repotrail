@@ -118,13 +118,22 @@ Use workspace-relative forward-slash paths. In multi-root windows, set
 for older tours. Absolute paths, empty paths, and paths containing `..` are
 rejected.
 
+A step's `range` covers `startLine` through `endLine`, both included,
+1-indexed. Columns are optional and only narrow the first and last line.
+
+`repo-trail/SKILL.md` covers how to choose and order stops, size a tour, and
+write titles and narration, with starting shapes for PR walkthroughs, bug
+fixes, newcomer tours and comment sign-offs.
+
 For PRs, commits, branch comparisons, and other explicit windows of changes,
 changed-code stops should be diff-backed with `viewMode: "diff"` and
 `diff: { baseRef, headRef?, scope: "file", baseFile?, headFile? }`. RepoTrail
 reads the real file contents from local git and opens VS Code's native diff
 viewer, so the user can scroll imports and unchanged surrounding code while VS
-Code highlights the actual changes. Omit `headRef` when the current workspace
-file is the right side. `beforeText`/`afterText` remain accepted for non-git
+Code highlights the actual changes. Pin `headRef` to the head commit; omit it
+only when the right side should be uncommitted work in the workspace.
+Set `baseFile` or `headFile` when the path differs between the two sides,
+including moved code. `beforeText`/`afterText` remain accepted for non-git
 sources and old tours, but normal PR/commit tours should not rely on generated
 code text.
 

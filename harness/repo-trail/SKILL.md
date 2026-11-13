@@ -75,7 +75,7 @@ Use this when the user wants you to create the workspace as part of the flow.
 
 Use this when the user will read the tour outside VS Code. The tour file is
 the same; RepoTrail's command line turns it into a page. It needs Node 18 or
-later and runs as `npx -y repotrail@0.15.0`.
+later and runs as `npx -y repotrail@0.15.1`.
 
 1. Work in a local clone of the repo. For a PR, fetch it (for example
    `git fetch origin pull/<n>/head`) so both refs your diff stops name exist
@@ -87,13 +87,13 @@ later and runs as `npx -y repotrail@0.15.0`.
 3. Lint it and fix every error:
 
    ```bash
-   npx -y repotrail@0.15.0 lint <project>/.repotrail/<slug>.json
+   npx -y repotrail@0.15.1 lint <project>/.repotrail/<slug>.json
    ```
 
 4. Render the page:
 
    ```bash
-   npx -y repotrail@0.15.0 render <project>/.repotrail/<slug>.json --artifact --out <scratch>/<slug>.html
+   npx -y repotrail@0.15.1 render <project>/.repotrail/<slug>.json --artifact --out <scratch>/<slug>.html
    ```
 
    Put the page in your scratch or temp directory, not in the repo. It's
@@ -188,9 +188,9 @@ commits, a branch comparison, or another explicit window of changes. Treat those
 as change-review tours:
 
 - Use `kind: "pr-diff"` unless the user clearly requested a different kind.
-- Every changed-code stop must be diff-backed with `viewMode: "diff"` plus a
-  git-backed `diff.baseRef`; add `diff.headRef` when the right side should be a
-  commit instead of the current workspace file.
+- Every changed-code stop must be diff-backed with `viewMode: "diff"`, a
+  git-backed `diff.baseRef`, and a pinned `diff.headRef` (see "Keep it
+  current").
 - Use `diff.scope: "file"` for normal PR/commit review stops so RepoTrail reads
   real full-file contents from local git and VS Code can show unchanged
   surrounding code.
@@ -209,6 +209,180 @@ review, not a code walkthrough, even when it arrives as a PR. Highlighting
 paragraphs of markdown teaches nothing the reader couldn't get by reading the
 file. Use `kind: "design-review"` and build the tour from slides, as described
 next.
+
+## What Makes A Good Tour
+
+A tour serves one reader with one goal: understand a change well enough to
+approve it, find a bug, or learn a codebase. Decide who that is before you
+plan stops. These rules come from reviewing about two hundred real tours and
+what their readers said about them.
+
+### Route
+
+- **Teach the change, don't inventory it.** Order stops by how the system
+  works, never by file path. For a change: the contract or switch everything
+  hangs off, then the core logic, then callers and wiring, then integration
+  tests, then docs, config and generated files. An alphabetical walk opens on
+  whatever sorts first and buries the core code halfway through.
+- **Top-down.** In a change, show the interfaces and types it introduces
+  before the code that fills them in. In a codebase tour, show what the system
+  does (entry points, the main loop) before the types it uses.
+- **Problem before fix, concept before code.** Show the bug, race or old
+  behavior before the diff that changes it, often as a `code` stop on
+  unchanged code. Define a term before the first stop that relies on it.
+- **Keep related stops together.** Put a unit test right after the code it
+  pins. When two stops discuss one issue, make them adjacent or name the
+  other by number ("see stop 12").
+- **Open with orientation.** Stop 1 says what the change does and why, the
+  main question for the reviewer, and the route: the tour's parts and which
+  stops each covers.
+- **Close with a wrap-up.** The last stop lists what's open (findings,
+  questions, follow-ups, anything unverified), each with its stop number.
+  Skip it on a tour of five stops or fewer.
+
+### Size
+
+- Size a tour by the reader's questions, not by the number of changed hunks.
+  A small fix needs 3-5 stops. Keep the main route of a large change to about
+  40 stops; readers don't finish longer ones.
+- Don't give each changed file its own stop. Mechanical changes share one
+  stop: renames, a signature change repeated across callers, import churn,
+  lockfiles, generated code, snapshots. Point it at the most representative
+  hunk and list the other files in the explanation. A stop whose explanation
+  would be "Same." or "No finding." belongs in a shared stop.
+- A PR walkthrough ends its teaching route with an "Everything else" part: a
+  few shared stops that name every remaining changed file, so each path is
+  still accounted for.
+- One idea per stop, and keep the range on the lines the explanation is
+  about. A diff stop still lets the reader scroll the rest of the file.
+
+### Titles and narration
+
+- A title states the point: "Retries stop after three failures", not "Retry
+  logic". Don't number titles; RepoTrail numbers stops.
+- The explanation says what the code can't: why it changed, what it guards
+  against, what could break, and what to check. Don't restate the code.
+- End a review stop with the reviewer's question when there is one:
+  "**Check:** can two saves race here?"
+- Keep explanations to two to four short paragraphs, about 600 characters. A
+  stop that needs more is two stops. Comment sign-off stops are the
+  exception: the proposed comment needs the room.
+- Describe the code as it is at the ref the stop shows. Keep review history
+  out of narration: commit SHAs, review rounds, "fixed in", IDs from notes the
+  reader doesn't have. A re-review gets one "Changed since last review" stop
+  near the start instead.
+- Write "never", "always", "only" or "every" only when the code proves it.
+
+### New and moved code
+
+- Moved or renamed code: set `diff.baseFile` to the old path, so the diff
+  shows what changed instead of a wall of additions.
+- A new file shows as all additions. Say so, and say where the old behavior
+  lived ("replaces the listener setup in `main.rs`"). When the new file
+  closely follows an existing sibling (a new provider beside an old one), set
+  `baseFile` to the sibling to compare them. Do that only when the two have
+  the same shape; otherwise the diff is noise, and a `code` stop on the
+  sibling works better.
+- A deleted file: set `file` to its old path and pin both `baseRef` and
+  `headRef` to commit SHAs. RepoTrail and its linter read it at `baseRef`.
+  Never create placeholder files.
+- A context stop on a file the change doesn't touch uses `viewMode: "code"`,
+  not a diff of two identical sides.
+
+### Slides in a code tour
+
+- Use a slide where a picture beats code: the shape of a change, a lifecycle,
+  a race played out in beats. Put it right before the code it explains.
+- Don't make slides that list what to look for; put that in the next stop's
+  explanation.
+- Give each diagram box that stands for real code a `ref`, so the reader can
+  check the slide against the code.
+
+### Accuracy
+
+- Before you hand a tour over, re-read the first and last line of every range
+  and check every claim against the code at the ref the stop shows.
+- For a tour over about 20 stops, have a fresh reviewer check it if you can
+  start a subagent. Give it the tour file and the repo, ask it to check each
+  stop's claims and ranges against the code, and fix what it finds.
+- Then run RepoTrail's linter on the file (the command is in the checklist
+  under "Building a design review") and fix every error. Lint catches broken
+  paths, ranges and slide ids; it can't tell whether the narration is true.
+
+### Keep it current
+
+- For any branch that can still move, pin `diff.baseRef` to the merge base and
+  `diff.headRef` to the head commit, both as full SHAs.
+- When the head moves, rebuild the affected stops: re-read the files, re-pick
+  the ranges, rewrite the narration. Don't carry old narration forward with
+  new line numbers. Update the title and `summary` if they name a commit.
+
+### Tours for other people
+
+A tour the user will share, on a PR or with another reviewer, is stricter
+than one for their own review:
+
+- About 15 stops at most: the critical path. Skip tests, config and generated
+  files unless they're the point. A design review keeps its own count.
+- No internal history, not even a "Changed since last review" stop, and no
+  references to local notes or other tours.
+- A review question on each stop that matters.
+- Pin it as described in "Tours Posted On A Pull Request".
+
+## Tour Recipes
+
+Starting shapes for common tours. Adapt them to the change, and apply "Tours
+for other people" to any tour that will be shared.
+
+**PR walkthrough** (`kind: "pr-diff"`):
+
+1. Orientation: what and why, the main review question, the route by part.
+   Use a slide when the change has a shape worth drawing.
+2. The contract: the type, interface, switch or API the change hangs off.
+3. Core logic, one mechanism per stop, each followed by its unit tests.
+4. Callers, wiring, startup and config.
+5. Integration tests and docs.
+6. Everything else: shared stops naming every remaining changed file.
+7. Wrap-up: open points by stop number.
+
+**Bug fix** (`kind: "bug-investigation"`, or `pr-diff` for the fix's PR):
+
+1. Symptom: what the user saw, on stop 1 or in `summary`.
+2. Cause: a `code` stop on the unchanged code that produces the bug.
+3. Fix: one diff stop per mechanism, in the order the cause unfolds.
+4. Why it's safe: `code` stops on callers or peers the fix could affect.
+5. Proof: each mechanism's test, saying whether it fails without the fix.
+6. Open: decisions, gaps and follow-ups.
+
+**Newcomer tour** (`kind: "architecture"`):
+
+1. A slide that draws the main parts and how they talk.
+2. Top-down: entry points and the main loop before the types they use.
+3. Follow one real request or job end to end, then branch into subsystems.
+4. Headline titles that say what the code does ("The daemon reconnects with
+   backoff"), not metaphors.
+5. End with something to try: a command to run or a test to change.
+6. Name the commit the tour was written against in `summary`.
+
+**Comment sign-off** (`kind: "pr-diff"`): when you've drafted review comments
+for the user to approve before posting, give each proposed comment one diff
+stop, so the user judges it against the code it's about.
+
+- Range: the line the comment will attach to, a changed line in the PR,
+  widened at most to the statement around it.
+- Title: the comment's claim, with its ID and severity if the review uses
+  them: "S-03 · P2 · The test is skipped on every CI run".
+- Explanation, in order: `**Posts as:**` where it goes (inline at
+  `path:line`, or the review body) and the review event (comment, approve or
+  request changes); `**Internal, not posted:**` one to three sentences of
+  evidence, with `file:line` for anything off screen; then `**Proposed
+  comment**` and the exact text in a blockquote, about 600 characters at most.
+- If the comments also live in another file, such as a sign-off sheet, write
+  both from one list and rewrite both whenever the wording or the head
+  changes, so they never disagree.
+
+**Design review** (`kind: "design-review"`): see "Building a design review"
+below.
 
 ## Design Reviews And Slides
 
@@ -238,7 +412,7 @@ engines place everything. Never try to position things by hand.
   "explanation": "Reads go through the cache. A write goes to the database first, then evicts the key.",
   "root": "project",
   "file": "docs/design/cache.md",
-  "range": { "startLine": 40, "startColumn": 1, "endLine": 72, "endColumn": 1 },
+  "range": { "startLine": 40, "endLine": 72 },
   "slide": {
     "eyebrow": "Writes",
     "layout": "stack",
@@ -509,7 +683,7 @@ Checklist before you report the tour:
 
   `repotrail` is RepoTrail's command line. Run it one of two ways:
 
-  - `npx -y repotrail@0.15.0`: anywhere with Node 18 or later, no VS Code
+  - `npx -y repotrail@0.15.1`: anywhere with Node 18 or later, no VS Code
     needed.
   - `node <extension>/out/cli.js`, when the VS Code extension is installed.
     `<extension>` is its folder, for example
@@ -593,7 +767,8 @@ Use the repo-trail skill. Create a design-review tour for <design doc path or PR
 When the user wants reviewers to open a PR tour from the PR itself (for example
 "post the tour on the PR" or "make a review guide comment"), write the tour so
 it plays in any clone, then give the user a PR comment to paste. Do not post it
-yourself unless the user explicitly asks.
+yourself unless the user explicitly asks. Apply "Tours for other people"
+first.
 
 1. Pin every changed-code stop: `diff.baseRef` is the merge base SHA and
    `diff.headRef` is the PR head SHA, both full 40-character SHAs, with
@@ -669,8 +844,8 @@ the envelope keeps schema version and export time explicit.
       {
         "root": "project",
         "file": "src/example.ts",
-        "range": { "startLine": 1, "startColumn": 1, "endLine": 20, "endColumn": 1 },
-        "title": "Explain one logical chunk",
+        "range": { "startLine": 1, "endLine": 20 },
+        "title": "Requests are validated before they reach a handler",
         "explanation": "Markdown narration shown in the sidebar.",
         "viewMode": "code"
       }
@@ -685,31 +860,30 @@ Git-backed change-review step example:
 {
   "root": "project",
   "file": "src/example.ts",
-  "range": { "startLine": 42, "startColumn": 1, "endLine": 68, "endColumn": 1 },
-  "title": "Tighten request validation",
-  "explanation": "Explain why this changed hunk matters.",
+  "range": { "startLine": 42, "endLine": 68 },
+  "title": "Bad requests now fail before the database",
+  "explanation": "Why this hunk changed, what it guards against, and what to check.",
   "viewMode": "diff",
   "diff": {
-    "baseRef": "BASE_SHA_OR_REF",
-    "headRef": "HEAD_SHA_OR_REF",
+    "baseRef": "MERGE_BASE_SHA",
+    "headRef": "HEAD_SHA",
     "scope": "file"
   }
 }
 ```
 
-If the workspace is already checked out at the right side of the change, omit
-`headRef`; RepoTrail will compare `baseRef` to the current workspace file.
+Omit `headRef` only when the right side should be uncommitted work in the
+workspace; RepoTrail then compares `baseRef` to the current workspace file.
 
-## Step Quality Rules
+## Stop Mechanics
 
-- One logical chunk equals one step.
-- Split explanations that say "first, then, then" into separate steps.
-- Ranges are 1-indexed. The highlight runs from `startLine`:`startColumn` to
-  `endLine`:`endColumn`, so `"endColumn": 1` stops at the start of `endLine`:
-  set `endLine` to the line after the last one you want, or give the real end
-  column.
-- Keep ranges tight. If you did not read the file, do not invent
-  a range.
+The rules for writing each stop's fields. "What Makes A Good Tour" covers
+what to put in them.
+
+- Ranges are 1-indexed and cover `startLine` through `endLine`, both
+  included. Leave out `startColumn` and `endColumn`; they only narrow the
+  first and last line. Read the file before you pick a range; never guess
+  one.
 - For PRs, commits, branch comparisons, and other change-review tours, use
   `viewMode: "diff"` with `diff.baseRef` for changed-code stops so the user
   gets a native VS Code diff from real local git contents instead of
@@ -717,10 +891,11 @@ If the workspace is already checked out at the right side of the change, omit
 - Prefer `diff.scope: "file"` for changed-code stops. This lets the user scroll
   imports and surrounding unchanged code while VS Code highlights only the real
   changes.
-- Omit `diff.headRef` when the current workspace file is the right side. Set
-  `diff.headRef` only when the right side should be a specific commit/SHA.
-- Use `diff.baseFile` or `diff.headFile` only for renames where the path differs
-  between refs.
+- Set `diff.headRef` to the head commit's SHA. Omit it only when the stop
+  should show uncommitted work in the workspace.
+- Use `diff.baseFile` or `diff.headFile` when the path differs between the
+  two sides: renames, moved or extracted code, and comparing a new file with
+  an existing sibling.
 - Use highlight-only `viewMode: "code"` only for codebase/subsystem tours
   unrelated to a change window, or for optional orientation/context stops that
   are not reviewing a changed hunk.
@@ -737,10 +912,9 @@ If the workspace is already checked out at the right side of the change, omit
   compatibility.
 - Do not use absolute paths, empty paths, or paths containing `..`; RepoTrail
   rejects files that can escape the selected workspace folder.
-- Explanations should be markdown, usually 2-4 short paragraphs.
-- Do not paste code into explanations; the user is looking at the code or diff
-  in VS Code. Put refs and ranges in `diff`, not code text, when git can provide
-  the contents.
+- Explanations are markdown. Do not paste code into them; the user is looking
+  at the code or diff. Put refs and ranges in `diff`, not code text, when git
+  can provide the contents.
 
 ## Deepening And Follow-Ups
 
@@ -749,5 +923,9 @@ When the user asks to deepen or refine a tour:
 1. Identify the relevant `.repotrail/*.json` file, or write a revised copy if
    the active tour is local-only.
 2. Read the relevant code.
-3. Edit the JSON so the complete route remains coherent.
+3. Edit the JSON so the complete route remains coherent. A reader's question
+   about one stop usually calls for a new stop right after it.
 4. Confirm the changed path and stop count in chat.
+
+When the user asks to update a tour after new commits, follow "Keep it
+current": rebuild the stops whose code changed rather than patching them.

@@ -78,5 +78,7 @@ complete tour file under the owning project's `.repotrail/` directory. Do not
 reintroduce mock tours, built-in provider generation, API-key-driven
 in-extension generation, or connection-based tour mutation.
 
-`TourStep` is the wire format between tour JSON and UX. Ranges are 1-indexed;
-conversion to VS Code ranges happens in `editorActions.ts`.
+`TourStep` is the wire format between tour JSON and UX. Ranges are 1-indexed
+and cover `startLine` through `endLine`, both included; an `endColumn` of 1
+means all of `endLine`. `src/engine/range.ts` turns them into editor
+coordinates, and `editorActions.ts` makes the VS Code ranges.

@@ -13,6 +13,7 @@ import {
   codeFrameFromLines,
   planToAnimatedHtml,
 } from "./engine/animatedHtml";
+import { editorSpan } from "./engine/range";
 import {
   parseTourJson,
   stepLocation,
@@ -699,8 +700,8 @@ function buildTourAuthoringPrompt(paths: { schema: string; cli: string }): strin
           {
             root: firstAlias,
             file: "src/example.ts",
-            range: { startLine: 1, startColumn: 1, endLine: 20, endColumn: 1 },
-            title: "Explain one logical chunk",
+            range: { startLine: 1, endLine: 20 },
+            title: "Requests are validated before they reach a handler",
             explanation: "Markdown narration. Keep it focused; do not paste code here.",
             viewMode: "code",
           },
@@ -730,7 +731,7 @@ function buildTourAuthoringPrompt(paths: { schema: string; cli: string }): strin
     "",
     "Presentation mode decision:",
     "- If the user mentions a PR, PRs, commit, commits, branch comparison, diff, changes, review, or another explicit change window, create a change-review tour: use kind \"pr-diff\" and make every changed-code stop diff-backed.",
-    "- Changed-code stops in change-review tours use viewMode \"diff\" with diff.baseRef and optional diff.headRef. Omit headRef to compare the base ref against the current workspace file.",
+    "- Changed-code stops in change-review tours use viewMode \"diff\" with diff.baseRef and diff.headRef pinned to commit SHAs. Omit headRef only to compare against uncommitted work in the workspace.",
     "- Use diff.scope \"file\" for normal PR/commit review stops so RepoTrail reads real full-file contents from git and VS Code can show unchanged surrounding code.",
     "- Do not paste generated code into diff.beforeText/diff.afterText for git-backed reviews. Use pasted text only when there is no local git ref to compare.",
     "- Use highlight-only viewMode \"code\" only for codebase, file, subsystem, request-path, or architecture tours unrelated to a window of changes, plus optional orientation/context stops that do not review changed code.",
@@ -744,7 +745,8 @@ function buildTourAuthoringPrompt(paths: { schema: string; cli: string }): strin
     "Rules:",
     "- Read the repo before choosing stops.",
     "- Use workspace-relative forward-slash file paths only.",
-    "- Keep ranges tight and 1-indexed.",
+    "- Ranges are 1-indexed and cover startLine through endLine, both included. Point them at the lines the explanation is about.",
+    "- Order stops by how the system works, not by file path. Open with what the change does and why, give mechanical changes one shared stop, and make each title state the point. The repo-trail skill's \"What Makes A Good Tour\" section has the full guidance.",
     "- Do not use absolute file paths in steps, empty file paths, or paths containing \"..\".",
     `- Check the finished file with RepoTrail's linter and fix every error: node "${paths.cli}" lint <tour file>. It validates against the JSON Schema at ${paths.schema}, checks beat ids, sources and text budgets. Pass --root <alias>=<dir> for roots outside the tour's project.`,
     `- For slides, if you can open a browser: node "${paths.cli}" render <tour file> --out <file.html>, then open <file.html>#stop=<n>&beat=<k> to see any slide at any beat.`,
@@ -1107,11 +1109,8 @@ async function readSlideRuntime(
 
 function resolveExportRange(step: TourStep, doc: vscode.TextDocument): vscode.Range {
   if (step.range) {
-    const startLine = clamp(step.range.startLine - 1, 0, doc.lineCount - 1);
-    const endLine = clamp(step.range.endLine - 1, startLine, doc.lineCount - 1);
-    const startCol = clamp(step.range.startColumn - 1, 0, doc.lineAt(startLine).text.length);
-    const endCol = clamp(step.range.endColumn - 1, 0, doc.lineAt(endLine).text.length);
-    return new vscode.Range(startLine, startCol, endLine, endCol);
+    const span = editorSpan(step.range, doc.lineCount, (line) => doc.lineAt(line).text.length);
+    return new vscode.Range(span.startLine, span.startCharacter, span.endLine, span.endCharacter);
   }
   const end = Math.min(Math.max(doc.lineCount - 1, 0), 4);
   return new vscode.Range(0, 0, end, doc.lineAt(end).text.length);
@@ -1119,10 +1118,6 @@ function resolveExportRange(step: TourStep, doc: vscode.TextDocument): vscode.Ra
 
 function stepLocationLabel(step: TourStep): string {
   return stepLocation(step);
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
 }
 
 function buildAnimatedTtsDefaults(): AnimatedTourTtsDefaults {
