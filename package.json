@@ -416,7 +416,7 @@
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
-    "@vscode/vsce": "^3.9.1",
+    "@vscode/vsce": "^4.1.0",
     "ajv": "^8.17.1",
     "esbuild": "^0.28.0",
     "typescript": "^5.4.0"

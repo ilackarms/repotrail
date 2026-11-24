@@ -27,9 +27,13 @@ Skip only if the user explicitly says not to commit, package, or reinstall.
 
 A release bumps the version in `package.json`, the skill's
 `npx -y repotrail@<version>` pins, and `harness/.claude-plugin/plugin.json`
-together (`test/releaseVersions.test.mjs` checks this). After merging, the
-maintainer publishes the npm package with `pnpm package:npm` and
-`npm publish dist/npm`. Until then, the skill's `npx` commands fail.
+together (`test/releaseVersions.test.mjs` checks this). A push to main that
+changes the version releases it: `.github/workflows/release.yml` publishes
+the npm package, the Marketplace extension and a GitHub release with the
+.vsix. Until the npm package is out, the skill's `npx` commands fail.
+`node scripts/release-status.mjs` shows what's out. Don't rename the
+workflow: npm and the Marketplace trust it by file name. Setup and recovery
+are in `docs/releasing.md`.
 
 ## Architecture Rule
 
