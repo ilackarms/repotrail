@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.15.1 - 2026-11-24
+
+- Agent setup notices a checked-out change. When a folder has a pull request
+  checked out (as GitHub Pull Requests reports it), or is on a branch with
+  commits the default branch doesn't have, the copied prompt names that change
+  and asks for a tour of it. Before, the prompt always asked for a tour of the
+  workspace, so an agent given nothing else wrote an architecture tour. Say
+  what you want instead and the agent does that.
+- Pasting the Agent setup prompt into VS Code chat no longer attaches an
+  unrelated pull request. The skill's example manifest held a pull request
+  URL, and chat attached it as context.
+
 ## 0.15.0 - 2026-11-12
 
 - RepoTrail works without VS Code. People who use the Claude app or Claude

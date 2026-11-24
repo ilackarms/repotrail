@@ -49,7 +49,8 @@ import { TourController } from "./ux/tourController";
 import { reconcileTourUpdate } from "./ux/tourProgress";
 import { TourFilesProvider } from "./ux/tourFilesView";
 import { TourViewProvider } from "./ux/webviewPanel";
-import { composeAgentSetupPrompt } from "./ux/agentSetupPrompt";
+import { buildTourAuthoringRequest, composeAgentSetupPrompt, SetupRoot } from "./ux/agentSetupPrompt";
+import { checkedOutChange } from "./ux/checkedOutChange";
 import {
   copyTourAsPrComment,
   findToursOnPrCommand,
@@ -670,85 +671,25 @@ function preferredRepoRootForPlan(plan: TourPlan): string | undefined {
   return best?.root;
 }
 
-function buildTourAuthoringPrompt(paths: { schema: string; cli: string }): string {
-  const infos = workspaceFolderInfos();
+async function buildTourAuthoringPrompt(paths: { schema: string; cli: string }): Promise<string> {
+  const folders = currentWorkspaceFolders();
+  const infos = workspaceFolderInfos(folders);
   const aliases = buildRootAliases(infos.map((info) => info.name));
-  const rootLines = infos
-    .map((info, index) => {
-      const alias = aliases[index] ?? `root${index + 1}`;
-      return `- ${alias}: name=${info.name}; workspaceFolder=${info.workspaceFolder}; path=${info.path}; shared tours go in ${info.path}/${REPO_TOURS_DIR}/`;
-    })
-    .join("\n");
-  const rootJson = Object.fromEntries(
-    infos.map((info, index) => {
-      const alias = aliases[index] ?? `root${index + 1}`;
-      return [alias, { name: info.name, pathHint: info.name }];
-    }),
-  );
-  const firstAlias = aliases[0] ?? "project";
-  const example = JSON.stringify(
-    {
-      repoTrailTour: 2,
-      exportedAt: "ISO_TIMESTAMP",
-      plan: {
-        kind: "architecture",
-        title: "Short useful tour title",
-        summary: "One paragraph describing what this tour teaches.",
-        roots: Object.keys(rootJson).length > 0 ? rootJson : { [firstAlias]: { name: firstAlias, pathHint: firstAlias } },
-        steps: [
-          {
-            root: firstAlias,
-            file: "src/example.ts",
-            range: { startLine: 1, startColumn: 1, endLine: 20, endColumn: 1 },
-            title: "Explain one logical chunk",
-            explanation: "Markdown narration. Keep it focused; do not paste code here.",
-            viewMode: "code",
-          },
-        ],
-      },
-    },
-    null,
-    2,
-  );
-
-  return [
-    "Create a RepoTrail tour for this VS Code workspace.",
-    "",
-    "Mode: existing VS Code workspace. The target roots are already open below.",
-    "",
-    "Write one complete JSON tour file into the owning project's .repotrail/ directory.",
-    "",
-    `If the user instead asks you to create a new RepoTrail workspace, save the .code-workspace under ${WORKSPACE_REGISTRY_DIR_DISPLAY}/, open it in VS Code if possible, and still write tours into repo-local .repotrail/ directories.`,
-    "",
-    "Open workspace roots:",
-    rootLines || "- No workspace roots detected. Ask the user to open the target project in VS Code.",
-    "",
-    "Choose the output path:",
-    `- If the tour primarily explains one project, write ${REPO_TOURS_DIR}/<descriptive-slug>.json inside that project.`,
-    `- For a cross-project tour, write the JSON into the project that owns the story and reference the other open roots through plan.roots plus per-step root aliases.`,
-    "- After writing the file, tell the user the path and stop. RepoTrail will refresh its library from the filesystem.",
-    "",
-    "Presentation mode decision:",
-    "- If the user mentions a PR, PRs, commit, commits, branch comparison, diff, changes, review, or another explicit change window, create a change-review tour: use kind \"pr-diff\" and make every changed-code stop diff-backed.",
-    "- Changed-code stops in change-review tours use viewMode \"diff\" with diff.baseRef and optional diff.headRef. Omit headRef to compare the base ref against the current workspace file.",
-    "- Use diff.scope \"file\" for normal PR/commit review stops so RepoTrail reads real full-file contents from git and VS Code can show unchanged surrounding code.",
-    "- Do not paste generated code into diff.beforeText/diff.afterText for git-backed reviews. Use pasted text only when there is no local git ref to compare.",
-    "- Use highlight-only viewMode \"code\" only for codebase, file, subsystem, request-path, or architecture tours unrelated to a window of changes, plus optional orientation/context stops that do not review changed code.",
-    "- If the subject is a design document, RFC, ADR, proposal, or architecture plan, even one that arrives as a PR, create a design-review tour (kind \"design-review\") built from slides, as the skill's \"Design Reviews And Slides\" section describes.",
-    "",
-    "JSON format:",
-    "```json",
-    example,
-    "```",
-    "",
-    "Rules:",
-    "- Read the repo before choosing stops.",
-    "- Use workspace-relative forward-slash file paths only.",
-    "- Keep ranges tight and 1-indexed.",
-    "- Do not use absolute file paths in steps, empty file paths, or paths containing \"..\".",
-    `- Check the finished file with RepoTrail's linter and fix every error: node "${paths.cli}" lint <tour file>. It validates against the JSON Schema at ${paths.schema}, checks beat ids, sources and text budgets. Pass --root <alias>=<dir> for roots outside the tour's project.`,
-    `- For slides, if you can open a browser: node "${paths.cli}" render <tour file> --out <file.html>, then open <file.html>#stop=<n>&beat=<k> to see any slide at any beat.`,
-  ].join("\n");
+  const checkouts = await Promise.all(folders.map((folder) => checkedOutChange(folder.uri)));
+  const roots: SetupRoot[] = infos.map((info, index) => ({
+    alias: aliases[index] ?? `root${index + 1}`,
+    name: info.name,
+    workspaceFolder: info.workspaceFolder,
+    path: info.path,
+    checkout: checkouts[index],
+  }));
+  return buildTourAuthoringRequest({
+    roots,
+    toursDir: REPO_TOURS_DIR,
+    workspaceRegistryDir: WORKSPACE_REGISTRY_DIR_DISPLAY,
+    schemaPath: paths.schema,
+    cliPath: paths.cli,
+  });
 }
 
 function buildRootAliases(names: string[]): string[] {
@@ -1289,7 +1230,7 @@ async function copyTourPrompt(extensionUri: vscode.Uri, log: vscode.OutputChanne
     schema: vscode.Uri.joinPath(extensionUri, "harness", "tour.schema.json").fsPath,
     cli: vscode.Uri.joinPath(extensionUri, "out", "cli.js").fsPath,
   };
-  if (!await copyBundledAgentPrompt(extensionUri, buildTourAuthoringPrompt(paths), log)) return;
+  if (!await copyBundledAgentPrompt(extensionUri, await buildTourAuthoringPrompt(paths), log)) return;
   await vscode.commands.executeCommand("repoTrail.tour.focus").then(undefined, () => {});
   vscode.window.showInformationMessage(
     "RepoTrail agent setup copied with the bundled skill. Paste it into your agent; it should write a .repotrail/*.json file.",
