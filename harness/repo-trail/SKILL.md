@@ -140,7 +140,7 @@ Example manifest:
     {
       "name": "app-pr-123",
       "path": "/absolute/path/to/app-pr-123",
-      "source": "https://github.com/org/app/pull/123"
+      "source": "https://github.com/<owner>/<repo>/pull/<number>"
     }
   ],
   "tours": [
