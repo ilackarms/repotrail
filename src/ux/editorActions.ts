@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { GitDiffSide, materializeStepDiff } from "../diffMaterialize";
 import { DriftStatus, formatStepPath, SlideRef, TourPlan, TourSlide, TourStep, TourStepViewMode } from "../engine/types";
+import { editorSpan } from "../engine/range";
 import { readGitBlobText } from "../gitBlob";
 import { formatPrRef, PrRef } from "../github/prRef";
 import { normalizeWorkspaceFile, resolveStepUri, resolveStepWorkspaceFolder } from "../workspace";
@@ -860,12 +861,8 @@ export async function checkStepDrift(
 
 function resolveRange(step: TourStep, doc: vscode.TextDocument): vscode.Range {
   if (step.range) {
-    const r = step.range;
-    const startLine = clamp(r.startLine - 1, 0, doc.lineCount - 1);
-    const endLine = clamp(r.endLine - 1, startLine, doc.lineCount - 1);
-    const startCol = Math.max(0, r.startColumn - 1);
-    const endCol = Math.max(0, r.endColumn - 1);
-    return new vscode.Range(startLine, startCol, endLine, endCol);
+    const span = editorSpan(step.range, doc.lineCount, (line) => doc.lineAt(line).text.length);
+    return new vscode.Range(span.startLine, span.startCharacter, span.endLine, span.endCharacter);
   }
   // Default: highlight the first 5 (or all, if shorter) lines so CodeLens has a
   // real range to attach to.

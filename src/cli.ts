@@ -92,13 +92,8 @@ function lint(options: Options, text: string): number {
     text,
     schemaErrors: schemaErrors(text),
     lineCount: (step) => {
-      const file = stepFile(options, step);
-      if (!file) return null;
-      try {
-        return readFileSync(file, "utf8").split("\n").length;
-      } catch {
-        return null;
-      }
+      const text = readOrNull(stepFile(options, step)) ?? pinnedRevisionText(options, step);
+      return text === null ? null : text.split("\n").length;
     },
   });
   process.stdout.write(options.json ? `${JSON.stringify(report, null, 2)}\n` : `${formatLintReport(report, options.tour)}\n`);
@@ -260,6 +255,18 @@ function readOrNull(file: string | null): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * A stop that names both diff refs plays from git when its file isn't on disk:
+ * the file at headRef, or at baseRef for a file the change deletes. Lint reads
+ * it the same way, so those stops aren't reported as missing.
+ */
+function pinnedRevisionText(options: Options, step: TourStep): string | null {
+  const diff = step.diff;
+  if (!step.file || !diff?.baseRef || !diff.headRef) return null;
+  const root = rootFor(options, step);
+  return gitShow(root, diff.headRef, diff.headFile ?? step.file) ?? gitShow(root, diff.baseRef, diff.baseFile ?? step.file);
 }
 
 /** `git show <ref>:<path>`, read-only. Null when git, the ref or the path is missing. */

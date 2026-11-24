@@ -8,11 +8,16 @@ export type TourKind =
   | "bug-investigation"
   | "design-review";
 
+/**
+ * Lines `startLine` through `endLine`, both included, 1-indexed. Columns only
+ * narrow the first and last line; an `endColumn` of 1 means all of `endLine`
+ * (see `editorSpan` in range.ts).
+ */
 export interface TourRange {
   startLine: number;     // 1-indexed
   startColumn: number;   // 1-indexed
-  endLine: number;
-  endColumn: number;
+  endLine: number;       // 1-indexed, included
+  endColumn: number;     // 1-indexed, exclusive; 1 means the whole of endLine
 }
 
 export type TourStepViewMode = "code" | "diff" | "both";

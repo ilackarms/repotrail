@@ -89,3 +89,20 @@ test("errors on refs whose files are missing or too short", () => {
   assert.match(text, /1: ref `gone\.rs` can't be read/);
   assert.match(text, /1: ref `short\.rs` starts at line 90, past the end \(20 lines\)/);
 });
+
+test("ranges: an error when one ends before it starts, a warning when a code stop covers too much", () => {
+  const report = lint(
+    tour(
+      [
+        { title: "backwards", file: "a.ts", range: { startLine: 20, endLine: 10 }, explanation: "" },
+        { title: "whole file", file: "a.ts", range: { startLine: 1, endLine: 400 }, explanation: "" },
+        { title: "tight", file: "a.ts", range: { startLine: 40, endLine: 60 }, explanation: "" },
+      ],
+      "pr-diff",
+    ),
+    () => 500,
+  );
+  assert.match(messages(report.errors), /^1: The range ends at line 10, before it starts at line 20/);
+  assert.match(messages(report.warnings), /^2: The range covers 400 lines/);
+  assert.equal(report.errors.length + report.warnings.length, 2);
+});

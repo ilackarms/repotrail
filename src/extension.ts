@@ -13,6 +13,7 @@ import {
   codeFrameFromLines,
   planToAnimatedHtml,
 } from "./engine/animatedHtml";
+import { editorSpan } from "./engine/range";
 import {
   parseTourJson,
   stepLocation,
@@ -1048,11 +1049,8 @@ async function readSlideRuntime(
 
 function resolveExportRange(step: TourStep, doc: vscode.TextDocument): vscode.Range {
   if (step.range) {
-    const startLine = clamp(step.range.startLine - 1, 0, doc.lineCount - 1);
-    const endLine = clamp(step.range.endLine - 1, startLine, doc.lineCount - 1);
-    const startCol = clamp(step.range.startColumn - 1, 0, doc.lineAt(startLine).text.length);
-    const endCol = clamp(step.range.endColumn - 1, 0, doc.lineAt(endLine).text.length);
-    return new vscode.Range(startLine, startCol, endLine, endCol);
+    const span = editorSpan(step.range, doc.lineCount, (line) => doc.lineAt(line).text.length);
+    return new vscode.Range(span.startLine, span.startCharacter, span.endLine, span.endCharacter);
   }
   const end = Math.min(Math.max(doc.lineCount - 1, 0), 4);
   return new vscode.Range(0, 0, end, doc.lineAt(end).text.length);
@@ -1060,10 +1058,6 @@ function resolveExportRange(step: TourStep, doc: vscode.TextDocument): vscode.Ra
 
 function stepLocationLabel(step: TourStep): string {
   return stepLocation(step);
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
 }
 
 function buildAnimatedTtsDefaults(): AnimatedTourTtsDefaults {
