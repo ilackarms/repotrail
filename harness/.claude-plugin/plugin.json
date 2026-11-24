@@ -1,6 +1,6 @@
 {
   "name": "repotrail",
-  "version": "0.15.0",
+  "version": "0.15.1",
   "description": "Agent-written codebase tours: Claude writes a .repotrail tour and publishes it as a page you can step through, or opens it in VS Code.",
   "author": { "name": "ilackarms" },
   "homepage": "https://github.com/ilackarms/repotrail",

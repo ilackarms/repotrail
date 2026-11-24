@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.15.1 - 2026-11-24
 
 - Agent setup notices a checked-out change. When a folder has a pull request
   checked out (as GitHub Pull Requests reports it), or is on a branch with
