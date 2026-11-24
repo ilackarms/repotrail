@@ -34,7 +34,9 @@ Use this when the user already has the target roots open in VS Code.
 2. Click **Agent setup** in the RepoTrail sidebar, or run
    **RepoTrail: Agent Setup**.
 3. Paste the copied prompt into the agent. It contains the bundled skill and
-   the workspace-specific tour request.
+   the workspace-specific tour request. When a root has a pull request
+   checked out, or is on a branch ahead of the default branch, the request
+   names that change as the tour's subject.
 4. The agent reads the open roots and writes
    `<owning-project>/.repotrail/<slug>.json`.
 

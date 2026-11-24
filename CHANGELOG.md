@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.15.1 - 2026-11-13
+## 0.15.2 - 2026-11-24
 
 - A stop's highlight now includes its last line. Ranges ending in
   `endColumn: 1`, which most tours use, stopped at the start of `endLine`, so
@@ -19,6 +19,18 @@
   rather than the review's history, and have a fresh reviewer check long
   tours. It adds starting shapes for PR walkthroughs, bug fixes, newcomer
   tours and comment sign-offs, and stricter rules for tours you share.
+
+## 0.15.1 - 2026-11-24
+
+- Agent setup notices a checked-out change. When a folder has a pull request
+  checked out (as GitHub Pull Requests reports it), or is on a branch with
+  commits the default branch doesn't have, the copied prompt names that change
+  and asks for a tour of it. Before, the prompt always asked for a tour of the
+  workspace, so an agent given nothing else wrote an architecture tour. Say
+  what you want instead and the agent does that.
+- Pasting the Agent setup prompt into VS Code chat no longer attaches an
+  unrelated pull request. The skill's example manifest held a pull request
+  URL, and chat attached it as context.
 
 ## 0.15.0 - 2026-11-12
 

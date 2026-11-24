@@ -47,6 +47,8 @@ its own and never uploads your source.
 3. Click **Agent setup**. RepoTrail copies a prompt that contains its authoring
    skill, your open folders, and the tour format.
 4. Paste the prompt into your agent and add what you want a tour of.
+   With a pull request or a feature branch checked out, the prompt already
+   asks for a tour of that change, so you can paste it as it is.
 5. When the agent writes the file, the tour appears under **Repo tours**.
    Click **Open**.
 

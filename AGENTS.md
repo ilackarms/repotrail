@@ -49,7 +49,9 @@ Layers stay separated:
    client, and the GitHub Pull Requests extension's contract. It must not
    import `vscode`. `src/ux/prImport.ts` owns the import prompts;
    `src/ux/pullRequestReview.ts` asks GitHub Pull Requests which PR a folder
-   has checked out; `src/ux/prComments.ts` owns "Comment on PR". RepoTrail
+   has checked out; `src/ux/prComments.ts` owns "Comment on PR". `src/ux/checkedOutChange.ts`
+   tells Agent Setup which PR or branch a folder has checked out;
+   `src/ux/agentSetupPrompt.ts` (pure) writes the prompt. RepoTrail
    never posts to GitHub. `src/gitRepo.ts` owns the remote listing, commit
    and ancestry checks, and the confirmed PR fetch (the only git write).
 6. `src/webview/` is browser-only code bundled for webviews. The slide

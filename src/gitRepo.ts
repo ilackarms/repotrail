@@ -97,6 +97,65 @@ export async function currentBranch(folder: string): Promise<string | undefined>
   }
 }
 
+export interface DefaultBranchRef {
+  remote: string;
+  branch: string;
+  /** `<remote>/<branch>`, a ref git can read. */
+  ref: string;
+}
+
+/**
+ * The default branch as a remote-tracking ref, from the remote's HEAD
+ * (`refs/remotes/<remote>/HEAD`), trying `upstream`, then `origin`, then the rest. A clone that never
+ * recorded the remote's HEAD falls back to `main`, then `master`.
+ */
+export async function defaultBranchRef(folder: string): Promise<DefaultBranchRef | undefined> {
+  const names = [...new Set((await listRemotes(folder)).map((remote) => remote.name))];
+  // In a fork's clone the pull request's base lives on `upstream`, and the fork's own default branch is often stale.
+  const preferred = ["upstream", "origin"];
+  const ordered = [...preferred.filter((name) => names.includes(name)), ...names.filter((name) => !preferred.includes(name))];
+  for (const remote of ordered) {
+    try {
+      const { stdout } = await git(["-C", folder, "symbolic-ref", "--short", "-q", `refs/remotes/${remote}/HEAD`], 10_000);
+      const ref = stdout.trim();
+      if (ref.startsWith(`${remote}/`) && ref.length > remote.length + 1) {
+        return { remote, branch: ref.slice(remote.length + 1), ref };
+      }
+    } catch {
+      /* this remote has no recorded HEAD */
+    }
+  }
+  for (const remote of ordered) {
+    for (const branch of ["main", "master"]) {
+      try {
+        await git(["-C", folder, "rev-parse", "--verify", "-q", `refs/remotes/${remote}/${branch}^{commit}`], 10_000);
+        return { remote, branch, ref: `${remote}/${branch}` };
+      } catch {
+        /* no such branch on this remote */
+      }
+    }
+  }
+  return undefined;
+}
+
+/** `git rev-list --count <base>..HEAD`: how many commits the checkout has that `base` doesn't. */
+export async function commitsAheadOf(folder: string, base: string): Promise<number | undefined> {
+  let safeRef: string;
+  try {
+    safeRef = normalizeGitRef(base);
+  } catch {
+    return undefined;
+  }
+  if (safeRef.includes("..")) return undefined;
+  try {
+    const { stdout } = await git(["-C", folder, "rev-list", "--count", `${safeRef}..HEAD`], 20_000);
+    const count = Number(stdout.trim());
+    return Number.isSafeInteger(count) && count >= 0 ? count : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Which of `files` (relative to `folder`) differ between `commit` and the
  * working tree, including files missing on either side. Literal pathspecs, so
